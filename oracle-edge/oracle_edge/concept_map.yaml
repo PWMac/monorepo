@@ -305,3 +305,41 @@ prior_year_development:
   kind: duration
   tags:
     - us-gaap:LiabilityForUnpaidClaimsAndClaimsAdjustmentExpenseIncurredClaimsPriorYears
+# ---- added in 0.10: enhanced valuation and early warnings ----
+sbc:
+  kind: duration
+  tags:
+    - us-gaap:ShareBasedCompensation
+    - us-gaap:AllocatedShareBasedCompensationExpense
+    - us-gaap:ShareBasedCompensationArrangementByShareBasedPaymentAwardCompensationCost1
+    - ifrs-full:AdjustmentsForSharebasedPayments
+receivables:
+  kind: instant
+  tags:
+    - us-gaap:AccountsReceivableNetCurrent
+    - us-gaap:ReceivablesNetCurrent
+    - us-gaap:AccountsNotesAndLoansReceivableNetCurrent
+    - ifrs-full:TradeAndOtherCurrentReceivables
+inventory:
+  kind: instant
+  tags:
+    - us-gaap:InventoryNet
+    - us-gaap:InventoryFinishedGoodsNetOfReserves
+    - ifrs-full:Inventories
+acquisitions:
+  kind: duration
+  tags:
+    - us-gaap:PaymentsToAcquireBusinessesNetOfCashAcquired
+    - us-gaap:PaymentsToAcquireBusinessesGross
+    - ifrs-full:CashFlowsUsedInObtainingControlOfSubsidiariesOrOtherBusinessesClassifiedAsInvestingActivities
+ppe_net:
+  kind: instant
+  tags:
+    - us-gaap:PropertyPlantAndEquipmentNet
+    - us-gaap:PropertyPlantAndEquipmentAndFinanceLeaseRightOfUseAssetAfterAccumulatedDepreciationAndAmortization
+    - ifrs-full:PropertyPlantAndEquipment
+customer_concentration:
+  kind: duration
+  unit: pure
+  tags:
+    - us-gaap:ConcentrationRiskPercentage1

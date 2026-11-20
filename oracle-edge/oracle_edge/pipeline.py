@@ -121,6 +121,8 @@ def replay_many(run_ids: list[int], profile: rules.Profile, end: str, cadence: s
     macro = Macro()
     tk = tickers_by_cik()
     sims = [PortfolioSim(rid, pid, profile, pb, tk) for rid, pid in zip(run_ids, pids)]
+    for sim in sims:
+        sim.macro = macro  # VIX for the market overlay
     st = profile.settings
     con = db.get()
     n = 0
@@ -515,6 +517,120 @@ def run_sweep(job, profile_id: int, start: str, end: str, cadence: str = "weekly
     return (f"Holdings test finished: best is {rec['label']} (CAGR {rec['cagr']:.1%} vs S&P {rec['bench_cagr']:.1%}).")
 
 
+# ================================================================== experiments (risk-optimized configurations)
+NO_LIMITS = {"max_sector": None, "max_correlated": None, "market_overlay": False}
+EXPERIMENTS = [
+    ("Live", "Your live setup: 7 holdings, equal slices, sliding reserve, no new limits",
+     {"sizing": "equal", "max_position": None, **NO_LIMITS, "max_holdings": 7}),
+    ("R", "Risk Optimized defaults: 7 holdings, value-and-quality sizing, 35% / 50% / 60% limits", {}),
+    ("A", "7 holdings, 20% cap", {"max_holdings": 7, "max_position": 0.20, **NO_LIMITS}),
+    ("B", "8 holdings, 20% cap", {"max_holdings": 8, "max_position": 0.20, **NO_LIMITS}),
+    ("C", "9 holdings, 20% cap", {"max_holdings": 9, "max_position": 0.20, **NO_LIMITS}),
+    ("D", "7 holdings, 20% cap + sector (50%) and correlation (60%) limits",
+     {"max_holdings": 7, "max_position": 0.20, "max_sector": 0.50, "max_correlated": 0.60, "market_overlay": False}),
+    ("E", "7 holdings, 20% cap + market overlay", {"max_holdings": 7, "max_position": 0.20, **NO_LIMITS,
+                                                   "market_overlay": True}),
+    ("F", "8 holdings, 20% cap + market overlay", {"max_holdings": 8, "max_position": 0.20, **NO_LIMITS,
+                                                   "market_overlay": True}),
+]
+STAGE2 = [
+    ("G", "Best of A–F + enhanced valuation", {"valuation_model": "enhanced"}),
+    ("G+", "Best of A–F + enhanced valuation + bigger margin of safety for less predictable earnings",
+     {"valuation_model": "enhanced", "predictability_mos": True}),
+]
+
+
+def _variant_profile(p: rules.Profile, extra: dict) -> rules.Profile:
+    """The same profile (same company scores) with some settings changed, for one experiment's replay."""
+    import copy
+
+    body = copy.deepcopy(p.body)
+    body["settings"].update(extra)
+    q = copy.copy(p)
+    q.body = body
+    return q
+
+
+def better_than(a: dict, b: dict) -> bool:
+    """The stated goal: higher CAGR with equal or lower drawdown."""
+    return (a.get("cagr") or -9) > (b.get("cagr") or -9) and abs(a.get("max_dd") or -1) <= abs(b.get("max_dd") or -1) + 1e-9
+
+
+def run_experiments(job, profile_id: int | None, start: str, end: str, cadence: str = "weekly") -> str:
+    """Experiments A-G on the Risk Optimized profile. Stage 1 replays once for the live setup, the profile's
+    defaults and A-F (portfolio settings only); stage 2 replays the most robust of A-F with the enhanced valuation
+    (G) and with the predictability margin of safety as well (G+). Ranked by robustness score."""
+    pid = profile_id or db.scalar("SELECT id FROM profiles WHERE name=?", (rules.RISK_NAME,))
+    if not pid:
+        rules.seed_profiles()
+        pid = db.scalar("SELECT id FROM profiles WHERE name=?", (rules.RISK_NAME,))
+    p = rules.get_profile(pid)
+    try:
+        if not db.scalar("SELECT COUNT(*) FROM macro WHERE series='VIXCLS'", default=0):
+            job.update(0.01, "Downloading the VIX history (market overlay)")
+            df = fred.fetch_series("VIXCLS")
+            with db.tx() as con_:
+                con_.executemany("INSERT OR REPLACE INTO macro(series,date,value) VALUES(?,?,?)",
+                                 [("VIXCLS", d_, float(v)) for d_, v in zip(df["date"], df["value"])])
+    except Exception as e:  # the overlay then only uses SPY vs its 200-day average
+        db.log("fred", "VIXCLS", False, str(e))
+    ensure_snapshots(job, p, start)
+    con = db.get()
+    sw = con.execute("INSERT INTO sweeps(profile_id,start_date,end_date,cadence,status,created_at,kind) "
+                     "VALUES(?,?,?,?, 'running', ?, 'experiments')", (p.id, start, end, cadence, db.now())).lastrowid
+
+    def make_run(code, desc, ov, prof):
+        rid = con.execute(
+            "INSERT INTO runs(kind,name,profile_id,start_date,end_date,status,started_at,settings_json) "
+            "VALUES('sweep',?,?,?,?, 'running', ?, ?)",
+            (f"Experiment #{sw} {code}: {desc}", p.id, start, end, db.now(),
+             json.dumps({"cadence": cadence, "experiment": code, "overrides": ov, "sweep": sw}))).lastrowid
+        ensure_portfolio(rid, prof, mode="focused", overrides=ov)
+        return rid
+
+    results, rids = [], []
+    stage1 = [(code, desc, ov, make_run(code, desc, ov, p)) for code, desc, ov in EXPERIMENTS]
+    rids += [r for *_, r in stage1]
+    job.update(0.25, f"Experiments: replaying {start} → {end} for {len(stage1)} configurations")
+    replay_many([r for *_, r in stage1], p, end, cadence, job, 0.25, 0.65, full=set())
+    for code, desc, ov, rid in stage1:
+        m = sweep_metrics(rid)
+        m.update({"run_id": rid, "code": code, "label": f"{code} · {desc}", "overrides": ov})
+        results.append(m)
+    pool = [r for r in results if r["code"] in "ABCDEF" and r.get("robustness")]
+    best = max(pool, key=lambda r: r["robustness"]["score"]) if pool else None
+    if best:
+        for k, (code, desc, extra) in enumerate(STAGE2):
+            prof = _variant_profile(p, extra)
+            ov = {**best["overrides"], **extra}
+            rid = make_run(code, f"{desc} ({best['code']})", ov, prof)
+            rids.append(rid)
+            a = 0.65 + k * 0.16
+            job.update(a, f"Experiments: {code} ({best['code']} + enhanced valuation)")
+            replay_many([rid], prof, end, cadence, job, a, a + 0.16, full=set())
+            m = sweep_metrics(rid)
+            m.update({"run_id": rid, "code": code, "label": f"{code} · {desc} ({best['code']})", "overrides": ov})
+            results.append(m)
+    live = next((r for r in results if r["code"] == "Live"), None)
+    for r in results:
+        r["beats_live"] = bool(live and r is not live and r.get("cagr") is not None and better_than(r, live))
+    scored = [r for r in results if r.get("robustness")]
+    rec = max(scored, key=lambda r: r["robustness"]["score"]) if scored else None
+    note = ""
+    sample = db.rows("SELECT val_inputs FROM snapshots WHERE profile_id=? AND profile_version=? "
+                     "ORDER BY filed DESC LIMIT 50", p.snap)
+    if sample and not any("incr_roic" in (r["val_inputs"] or "") for r in sample):
+        note = ("The company scores were made before the enhanced inputs existed, so G and G+ fell back to the "
+                "classic inputs. Run Data → 're-run first-time load' once, then run the experiments again.")
+    con.execute("UPDATE runs SET status='done', finished_at=? WHERE id IN (%s)" % ",".join("?" * len(rids)),
+                (db.now(), *rids))
+    con.execute("UPDATE sweeps SET status='done', results_json=?, recommended_json=?, run_ids=? WHERE id=?",
+                (json.dumps(results), json.dumps({"code": rec["code"], "label": rec["label"], "note": note}
+                                                 if rec else {"note": note}), json.dumps(rids), sw))
+    return (f"Experiments finished: most robust is {rec['label']} (score {rec['robustness']['score']:.0f})."
+            if rec else "Experiments finished, but there wasn't enough history to score them.")
+
+
 def sweep_metrics(run_id: int) -> dict:
     curve = db.rows("SELECT date, nav, bench_nav, holdings, cash, value, bench_value, contributed FROM equity_curve "
                     "WHERE run_id=? ORDER BY date", (run_id,))
@@ -555,18 +671,64 @@ def sweep_metrics(run_id: int) -> dict:
     cash = [c["cash"] for c in curve if c["cash"] is not None]
     out["avg_cash"] = sum(cash) / len(cash) if cash else None
     # excess return in each third of the period: the size has to work in all of them, not one lucky stretch
-    thirds = []
+    thirds, period_cagr = [], []
     k = len(curve) // 3
     for a, b in ((0, k), (k, 2 * k), (2 * k, len(curve) - 1)):
         m_ = cagr(nav[a], nav[b], curve[a]["date"], curve[b]["date"])
         b_ = cagr(bench[a], bench[b], curve[a]["date"], curve[b]["date"]) if bench[a] and bench[b] else None
         thirds.append((m_ - b_) if (m_ is not None and b_ is not None) else None)
+        period_cagr.append(m_)
     out["thirds_excess"] = thirds
+    out["period_cagr"] = period_cagr
+    out["period_dates"] = [curve[0]["date"], curve[k]["date"], curve[2 * k]["date"], curve[-1]["date"]]
+    out["calmar"] = (out["cagr"] / abs(mdd)) if (out["cagr"] is not None and mdd < 0) else None
     last = curve[-1]
     out["end_value"], out["bench_end_value"], out["contributed"] = last["value"], last["bench_value"], last["contributed"]
     out["trades"] = db.scalar("SELECT COUNT(*) FROM signals WHERE run_id=? AND type IN ('BUY','STRONG_BUY','SELL',"
                               "'SWAP','TRIM','ADD')", (run_id,), 0)
+    pf = db.one("SELECT * FROM portfolios WHERE run_id=? AND kind='model'", (run_id,))
+    vals = [c["value"] for c in curve if c["value"]]
+    yrs = max((date.fromisoformat(curve[-1]["date"]) - date.fromisoformat(curve[0]["date"])).days / 365.25, 1e-6)
+    if pf is not None and "traded" in pf.keys() and vals:
+        avg_v = sum(vals) / len(vals)
+        out["turnover"] = (pf["traded"] or 0.0) / avg_v / yrs  # $ traded per year / average portfolio value
+        out["costs"] = pf["costs"] or 0.0
+        out["cost_drag"] = (pf["costs"] or 0.0) / avg_v / yrs
+    out["robustness"] = robustness(out)
     return out
+
+
+ROBUSTNESS_WEIGHTS = {"oos_cagr": 0.30, "max_dd": 0.25, "worst_12m": 0.20, "consistency": 0.15, "turnover": 0.10}
+
+
+def robustness(m: dict) -> dict | None:
+    """0-100 score that rewards configurations that work in every period, not one lucky stretch.
+    Each part is scored on a fixed scale (so scores compare across tests), then weighted:
+      30% median CAGR across the three independent periods (30%/yr = 100, 0% = 0)
+      25% maximum drawdown (0% = 100, -50% = 0)
+      20% worst rolling 12 months (0% or better = 100, -40% = 0)
+      15% consistency: share of periods beating the S&P 500 (60%) and how even the period CAGRs are (40%)
+      10% turnover and trading costs (no trading = 100, 200%/yr turnover = 0)"""
+    import statistics
+
+    pc = [x for x in (m.get("period_cagr") or []) if x is not None]
+    if not pc or m.get("max_dd") is None:
+        return None
+
+    def clamp(x):
+        return max(0.0, min(100.0, x))
+
+    ex = [x for x in (m.get("thirds_excess") or []) if x is not None]
+    parts = {
+        "oos_cagr": clamp(statistics.median(pc) / 0.30 * 100),
+        "max_dd": clamp((1 - abs(m["max_dd"]) / 0.50) * 100),
+        "worst_12m": clamp((1 + min(m.get("worst_12m") or 0.0, 0.0) / 0.40) * 100),
+        "consistency": clamp(100 * (0.6 * (sum(1 for x in ex if x > 0) / len(ex) if ex else 0.0)
+                                    + 0.4 * (1 - min((statistics.pstdev(pc) if len(pc) > 1 else 0.0) / 0.20, 1.0)))),
+        "turnover": clamp((1 - (m.get("turnover") or 0.0) / 2.0) * 100),
+    }
+    score = sum(parts[k] * w for k, w in ROBUSTNESS_WEIGHTS.items())
+    return {"score": round(score, 1), "parts": {k: round(v, 1) for k, v in parts.items()}}
 
 
 def recommend(results: list[dict]) -> dict | None:

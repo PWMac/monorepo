@@ -29,13 +29,15 @@ BADGE_LABEL = {
 
 
 def ensure_portfolio(run_id: int, profile: Profile, name: str = "Model portfolio", mode: str | None = None,
-                     max_holdings: int | None = None, sizing: str | None = None, policy: str | None = None) -> int:
+                     max_holdings: int | None = None, sizing: str | None = None, policy: str | None = None,
+                     overrides: dict | None = None) -> int:
     """Create the run's model portfolio on first use. Overrides (mode / holdings / sizing) are for backtests and
-    holdings tests; otherwise the profile's portfolio settings apply."""
+    holdings tests; `overrides` replaces any profile setting for this portfolio only (experiments).
+    Otherwise the profile's portfolio settings apply."""
     r = db.one("SELECT id FROM portfolios WHERE run_id=? AND kind='model'", (run_id,))
     if r:
         return r["id"]
-    st = profile.settings
+    st = {**profile.settings, **(overrides or {})}
     mode = mode or st.get("portfolio_mode", "variable")
     weekly = 0.0
     if mode == "focused":
@@ -52,6 +54,8 @@ def ensure_portfolio(run_id: int, profile: Profile, name: str = "Model portfolio
          last_value, mode, policy or (st.get("new_money", "best_value") + ("+fund" if st.get("fund_strong") else "")),
          weekly, cash),
     )
+    if overrides:
+        db.get().execute("UPDATE portfolios SET settings_json=? WHERE id=?", (json.dumps(overrides), cur.lastrowid))
     return cur.lastrowid
 
 
@@ -68,6 +72,18 @@ class PortfolioSim:
         self.fmt = {r["id"]: r.get("fmt", "") for r in profile.all_rules()}
         self.target = {r["id"]: r.get("target") for r in profile.all_rules()}
         pr = db.one("SELECT * FROM portfolios WHERE id=?", (portfolio_id,))
+        keys = pr.keys()
+        ov = json.loads(pr["settings_json"]) if ("settings_json" in keys and pr["settings_json"]) else {}
+        if ov:
+            self.st = {**profile.settings, **ov}  # this portfolio's experiment settings
+        self.traded = (pr["traded"] or 0.0) if "traded" in keys else 0.0  # $ bought + sold (turnover)
+        self.costs = (pr["costs"] or 0.0) if "costs" in keys else 0.0    # $ paid in trading costs
+        self.macro = None          # set by the replay: VIX for the market overlay
+        self.overlay = "normal"    # market overlay state on the last signal day
+        self.mos_gate = self.st.get("mos_gate", 0.25)
+        self._ret_cache: dict = {}
+        self._corr_cache: dict = {}
+        self._sectors: dict | None = None
         self.max_positions = pr["max_positions"]
         self.position_cap = pr["position_cap"] or self.st["position_cap"]
         self.trim_to = pr["trim_to"] or self.st["trim_to"]
@@ -146,7 +162,10 @@ class PortfolioSim:
                         con.execute("UPDATE signals SET fill_price=?, units=0 WHERE id=?", (px, s["id"]))
                         continue
                     self.cash -= notional
-                units = notional / px
+                cost = notional * float(self.st.get("trade_cost_bps", 0) or 0) / 10000.0
+                self.costs += cost
+                self.traded += notional
+                units = (notional - cost) / px
                 if pos:
                     tot = pos["units"] + units
                     pos["avg_cost"] = (pos["avg_cost"] * pos["units"] + px * units) / tot
@@ -171,6 +190,10 @@ class PortfolioSim:
                 frac = 1.0 if typ in ("SELL", "SWAP") else min(max(s["units"] or 0.33, 0.0), 1.0)
                 units = pos["units"] * frac
                 proceeds = units * px
+                self.traded += proceeds
+                cost = proceeds * float(self.st.get("trade_cost_bps", 0) or 0) / 10000.0
+                self.costs += cost
+                proceeds -= cost
                 pos["units"] -= units
                 if self.focused:
                     self.cash += proceeds
@@ -250,16 +273,80 @@ class PortfolioSim:
 
     # ------------------------------------------------------------ 3. badges & new signals
     def _target_w(self, e: Eval) -> float:
-        """Focused mode: slice of the portfolio for one holding. Equal = 1/N; conviction scales with Rank²."""
+        """Focused mode: slice of the portfolio for one holding.
+          equal          1/N
+          conviction     1/N scaled with Rank score squared
+          value_quality  1/N scaled up for a better business (Quality) at a better price (margin of safety above
+                         the gate): Quality 100 vs 80 = x1.25, each 10 points of extra margin of safety = +20%,
+                         overall x0.5 to x2."""
         n = max(self.max_positions or 15, 1)
         w = 1.0 / n
         if self.sizing == "conviction" and e.rank_score:
             w *= min(1.75, max(0.5, (e.rank_score / 75.0) ** 2))
+        elif self.sizing == "value_quality":
+            w *= self.value_quality_factor(e)
         return min(w, self._cap())
 
+    def value_quality_factor(self, e) -> float:
+        q = min(max((e.quality or 0.0) / 80.0, 0.8), 1.25)
+        v = min(max(1.0 + 2.0 * ((e.mos or 0.0) - self.mos_gate), 0.75), 1.75)
+        return min(max(q * v, 0.5), 2.0)
+
+    def _max_pos(self) -> float | None:
+        mp = self.st.get("max_position")
+        return float(mp) if mp else None
+
     def _cap(self) -> float:
-        """Largest slice one new holding may get: the profile's cap, but never less than one equal slice."""
+        """Largest slice one holding may get: max_position when the profile sets one (a hard limit), otherwise
+        the position cap but never less than one equal slice."""
+        mp = self._max_pos()
+        if mp:
+            return mp
         return max(self.position_cap, 1.0 / max(self.max_positions or 15, 1))
+
+    # ------------------------------------------------------------ exposure limits (sector, correlation)
+    def _sector_of(self, cik):
+        if self._sectors is None:
+            from .sectors import sector_map
+
+            self._sectors = sector_map()
+        return self._sectors.get(cik, f"Unknown: {cik}")
+
+    def _rets(self, t, d):
+        key = (t, _week(d))
+        if key not in self._ret_cache:
+            self._ret_cache[key] = self.pb.returns(t, d, int(self.st.get("corr_lookback_days", 252)))
+        return self._ret_cache[key]
+
+    def corr(self, a: int, b: int, d: str) -> float | None:
+        ta, tb = self.tk.get(a), self.tk.get(b)
+        if not ta or not tb:
+            return None
+        key = (min(ta, tb), max(ta, tb), _week(d))
+        if key not in self._corr_cache:
+            from .sectors import correlation
+
+            self._corr_cache[key] = correlation(self._rets(ta, d), self._rets(tb, d))
+        return self._corr_cache[key]
+
+    def limit_room(self, cik: int, d: str, V: float, held: dict[int, float]) -> float:
+        """How many more dollars `cik` may receive without breaking max_sector (same sector) or max_correlated
+        (holdings whose daily returns correlate >= corr_threshold with it). `held` = current $ per holding,
+        including purchases already planned today. Limits apply to new money only; nothing is sold for them."""
+        st = self.st
+        room = float("inf")
+        ms, mc = st.get("max_sector"), st.get("max_correlated")
+        if ms:
+            sec = self._sector_of(cik)
+            exp = sum(v for c, v in held.items() if self._sector_of(c) == sec)
+            room = min(room, float(ms) * V - exp)
+        if mc:
+            thr = float(st.get("corr_threshold", 0.7))
+            group = [c for c in held if c != cik and (self.corr(cik, c, d) or 0.0) >= thr]
+            if group:
+                exp = sum(held[c] for c in group) + held.get(cik, 0.0)
+                room = min(room, float(mc) * V - exp)
+        return max(room, 0.0)
 
     def _fund_strong(self, d, V, e, typ, why, rj, cash_avail, holding_evals, leaving, n_owned, limit, pos_value,
                      sig, res):
@@ -349,12 +436,17 @@ class PortfolioSim:
         if cash_avail < min_buy:
             return cash_avail
         n = max(limit or 15, 1)
-        cap = float(st.get("max_buy_weight", 0.25))
+        cap = self._max_pos() or float(st.get("max_buy_weight", 0.25))
         free = max(0, (limit or 999) - n_owned)
+        f_overlay = 1.0
+        if st.get("market_overlay"):
+            from .market import overlay_factor
+
+            f_overlay = overlay_factor(self.overlay, st)
         opts = []  # (kind, eval, room, extra)
         for e, typ, why, rj, strong in ready[:free]:
             w = self._target_w(e) * (st["strong_buy_units"] if strong else 1.0)
-            opts.append(("new", e, min(w, max(cap, 1.0 / n)) * V, (typ, why, rj)))
+            opts.append(("new", e, min(w, cap if self._max_pos() else max(cap, 1.0 / n)) * V, (typ, why, rj)))
         for cik, e in add_ok.items():
             if cik in leaving or res.badges.get(cik, ("",))[0] != "HOLD":
                 continue
@@ -396,10 +488,11 @@ class PortfolioSim:
             keep = R - spend_res + (new - spend_new)
             reserve_cap = float(st.get("reserve_max", 0.20)) * V
             over = max(keep - reserve_cap, 0.0)  # never sit on more than the reserve cap
-            budget = spend_new + spend_res + over
+            budget = (spend_new + spend_res + over) * f_overlay  # overlay: hold back part of it as plain cash
             full_deploy = tap >= 1.0
             opts.sort(key=lambda o: (-strength[id(o)], -(o[1].er or 0)))
-            wts = {id(o): 0.5 + strength[id(o)] for o in opts}  # stronger prices get a bigger share
+            wts = {id(o): (0.5 + strength[id(o)]) * (self.value_quality_factor(o[1]) if self.sizing == "value_quality"
+                                                     else 1.0) for o in opts}  # stronger prices get a bigger share
             left = budget
             for _ in range(2):  # weighted split; a second pass hands what didn't fit to options with room
                 tot = sum(wts[id(o)] for o in opts if o[2] > 0) or 1.0
@@ -419,10 +512,16 @@ class PortfolioSim:
             self.reserve = min(keep - over, cash_avail - sum(a for _, a in plan if a >= min_buy))
             self.reserve = max(self.reserve, 0.0)
         elif policy == "spread":
-            share = cash_avail / len(opts)
-            plan = [(o, min(share, o[2])) for o in opts]
+            deploy = cash_avail * f_overlay
+            if self.sizing == "value_quality":  # better business at a better price gets a bigger share
+                fw = {id(o): self.value_quality_factor(o[1]) for o in opts}
+                tot = sum(fw.values()) or 1.0
+                plan = [(o, min(deploy * fw[id(o)] / tot, o[2])) for o in opts]
+            else:
+                share = deploy / len(opts)
+                plan = [(o, min(share, o[2])) for o in opts]
         else:
-            left = cash_avail
+            left = cash_avail * f_overlay
             for o in opts:
                 amt = min(o[2], left)
                 if amt >= min_buy:
@@ -430,6 +529,29 @@ class PortfolioSim:
                     left -= amt
                 if left < min_buy:
                     break
+        if st.get("max_sector") or st.get("max_correlated"):
+            # exposure limits: trim each planned purchase to what the sector / correlated group can still take
+            held = {c: pos_value(c) for c in self.positions if c not in leaving}
+            limited, spare = {}, 0.0
+            for o, amt in plan:
+                ok = min(amt, self.limit_room(o[1].cik, d, V, held))
+                if ok < amt - 1e-9 and ok < min_buy:
+                    res.badges.setdefault(o[1].cik, ("WATCH", "Buy Zone, but its sector or a group of closely "
+                                                              "correlated holdings is at its limit"))
+                held[o[1].cik] = held.get(o[1].cik, 0.0) + ok
+                limited[id(o)] = (o, ok)
+                spare += amt - ok
+            # money a limit turned away goes to the other options that still have room, best first
+            for o in opts:
+                if spare < min_buy:
+                    break
+                got = limited.get(id(o), (o, 0.0))[1]
+                extra = min(spare, o[2] - got, self.limit_room(o[1].cik, d, V, held))
+                if extra >= min_buy:
+                    limited[id(o)] = (o, got + extra)
+                    held[o[1].cik] = held.get(o[1].cik, 0.0) + extra
+                    spare -= extra
+            plan = [limited[id(o)] for o in opts if id(o) in limited]
         for (kind, e, room, extra), amt in plan:
             if amt < min_buy:
                 continue
@@ -461,6 +583,10 @@ class PortfolioSim:
         by = {e.cik: e for e in evals}
         V = self.total_on(d) or 1.0
         buys = [e for e in evals if e.list == "buy"]
+        if st.get("market_overlay"):
+            from .market import overlay_state
+
+            self.overlay = overlay_state(self.pb, self.macro, d, st)
 
         def sig(cik, typ, reason, size, rj=None):
             e = by.get(cik)
@@ -549,9 +675,12 @@ class PortfolioSim:
                 cash_avail += pos_value(cik) * st["trim_fraction"]
                 continue
             n_pos = len(self.positions)
+            mp = self._max_pos()
             cap = max(self.position_cap, 1.5 / n_pos) if n_pos else 1.0
+            if mp:  # a hard maximum position: trim back to it once it's exceeded by the tolerance
+                cap = mp + float(st.get("max_position_tolerance", 0.05))
             if n_pos >= 2 and w > cap:
-                target = max(self.trim_to, 1.0 / n_pos)
+                target = mp if mp else max(self.trim_to, 1.0 / n_pos)
                 frac = 1 - target / w
                 why = f"oversized: {w:.0%} of portfolio → trim to {target:.0%}"
                 sig(cik, "TRIM", why, frac)
@@ -628,12 +757,15 @@ class PortfolioSim:
                         res.badges[weakest[0]] = ("SWAP", f"sell to fund {e.ticker}")
                         leaving.add(weakest[0])
                         cash_avail += freed
-                        size = min(freed, cash_avail)
+                        size = min(freed, cash_avail, self._cap() * V)
+                        if st.get("max_sector") or st.get("max_correlated"):
+                            held = {c: pos_value(c) for c in self.positions if c not in leaving}
+                            size = min(size, self.limit_room(e.cik, d, V, held))
                         sig(e.cik, typ, why + f" · replaces {self.tk.get(weakest[0]) or '?'} · {_money(size)}", size, rj)
                         cash_avail -= size
                         res.badges[e.cik] = (typ, why)
                         weakest = None
-                    elif self.fund and strong:
+                    elif self.fund and strong and self.overlay == "normal":
                         got = self._fund_strong(d, V, e, typ, why, rj, cash_avail, holding_evals, leaving, n_owned,
                                                 limit, pos_value, sig, res)
                         if got is None:
@@ -736,9 +868,9 @@ class PortfolioSim:
     def save_state(self, d: str) -> None:
         db.get().execute(
             "UPDATE portfolios SET last_value=?, last_nav=?, last_bench=?, last_date=?, cash=?, contributed=?, "
-            "bench_units=?, last_deploy=?, reserve=? WHERE id=?",
+            "bench_units=?, last_deploy=?, reserve=?, traded=?, costs=? WHERE id=?",
             (self.last_value, self.last_nav, self.last_bench, d, self.cash, self.contributed, self.bench_units,
-             self.last_deploy, self.reserve, self.pid))
+             self.last_deploy, self.reserve, self.traded, self.costs, self.pid))
 
 
 def _money(v: float) -> str:

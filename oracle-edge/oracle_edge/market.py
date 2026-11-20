@@ -86,3 +86,32 @@ class Macro:
                     zone, gate = name, (max(g, base_mos) if modifier_on else base_mos)
                     break
         return Regime(ratio, zone, gate, asof, self.t30(d), self.t10(d))
+
+
+# ---------------------------------------------------------------- market overlay (new purchases only)
+OVERLAY_TEXT = {
+    "normal": "S&P 500 above its 200-day average: normal buying",
+    "caution": "S&P 500 below its 200-day average: new purchases limited, cash builds",
+    "stress": "S&P 500 below its 200-day average and VIX above the stress level: new buying sharply reduced",
+}
+
+
+def overlay_state(pb, macro, d: str, st: dict) -> str:
+    """normal | caution | stress, from SPY vs its 200-day average and the VIX. Recovering above the average
+    resumes normal purchases. Used only for new purchases and reserve deployment, never to sell holdings."""
+    px = pb.adj("SPY", d)
+    ma = pb.sma("SPY", d, int(st.get("overlay_ma_days", 200)))
+    if px is None or ma is None or px >= ma:
+        return "normal"
+    vix = None
+    if macro is not None:
+        _, vix = macro.asof("VIXCLS", d)
+    if vix is not None and vix > float(st.get("overlay_vix_stress", 30)):
+        return "stress"
+    return "caution"
+
+
+def overlay_factor(state: str, st: dict) -> float:
+    """Share of the usual new-money purchases still made in this state."""
+    return {"normal": 1.0, "caution": float(st.get("overlay_caution_buy", 0.35)),
+            "stress": float(st.get("overlay_stress_buy", 0.10))}.get(state, 1.0)

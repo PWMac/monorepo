@@ -31,6 +31,7 @@ class Valuation:
     earnings_yield: float | None
     pepg: float | None
     note: str = ""
+    extra: dict | None = None
 
     def to_dict(self):
         return self.__dict__
@@ -135,6 +136,97 @@ def value(price: float, vi: dict, st: dict, t30: float, mos_gate: float, fy_pric
     strong = min(iv * (1 - strong_mos), hp)
     return Valuation(iv, iv_a, iv_b, er, er_a, er_b, mos, buy_below, strong, 1.5 * iv, r, g, exit_pe, pe_now, pe_med,
                      ey, pepg)
+
+
+def value_enhanced(price: float, vi: dict, st: dict, t30: float, mos_gate: float,
+                   fy_prices: dict[str, float]) -> Valuation:
+    """Enhanced model (profile setting valuation_model: enhanced). Same two methods as value(), with:
+      - growth from retained earnings x the LOWER of ROIC and incremental ROIC (ROE can be flattered by
+        buybacks shrinking equity; incremental ROIC shows what the next retained dollar earns),
+      - normalized earnings: the cycle's median margin x recent sales, not one good or bad year,
+      - owner earnings net of MAINTENANCE capex only (growth capex is a reinvestment, already in growth),
+      - per-share value after expected dilution (net share-count growth),
+      - bear / base / bull scenarios, probability-weighted (scenario_weights).
+    Falls back to the classic inputs when a newer figure is missing."""
+    tg = st["terminal_growth"]
+    r = discount_rate(t30, st)
+    hurdle = st["hurdle"]
+    cap = st["exit_pe_cap"]
+    oe0 = vi.get("oe_norm_ps") or vi.get("oe_ps")
+    eps0 = vi.get("eps_norm") or vi.get("eps3")
+    if oe0 is not None and vi.get("oe_ps") is not None:
+        oe0 = min(oe0, max(vi["oe_ps"], 0.0) * 1.25) if vi["oe_ps"] > 0 else oe0  # don't let normalizing run away
+    roic = vi.get("roic_avg")
+    inc = vi.get("incr_roic")
+    base_ret = roic if roic is not None else (vi.get("roe") or 0.0)
+    if inc is not None:
+        base_ret = min(base_ret, max(inc, 0.0))
+    retention = max(0.0, 1.0 - (vi.get("payout") or 0.0) - min(vi.get("buyback_payout") or 0.0, 0.5))
+    g = retention * max(base_ret, 0.0)
+    eg = vi.get("eps_cagr")
+    if eg is not None:
+        g = min(g, max(eg, 0.0) + 0.02)
+    g = min(max(g, 0.0), st["growth_cap"])
+    dil = min(max(vi.get("share_cagr") or 0.0, 0.0), 0.05)
+    pe_med = median_pe(vi.get("eps_by_fy", {}), fy_prices)
+    exit_pe = min(pe_med, cap) if pe_med else 15.0
+    eps_last = vi.get("eps_last")
+    pe_now = price / eps_last if eps_last and eps_last > 0 else None
+    ey = (oe0 / price) if (oe0 and price) else None
+    pepg = (pe_now / (vi["ebitda_g"] * 100)) if (pe_now and vi.get("ebitda_g") and vi["ebitda_g"] > 0) else None
+    w = st.get("scenario_weights") or [0.25, 0.5, 0.25]
+    scen = {"bear": (max(g * 0.5 - 0.01, -0.02), exit_pe * 0.75, w[0]),
+            "base": (g, exit_pe, w[1]),
+            "bull": (min(g * 1.25 + 0.01, st["growth_cap"] + 0.03), min(exit_pe * 1.15, cap), w[2])}
+    out = {}
+    for name, (gs, pe_s, wt) in scen.items():
+        iv_a = er_a = iv_b = er_b = None
+        if oe0 and oe0 > 0:
+            flows = [f / (1 + dil) ** t for t, f in enumerate(_flows(oe0, gs, min(tg, gs + 0.02)), 1)]
+            tv = min(flows[-1] * (1 + tg) / (r - tg), flows[-1] * cap)
+            iv_a = _pv(flows, tv, r)
+            er_a = _irr(price, flows, flows[-1] * pe_s)
+        if eps0 and eps0 > 0:
+            eps10 = eps0 * (1 + gs) ** 10 / (1 + dil) ** 10
+            divs = sum(eps0 * (1 + gs) ** t / (1 + dil) ** t * (vi.get("payout") or 0.0) for t in range(1, 11))
+            p10 = eps10 * pe_s
+            er_b = ((p10 + divs) / price) ** 0.1 - 1 if price > 0 else None
+            iv_b = (p10 + divs) / (1 + hurdle) ** 10
+        ivs = [v for v in (iv_a, iv_b) if v is not None]
+        ers = [v for v in (er_a, er_b) if v is not None]
+        if not ivs:
+            continue
+        iv_s = min(ivs) if len(ivs) == 2 else ivs[0] * 0.85
+        out[name] = {"iv": iv_s, "er": min(ers) if ers else None, "g": gs, "exit_pe": pe_s, "w": wt,
+                     "iv_a": iv_a, "iv_b": iv_b}
+    if "base" not in out:
+        return Valuation(None, None, None, None, None, None, None, None, None, None, r, g, exit_pe, pe_now, pe_med,
+                         ey, pepg, "no positive owner earnings or EPS", {"model": "enhanced"})
+    tw = sum(v["w"] for v in out.values())
+    iv = sum(v["iv"] * v["w"] for v in out.values()) / tw
+    ers = [(v["er"], v["w"]) for v in out.values() if v["er"] is not None]
+    er = sum(e * wt for e, wt in ers) / sum(wt for _, wt in ers) if ers else None
+    mos = 1 - price / iv if iv > 0 else None
+    b = out["base"]
+    hp = min(x for x in (b["iv_b"], iv) if x is not None)
+    buy_below = min(iv * (1 - mos_gate), hp)
+    strong = min(iv * (1 - (mos_gate + st.get("strong_extra_mos", 0.15))), hp)
+    extra = {"model": "enhanced", "scenarios": {k: {"iv": v["iv"], "er": v["er"], "g": v["g"], "exit_pe": v["exit_pe"]}
+                                                for k, v in out.items()},
+             "incr_roic": inc, "roic": roic, "dilution": dil, "normalized_eps": vi.get("eps_norm"),
+             "normalized_oe": vi.get("oe_norm_ps"), "maint_capex_share": vi.get("maint_capex_share")}
+    return Valuation(iv, b["iv_a"], b["iv_b"], er, None, None, mos, buy_below, strong, 1.5 * iv, r, g, exit_pe,
+                     pe_now, pe_med, ey, pepg, "", extra)
+
+
+def predictability_mos(mos_gate: float, vi: dict, st: dict) -> float:
+    """Ask for a bigger margin of safety when earnings are less predictable (predictability 0-1)."""
+    if not st.get("predictability_mos"):
+        return mos_gate
+    p = vi.get("predictability")
+    if p is None:
+        return mos_gate + float(st.get("predictability_mos_add", 0.20)) * 0.5
+    return mos_gate + float(st.get("predictability_mos_add", 0.20)) * min(max(1.0 - p, 0.0), 1.0)
 
 
 def value_financial(price: float, vi: dict, st: dict, t30: float, mos_gate: float,

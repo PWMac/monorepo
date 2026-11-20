@@ -337,7 +337,9 @@ def valuation_inputs(s: dict, m: dict[str, MetricResult]) -> dict:
     eb = [v for v in ebitda[-6:] if v is not None]
     ebitda_g = cagr(eb[0], eb[-1], len(eb) - 1) if len(eb) >= 3 else None
     eq_last = s["equity"][-1]
+    enh = enhanced_inputs(s, m)
     return {
+        **enh,
         "oe_ps": _avg(oe_ps),
         "eps3": eps3,
         "eps_last": eps[-1],
@@ -350,4 +352,97 @@ def valuation_inputs(s: dict, m: dict[str, MetricResult]) -> dict:
         "ebitda_g": ebitda_g,
         "eps_by_fy": {y: e for y, e in zip(s["years"], eps) if e is not None},
         "fy_end": s["years"][-1],
+    }
+
+
+# ------------------------------------------------------------------ enhanced valuation inputs
+def nopat_and_capital(s: dict) -> tuple[list, list]:
+    """After-tax operating profit and invested capital (debt + equity - cash) per year."""
+    n = len(s["years"])
+    nop, ic = [], []
+    for i in range(n):
+        oi = s["operating_income"][i]
+        p, t = s["pretax_income"][i], s["income_tax"][i]
+        tr = (t / p) if (p and t is not None and p > 0) else 0.21
+        tr = min(max(tr, 0.0), 0.35)
+        nop.append(oi * (1 - tr) if oi is not None else None)
+        e = s["equity"][i]
+        if e is not None and e <= 0 and (s["treasury_stock"][i] or 0) > 0:
+            e = e + s["treasury_stock"][i]  # buybacks can push book equity below zero: add them back
+        c = (s["total_debt"][i] or 0) + (e or 0) - (s["cash"][i] or 0)
+        ic.append(c if (e is not None and c > 0) else None)
+    return nop, ic
+
+
+def incremental_roic(nop: list, ic: list, window: int, end: int | None = None) -> float | None:
+    """Extra after-tax operating profit earned per extra dollar of capital over `window` years ending at `end`.
+    Unlike ROE, this isn't flattered by buybacks shrinking equity."""
+    end = (len(nop) - 1) if end is None else end
+    a = end - window
+    if a < 0 or nop[end] is None or nop[a] is None or ic[end] is None or ic[a] is None:
+        return None
+    d_ic = ic[end] - ic[a]
+    d_nop = nop[end] - nop[a]
+    if abs(d_ic) < 1e-9 or d_ic <= 0:
+        # capital didn't grow: profits grew without needing more of it (excellent) or shrank (poor)
+        return 0.50 if d_nop > 0 else (0.0 if d_nop == 0 else -0.10)
+    return max(min(d_nop / d_ic, 1.0), -1.0)
+
+
+def maintenance_capex(s: dict) -> list:
+    """Capex needed just to stay in place (Greenwald method): total capex minus the capex that funded growth,
+    where growth capex = average PP&E-to-sales × the increase in sales. Falls back to depreciation."""
+    n = len(s["years"])
+    R, cap, da, ppe = s["revenue"], s["capex"], s["da"], s.get("ppe_net", [None] * n)
+    ratios = [ppe[i] / R[i] for i in range(n) if ppe[i] and R[i] and R[i] > 0]
+    pr = _avg(ratios[-5:]) if ratios else None
+    out = []
+    for i in range(n):
+        c = cap[i]
+        if c is None:
+            out.append(None)
+            continue
+        if pr is not None and i > 0 and R[i] is not None and R[i - 1] is not None:
+            growth = pr * max(R[i] - R[i - 1], 0.0)
+            out.append(min(max(c - growth, 0.0), c))
+        else:
+            out.append(min(c, da[i]) if da[i] is not None else c)
+    return out
+
+
+def enhanced_inputs(s: dict, m: dict) -> dict:
+    n = len(s["years"])
+    R, NI, sh = s["revenue"], s["net_income"], s["shares_diluted"]
+    nop, ic = nopat_and_capital(s)
+    inc5 = incremental_roic(nop, ic, min(5, n - 1)) if n >= 3 else None
+    inc3 = [incremental_roic(nop, ic, 3, e) for e in range(n)]
+    maint = maintenance_capex(s)
+    sh_last = sh[-1] if n else None
+    rev3 = _avg([r for r in R[-3:] if r is not None])
+    rev_ps = (rev3 / sh_last) if (rev3 and sh_last) else None
+    nm = [_div(NI[i], R[i]) for i in range(n)]
+    nm_med = _med(nm)
+    oe_enh = [(NI[i] + (s["da"][i] or 0) - (maint[i] or 0)) if NI[i] is not None else None for i in range(n)]
+    oe_m = _med([_div(oe_enh[i], R[i]) for i in range(n)])
+    sh_idx = [i for i, v in enumerate(sh) if v]
+    dil = None
+    if len(sh_idx) >= 3:
+        k0 = sh_idx[max(0, len(sh_idx) - 6)]
+        dil = cagr(sh[k0], sh[sh_idx[-1]], sh_idx[-1] - k0)
+    sbc = s.get("sbc", [None] * n)
+    fcf = [(s["ocf"][i] - (s["capex"][i] or 0)) if s["ocf"][i] is not None else None for i in range(n)]
+    sbc_fcf = [(_div(sbc[i], fcf[i]) if (sbc[i] is not None and fcf[i] and fcf[i] > 0) else None) for i in range(n)]
+    buyback_payout = _avg([_div(s["buybacks"][i], NI[i]) for i in range(n) if NI[i] and NI[i] > 0])
+    return {
+        "roic_avg": m["roic"].value if "roic" in m else None,
+        "incr_roic": inc5,
+        "incr_roic_3y": inc3[-4:],
+        "eps_norm": (nm_med * rev_ps) if (nm_med is not None and rev_ps) else None,
+        "oe_norm_ps": (oe_m * rev_ps) if (oe_m is not None and rev_ps) else None,
+        "maint_capex_share": _avg([_div(maint[i], s["capex"][i]) for i in range(n)
+                                   if s["capex"][i] and maint[i] is not None]),
+        "share_cagr": dil,
+        "sbc_to_fcf": sbc_fcf[-1] if sbc_fcf else None,
+        "buyback_payout": buyback_payout,
+        "predictability": m["predictability"].value if "predictability" in m else None,
     }

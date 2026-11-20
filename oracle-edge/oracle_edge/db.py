@@ -194,6 +194,14 @@ MIGRATIONS: list[str] = [
     """
     ALTER TABLE portfolios ADD COLUMN reserve REAL DEFAULT 0;
     """,
+    # ---- v9: experiments (per-portfolio setting overrides), turnover and trading costs ----
+    """
+    ALTER TABLE portfolios ADD COLUMN settings_json TEXT;
+    ALTER TABLE portfolios ADD COLUMN traded REAL DEFAULT 0;
+    ALTER TABLE portfolios ADD COLUMN costs REAL DEFAULT 0;
+    ALTER TABLE equity_curve ADD COLUMN traded REAL;
+    ALTER TABLE sweeps ADD COLUMN kind TEXT DEFAULT 'holdings';
+    """,
 ]
 
 

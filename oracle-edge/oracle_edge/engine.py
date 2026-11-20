@@ -11,7 +11,7 @@ from .market import Macro, Regime
 from .metrics import build_statement, compute, data_years, valuation_inputs
 from .metrics_fin import compute_bank, compute_insurer, financial_valuation_inputs
 from .rules import Profile, confidence, gate_margin, level_score, quality_from, score_rule
-from .valuation import rank_score, value, value_financial, value_score
+from .valuation import predictability_mos, rank_score, value, value_enhanced, value_financial, value_score
 
 
 # ================================================================== price book
@@ -80,6 +80,24 @@ class PriceBook:
         sma = sum(c[i - 49 : i + 1]) / 50
         prev = sum(c[i - 59 : i - 9]) / 50
         return c[i] < sma < prev
+
+    def sma(self, t, d, n=200, back=0):
+        """n-day average of adjusted closes ending `back` trading days before d."""
+        a, i = self._i(t, d)
+        if not a or i - back < n - 1:
+            return None
+        c = a[3]
+        j = i - back
+        return sum(c[j - n + 1 : j + 1]) / n
+
+    def returns(self, t, d, n=252) -> dict[str, float]:
+        """Daily returns over the last n trading days ending at d, keyed by date."""
+        a, i = self._i(t, d)
+        if not a or i < 2:
+            return {}
+        lo = max(1, i - n + 1)
+        c = a[3]
+        return {a[0][k]: c[k] / c[k - 1] - 1 for k in range(lo, i + 1) if c[k - 1]}
 
     def dollar_volume(self, t, d, n=20):
         a, i = self._i(t, d)
@@ -338,7 +356,7 @@ def _foreign_scale(vi: dict, info: dict, d: str, macro, pb_fy_dates) -> tuple[di
         return None, f"foreign filer: no exchange rate for {info.get('currency')}"
     f = fx * ratio
     out = dict(vi)
-    for k in ("oe_ps", "eps3", "eps_last", "bvps", "book_ps"):
+    for k in ("oe_ps", "eps3", "eps_last", "bvps", "book_ps", "oe_norm_ps", "eps_norm"):
         if out.get(k) is not None:
             out[k] = out[k] * f
     eps = {}
@@ -406,8 +424,12 @@ def evaluate(date: str, profile: Profile, snaps: SnapshotBook, pb: PriceBook, re
                                           f"ratio ({info.get('adr_ratio')}) on the stock page", category))
                 continue
         fyp = pb.fy_prices(t, list(vi.get("eps_by_fy", {}).keys()))
+        gate_c = mos_gate
         if category in ("bank", "insurer"):
             v = value_financial(price, vi, st, regime.t30, mos_gate, fyp)
+        elif st.get("valuation_model") == "enhanced":
+            gate_c = predictability_mos(mos_gate, vi, st)
+            v = value_enhanced(price, vi, st, regime.t30, gate_c, fyp)
         else:
             v = value(price, vi, st, regime.t30, mos_gate, fyp)
         vs = value_score(v.er, {"target": hurdle})
@@ -419,7 +441,7 @@ def evaluate(date: str, profile: Profile, snaps: SnapshotBook, pb: PriceBook, re
         mcap = price * shares if shares else None
         dvol = pb.dollar_volume(t, date)
         size_ok = (mcap or 0) >= st["min_market_cap"] and (dvol or 0) >= st["min_dollar_volume"]
-        val_ok = v.mos is not None and v.mos >= mos_gate and v.er is not None and v.er >= hurdle
+        val_ok = v.mos is not None and v.mos >= gate_c and v.er is not None and v.er >= hurdle
         if gates and q is not None and q >= qmin and size_ok and val_ok:
             lst = "buy"
         elif gates and q is not None and q >= qmin and size_ok:
@@ -439,7 +461,8 @@ def evaluate(date: str, profile: Profile, snaps: SnapshotBook, pb: PriceBook, re
                                 "mcap": mcap, "dvol": dvol,
                                 "model_a": "ROE-justified price-to-book" if category != "standard" else "Owner-earnings DCF",
                                 "qflags": qflags, "qfiled": base["qfiled"], "category": category,
-                                "gate_margin": s["gate_margin"], "gate_margin_rule": base["gate_margin_rule"]},
+                                "gate_margin": s["gate_margin"], "gate_margin_rule": base["gate_margin_rule"],
+                                **({"valuation": v.extra, "mos_gate": gate_c} if v.extra else {})},
                         **base))
     buys = sorted([e for e in out if e.list == "buy"], key=lambda e: (-(e.rank_score or 0), -(e.mos or 0)))
     for i, e in enumerate(buys, 1):

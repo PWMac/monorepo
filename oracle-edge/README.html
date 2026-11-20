@@ -66,7 +66,7 @@ footer { color:var(--muted); font-size:12.5px; margin-top:50px; border-top:1px s
 <header class="top">
   <h1>Oracle Edge</h1>
   <p>A local stock screener that thinks like Warren Buffett. This guide explains <b>what</b> the app does,
-  <b>how</b> it decides, and <b>why</b> it was built this way. Version 0.9.1.</p>
+  <b>how</b> it decides, and <b>why</b> it was built this way. Version 0.10.0.</p>
   <p style="font-size:14px">Two documents: this <b>guide</b> is the user manual, kept current with every release and opened from
   "Guide" in the app. The <b>plan</b> (<code>docs/Value-Picker-Plan.html</code> with the source code) is the design record: the research, architecture,
   database layout and the decision log behind the app.</p>
@@ -92,8 +92,10 @@ footer { color:var(--muted); font-size:12.5px; margin-top:50px; border-top:1px s
   <a href="#portfolio">13. Model portfolio: how many, new money</a>
   <a href="#newmoney" style="padding-left:22px">Where new money goes</a>
   <a href="#chosen" style="padding-left:22px">Why Buffettology 15% · best 7</a>
+  <a href="#risk" style="padding-left:22px">Risk controls</a>
   <a href="#market">14. Market temperature</a>
   <a href="#backtest">15. Backtests and profiles</a>
+  <a href="#experiments" style="padding-left:22px">Experiments and robustness</a>
   <a href="#ops">16. Email, schedule, backups, security</a>
   <a href="#trouble" style="padding-left:22px">Troubleshooting</a>
   <a href="#screens">17. The screens</a>
@@ -340,6 +342,26 @@ gets his safety from a large margin of safety rather than a high discount rate. 
 from inflating values. The 10% bar reflects his long-held expectation for a good equity investment.</div>
 <div class="why"><b>Why two models and the lower one.</b> Each model fails in different ways: a DCF is sensitive to the
 discount rate, a P/E projection to the exit multiple. Taking the lower answer is margin of safety built into the method.</div>
+<h3 id="enhanced">Enhanced valuation (optional, per profile)</h3>
+<p>Setting a profile's <b>Valuation</b> to <i>Enhanced</i> keeps both models but changes their inputs:</p>
+<table>
+<tr><th>Change</th><th>What it does</th><th>Why</th></tr>
+<tr><td><b>Incremental ROIC</b></td><td>Growth = earnings kept × the <i>lower</i> of the 10-year ROIC and the return on the last 5
+years' extra capital (extra after-tax operating profit ÷ extra invested capital).</td><td>ROE can look excellent just because buybacks
+shrank equity. Incremental ROIC shows what the <i>next</i> retained dollar earns.</td></tr>
+<tr><td><b>Normalized earnings</b></td><td>Starts from the cycle's median margin × recent sales, not the latest year.</td><td>A boom
+year shouldn't inflate the value, and a bust year shouldn't hide a good business.</td></tr>
+<tr><td><b>Maintenance vs growth capex</b></td><td>Owner earnings subtract only the capex needed to stay in place: total capex minus
+average PP&amp;E-to-sales × the increase in sales (falls back to depreciation).</td><td>Capex that funds growth is a reinvestment, already
+counted in the growth rate; treating it as a cost undervalues growing companies.</td></tr>
+<tr><td><b>Dilution</b></td><td>Per-share values shrink by the recent net growth in share count (stock pay minus buybacks), up to 5%
+a year.</td><td>Stock-based pay is a real cost to existing owners.</td></tr>
+<tr><td><b>Scenarios</b></td><td>Bear (half the growth, 25% lower exit P/E), base and bull (a little faster growth, 15% higher P/E),
+weighted 25 / 50 / 25.</td><td>One growth path pretends to know the future; a range shows how much can go wrong.</td></tr>
+</table>
+<p><b>Bigger margin of safety for less predictable earnings</b> (a separate switch) adds up to 20 points to the required margin of
+safety as earnings predictability falls: a perfectly steady business needs the usual margin, one with erratic earnings up to 20
+points more. Both options are tested as experiments G and G+ (section 15).</p>
 
 <!-- ================================================================ 9 -->
 <h2 id="rank"><span class="n">9</span>Ranking and the lists</h2>
@@ -409,7 +431,15 @@ same rules and <b>never sells because the price fell</b>. A lower price for an i
 <tr><th></th><th>Triggers</th><th>What happens</th></tr>
 <tr><td><b>Hard</b></td><td>Quality down 10+ points since purchase · trailing-12-month loss · debt payback over its limit · ROE (ROA for banks) below its floor, on 10-Q numbers</td><td>REVIEW now. Becomes a <b>SELL if the next filing confirms it</b>. New buys are blocked while it's open.</td></tr>
 <tr><td><b>Soft</b></td><td>Profits far above operating cash flow (cash under 50% of profit) · share count up 5%+ in a year · a gate within 10% of its limit</td><td>REVIEW as a watch item only. <b>Never</b> causes a sale.</td></tr>
+<tr><td><b>Soft: deterioration</b></td><td>Return on new capital (incremental ROIC, 3-year windows) down three years running by 10+
+points · gross margin below the year-earlier quarter three quarters in a row · acquisitions over 3 years at least 1.5× the revenue
+added (growth bought, not built) · receivables or inventory growing 15+ points faster than sales · stock-based pay 25%+ of free cash
+flow and rising · a disclosed concentration (often one customer) of 20%+</td><td>REVIEW as a watch item; no ADDs while it's open.
+<b>Never</b> causes a sale.</td></tr>
 </table>
+<p>The deterioration checks catch companies that still look fine on 10-year averages but are starting to slip. Customer
+concentration only shows when a company reports it as a plain figure; most report it only in the notes, which the SEC data doesn't
+carry. The checks can be switched off per profile ("Extra early warnings").</p>
 <p><b>Quarterly early warnings</b> use 10-Q filings to build trailing-12-month figures (this year's year-to-date + last full year −
 last year's year-to-date), so problems show up months before the next annual report.</p>
 <div class="why"><b>Why wait for confirmation.</b> One bad quarter is noise surprisingly often. Requiring the next filing to
@@ -597,6 +627,29 @@ between setups are within luck.</li>
 <li><b>Re-check yearly.</b> Run the holdings test again each year (or after a big market move) and keep the setup if it still holds up.</li>
 </ul>
 
+<h3 id="risk">Risk controls (the "Oracle Edge 15% · Risk Optimized" profile)</h3>
+<p>These settings are off in every other profile. The <b>Risk Optimized</b> profile starts from your setup (Buffettology 15%, 7
+holdings, sliding reserve) and adds:</p>
+<table>
+<tr><th>Setting</th><th>Default</th><th>What it does</th></tr>
+<tr><td><b>Sizing: better business at a better price</b></td><td>on</td><td>No forced equal slices. A holding's slice is 1/N × a
+factor for Quality (95 vs 80 = ×1.19) × a factor for the margin of safety above the gate (+20% per 10 points), overall ×0.5 to ×2. New
+money is split the same way.</td></tr>
+<tr><td><b>Maximum position</b></td><td>35%</td><td>No buy takes a holding above it; a holding that grows 5 points past it is trimmed
+back.</td></tr>
+<tr><td><b>Maximum sector</b></td><td>50%</td><td>New money into a sector stops at this share. Sectors come from SEC industry (SIC)
+codes, approximating the 11 standard sectors.</td></tr>
+<tr><td><b>Maximum correlated exposure</b></td><td>60%</td><td>Holdings whose daily returns over the last year correlate 0.7 or more
+count as one group, and new money into the group stops at this share.</td></tr>
+<tr><td><b>Market overlay</b></td><td>off (tested)</td><td>S&amp;P 500 above its 200-day average: normal buying. Below it: new
+purchases and reserve spending drop to 35% of normal and cash builds. Below it with the VIX above 30: 10%. Back above the average:
+normal again. It never sells holdings.</td></tr>
+<tr><td><b>Trading costs</b></td><td>0.10% per trade</td><td>Charged on every buy and sell in tests, so high-turnover setups pay for
+it.</td></tr>
+</table>
+<p>The sector and correlation limits only steer <b>new</b> money: money a limit turns away goes to the next stock with room, and if
+none has room it waits as cash. Nothing is sold to meet them.</p>
+
 <h3>Variable (the old style)</h3>
 <p>Every BUY adds a new position with new money and every SELL takes it out, so the count can grow large: your 2019–2026 backtest
 held 64 stocks on average. It's kept for comparison, and ADD-on-a-dip still applies there (at most 2 per stock).</p>
@@ -638,17 +691,50 @@ how each rank bucket performed afterwards.</li>
 <li><b>Recalculate</b> (on each backtest, or "Recalculate all") re-runs it over the same dates with the profile's
 <i>current</i> rules and portfolio settings and replaces the old results. Use it after changing the number of holdings.</li>
 <li><b>Find the best number of holdings</b> is explained in section 13.</li>
+<li><b>Experiments</b> (section below) compare risk-control setups and rank them by a robustness score.</li>
 <li><b>Profiles</b> hold every rule, threshold and setting. Shipped profiles are locked:
 <ul>
   <li><i>Oracle Classic</i> (the default);</li>
   <li><i>Buffettology 15%</i>;</li>
   <li><i>Relaxed backfill (5y)</i>, with shorter lookbacks so tests can start earlier;</li>
-  <li><i>Oracle Classic + timing</i>.</li>
+  <li><i>Oracle Classic + timing</i>;</li>
+  <li><i>Oracle Edge 15% · Risk Optimized</i> (editable), with the risk controls above.</li>
 </ul>
 Use <b>Save as</b> to make an editable copy. The editor previews live how many companies would pass. Profiles that differ only
 in portfolio, signal or alert settings share company scores, so trying another portfolio size never rescores everything.</li>
 <li>Several profiles can be <b>active</b> at once; each gets its own live signals and model portfolio.</li>
 </ul>
+<h3 id="experiments">Experiments and the robustness score</h3>
+<p><b>Backtest → Experiments</b> runs, on the Risk Optimized profile's company scores and the same dates:</p>
+<table>
+<tr><th>Exp.</th><th>Setup</th><th>Question</th></tr>
+<tr><td>Live</td><td>Your live setup: 7 holdings, equal slices, no new limits</td><td>The benchmark to beat</td></tr>
+<tr><td>R</td><td>Risk Optimized defaults: 7 holdings, value-and-quality sizing, 35% / 50% / 60% limits</td><td>Does the profile as set up
+help?</td></tr>
+<tr><td>A / B / C</td><td>7 / 8 / 9 holdings with a 20% cap</td><td>Less concentration, more diversification</td></tr>
+<tr><td>D</td><td>7 holdings, 20% cap + sector and correlation limits</td><td>Less correlated risk</td></tr>
+<tr><td>E / F</td><td>7 / 8 holdings, 20% cap + market overlay</td><td>Smaller bear-market losses</td></tr>
+<tr><td>G</td><td>The most robust of A–F + enhanced valuation</td><td>Better stock selection</td></tr>
+<tr><td>G+</td><td>G + bigger margin of safety for less predictable earnings</td><td>Does uncertainty deserve a bigger discount?</td></tr>
+</table>
+<p>Each row shows CAGR, maximum drawdown, the <b>Calmar ratio</b> (CAGR ÷ |maximum drawdown|), the worst 12 months, CAGR in each third
+of the period, how many thirds beat the S&amp;P 500, turnover, trading costs, and whether it beat your live setup on the stated goal:
+<b>higher CAGR with the same or a smaller drawdown</b>.</p>
+<p>The <b>robustness score</b> (0–100) ranks them, so a setup that got lucky in one market can't win:</p>
+<table>
+<tr><th>Weight</th><th>Part</th><th>Scale</th></tr>
+<tr><td>30%</td><td>Median CAGR across the three independent periods</td><td>0% = 0, 30%/yr = 100</td></tr>
+<tr><td>25%</td><td>Maximum drawdown</td><td>−50% = 0, no drawdown = 100</td></tr>
+<tr><td>20%</td><td>Worst rolling 12 months</td><td>−40% = 0, no loss = 100</td></tr>
+<tr><td>15%</td><td>Consistency: share of periods beating the S&amp;P 500 (60%) and how even the period CAGRs are (40%)</td><td></td></tr>
+<tr><td>10%</td><td>Turnover and trading costs</td><td>no trading = 100, 200%/yr = 0</td></tr>
+</table>
+<p>The three periods are independent stretches of the same history, not true out-of-sample data, since no setting is fitted to one
+period and judged on another. Results are only as good as the history: with about 7 years and one deep bear market, small differences
+are noise.</p>
+<div class="note"><b>Before running G and G+ the first time</b>, run <b>Data → re-run first-time load</b> once. It re-reads the SEC data
+with the new items (stock pay, receivables, inventory, acquisitions, PP&amp;E) and re-scores every company. Until then the enhanced
+valuation falls back to the classic inputs, and the results card says so.</div>
 <div class="note"><b>Survivorship bias.</b> The free SEC ticker list covers companies listed today, so companies that went bankrupt
 or were acquired since 2019 may be missing from backtests. Treat backtest returns as somewhat optimistic.</div>
 
@@ -826,7 +912,7 @@ use the checklist on each report card.</li>
 <tr><td><b>XBRL</b></td><td>The tagged data format companies use to file financial statements with the SEC</td></tr>
 </table>
 
-<footer>Oracle Edge v0.9.1 · research tool, not financial advice · MIT license. The full design plan, with research sources,
+<footer>Oracle Edge v0.10.0 · research tool, not financial advice · MIT license. The full design plan, with research sources,
 is in <code>docs/Value-Picker-Plan.html</code> with the source code.</footer>
 </main>
 </div>

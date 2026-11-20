@@ -24,6 +24,7 @@ def load_yaml_profile(name: str = "oracle_classic") -> dict:
 def seed_profiles() -> None:
     if db.scalar("SELECT COUNT(*) FROM profiles", default=0):
         _seed_timing()
+        _seed_risk_optimized()
         return
     classic = load_yaml_profile()
     _insert("Oracle Classic", classic, locked=True, active=True, notes=classic.get("description"))
@@ -37,6 +38,7 @@ def seed_profiles() -> None:
     relaxed["description"] = "5-year lookbacks so backtests can start earlier (less Buffett-faithful)."
     _insert("Relaxed backfill (5y)", relaxed, locked=True, active=False, notes=relaxed["description"])
     _seed_timing()
+    _seed_risk_optimized()
 
 
 TIMING_NAME = "Oracle Classic + timing"
@@ -51,6 +53,27 @@ def _seed_timing() -> None:
     t["description"] = ("Oracle Classic, but a BUY waits while the price is below a falling 50-day average "
                         "(up to 60 signal days). Run a backtest against Classic to see if it helps.")
     _insert(TIMING_NAME, t, locked=True, active=False, notes=t["description"])
+
+
+RISK_NAME = "Oracle Edge 15% · Risk Optimized"
+RISK_SETTINGS = {
+    "hurdle": 0.15, "portfolio_mode": "focused", "max_holdings": 7, "new_money": "reserve", "fund_strong": False,
+    "sizing": "value_quality", "max_position": 0.35, "max_sector": 0.50, "max_correlated": 0.60,
+    "trade_cost_bps": 10,
+}
+
+
+def _seed_risk_optimized() -> None:
+    """Buffettology 15% with 7 holdings and the sliding reserve, plus value-and-quality sizing and the exposure
+    limits. The market overlay and the enhanced valuation stay off until the experiments show they help."""
+    if db.scalar("SELECT COUNT(*) FROM profiles WHERE name=?", (RISK_NAME,), 0):
+        return
+    src = db.one("SELECT body_json FROM profiles WHERE name=?", ("Buffettology 15% · best 7",))
+    body = _with_defaults(json.loads(src["body_json"])) if src else load_yaml_profile()
+    body["settings"].update(RISK_SETTINGS)
+    body["description"] = ("Buffettology 15%, 7 holdings, sliding reserve; better businesses at better prices get "
+                           "more money; at most 35% in one stock, 50% in one sector, 60% in closely correlated stocks.")
+    _insert(RISK_NAME, body, locked=False, active=False, notes=body["description"])
 
 
 def _insert(name, body, locked=False, active=False, parent_id=None, notes=None) -> int:

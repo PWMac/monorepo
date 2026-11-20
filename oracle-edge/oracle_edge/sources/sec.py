@@ -29,7 +29,8 @@ ANNUAL_FORMS = {"10-K", "10-K/A", "10-KT", "10-KT/A", "20-F", "20-F/A", "40-F", 
 QUARTER_FORMS = {"10-Q", "10-Q/A"}
 # items tracked from 10-Qs for trailing-12-month early warnings
 QUARTER_ITEMS = {"revenue", "net_income", "ocf", "capex", "operating_income", "eps_diluted", "shares_diluted",
-                 "lt_debt", "st_debt", "equity", "total_assets", "cash", "treasury_stock"}
+                 "lt_debt", "st_debt", "equity", "total_assets", "cash", "treasury_stock",
+                 "gross_profit", "cogs", "receivables", "inventory", "sbc"}
 FOREIGN_FORMS = {"20-F", "20-F/A", "40-F", "40-F/A"}
 
 BANK_SIC = {6021, 6022, 6029, 6035, 6036}
@@ -105,6 +106,8 @@ def _pick_unit(units: dict, unit_kind: str | None) -> tuple[str, list] | None:
         cands = [u for u in units if "/shares" in u.lower()]
     elif unit_kind == "shares":
         cands = [u for u in units if u.lower() == "shares"]
+    elif unit_kind == "pure":
+        cands = [u for u in units if u.lower() == "pure"]
     else:
         cands = [u for u in units if "/" not in u and u.lower() not in ("shares", "pure")]
     if not cands:
@@ -182,7 +185,7 @@ def parse_companyfacts(doc: dict) -> dict:
             for key, vals in q_this.items():
                 if key not in q_per:
                     q_per[key] = vals
-            if unit not in ("shares",) and "/" not in unit:
+            if unit not in ("shares", "pure") and "/" not in unit:
                 currencies[unit] = currencies.get(unit, 0) + len(entries)
         item_rows[item] = per_end
         for (st_, end), vals in q_per.items():
