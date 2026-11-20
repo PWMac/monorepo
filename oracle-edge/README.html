@@ -66,7 +66,7 @@ footer { color:var(--muted); font-size:12.5px; margin-top:50px; border-top:1px s
 <header class="top">
   <h1>Oracle Edge</h1>
   <p>A local stock screener that thinks like Warren Buffett. This guide explains <b>what</b> the app does,
-  <b>how</b> it decides, and <b>why</b> it was built this way. Version 0.8.1.</p>
+  <b>how</b> it decides, and <b>why</b> it was built this way. Version 0.9.0.</p>
   <p style="font-size:14px">Two documents: this <b>guide</b> is the user manual, kept current with every release and opened from
   "Guide" in the app. The <b>plan</b> (<code>docs/Value-Picker-Plan.html</code> with the source code) is the design record: the research, architecture,
   database layout and the decision log behind the app.</p>
@@ -126,8 +126,10 @@ trades yourself.</div>
 <!-- ================================================================ 2 -->
 <h2 id="start"><span class="n">2</span>Quick start</h2>
 <ol>
-  <li><b>Install:</b> run <code>Install-OracleEdge.bat</code>. It copies the app to <code>C:\OracleEdge</code> (keeping any
-  existing data), puts a desktop shortcut in place and starts the app. <b>To upgrade, run it again:</b> it first stops the
+  <li><b>Install:</b> double-click <code>Install-OracleEdge.bat</code> in the <code>oracle-edge</code> folder of your code
+  (for example <code>C:\repos\monorepo\oracle-edge</code>). It copies the code exactly as it is in that folder, local edits
+  included, to <code>C:\OracleEdge</code> (keeping any existing data), puts a desktop shortcut in place and starts the app.
+  Nothing is downloaded from GitHub. <b>To upgrade after changing the code, run it again:</b> it first stops the
   copy that's running in the background (so the new version is the one you see), keeps your data, and the database upgrades
   itself. The version you're running is shown at the bottom of the app's left menu.</li>
   <li><b>Start:</b> double-click <b>Oracle Edge</b> on the desktop, or <code>Start.bat</code>. The first start
@@ -731,15 +733,12 @@ whether he understands the business, and no formula can make that call for you.<
   exports\               CSV exports
   tests\                 automated tests
 
-Install folder (any folder; a cloud-synced one is handy)
-  Install-OracleEdge.bat, OracleEdge-app.zip
-  Backups\               daily database backups (if you point Settings here)
-
-Source code (the oracle-edge folder of the git repository)
-  oracle_edge\, rules\, tests\, tools\   the app (same as C:\OracleEdge, minus data and uv.exe)
-  dist\Install-OracleEdge.bat           the installer
+Source code: the oracle-edge folder of the git repository (e.g. C:\repos\monorepo\oracle-edge)
+  Install-OracleEdge.bat                installs this folder's code to C:\OracleEdge (double-click)
+  oracle_edge\, rules\, tests\, tools\   the app (same as C:\OracleEdge, minus data and runtime)
   docs\Value-Picker-Plan.html           the design plan
-  tools\build_zip.py                    builds OracleEdge-app.zip from the code</div>
+
+Backups: the folder set in Settings (default Documents\Oracle Edge backups)</div>
 
 <!-- ================================================================ 19 -->
 <h2 id="whys"><span class="n">19</span>Why it works this way</h2>
@@ -820,7 +819,7 @@ use the checklist on each report card.</li>
 <tr><td><b>XBRL</b></td><td>The tagged data format companies use to file financial statements with the SEC</td></tr>
 </table>
 
-<footer>Oracle Edge v0.8.1 · research tool, not financial advice · MIT license. The full design plan, with research sources,
+<footer>Oracle Edge v0.9.0 · research tool, not financial advice · MIT license. The full design plan, with research sources,
 is in <code>docs/Value-Picker-Plan.html</code> with the source code.</footer>
 </main>
 </div>
