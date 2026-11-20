@@ -1,8 +1,9 @@
 """FRED macro series via the public CSV endpoint (no API key needed).
 
 Series used:
-  BOGZ1LM893064105Q  All sectors; corporate equities; liability, market value (Fed Z.1), $ millions, quarterly
-  NCBEILQ027S        fallback: nonfinancial corporate equities, $ millions
+  NCBEILQ027S        nonfinancial corporate business; corporate equities; liability (Fed Z.1), $ millions, quarterly
+                     (the Buffett Indicator numerator)
+  BOGZ1LM893064105Q  fallback: all sectors' corporate equities (includes financials, reads ~1.7x higher)
   GDP                nominal GDP, $ billions SAAR, quarterly
   DGS30 / DGS10      30-yr and 10-yr Treasury yields, %, daily
   VIXCLS             CBOE volatility index (VIX), daily close (market overlay)
@@ -18,7 +19,7 @@ from .. import db
 from .http import Http
 
 URL = "https://fred.stlouisfed.org/graph/fredgraph.csv"
-SERIES = ["BOGZ1LM893064105Q", "NCBEILQ027S", "GDP", "DGS30", "DGS10", "VIXCLS"]
+SERIES = ["NCBEILQ027S", "BOGZ1LM893064105Q", "GDP", "DGS30", "DGS10", "VIXCLS"]
 
 # Daily FX (H.10). invert=True means the series is "foreign units per 1 USD".
 FX_SERIES = {
