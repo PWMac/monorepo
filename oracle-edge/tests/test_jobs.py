@@ -80,3 +80,35 @@ def test_resumable_initial_load():
     _job(kind="daily", status="done")
     db.get().execute("UPDATE jobs SET status='done' WHERE kind='daily'")
     assert pipeline.resumable_initial_load() is None  # a later successful run replaced it
+
+
+def test_transactions_take_the_write_lock_up_front(tmp_path):
+    """A job reads, then writes, inside one transaction while the heartbeat thread writes from another connection.
+    With a deferred BEGIN the job's first write after the heartbeat's commit fails at once with "database is
+    locked" (SQLite won't upgrade a stale read snapshot). BEGIN IMMEDIATE takes the lock first, so the heartbeat
+    waits instead."""
+    import sqlite3
+    import threading
+
+    path = tmp_path / "lock.db"
+    a = db.connect(path)
+    a.execute("CREATE TABLE t(x)")
+    a.execute("INSERT INTO t VALUES(1)")
+    result = {}
+
+    def other_writer():
+        b = sqlite3.connect(path, timeout=0.2, isolation_level=None)
+        try:
+            b.execute("INSERT INTO t VALUES(2)")
+            result["b"] = "wrote"
+        except sqlite3.OperationalError as e:
+            result["b"] = str(e)
+
+    with db.tx(a):
+        a.execute("SELECT COUNT(*) FROM t").fetchone()  # read first, like quarterly.build
+        th = threading.Thread(target=other_writer)
+        th.start()
+        th.join()
+        a.execute("INSERT INTO t VALUES(3)")  # must not fail
+    assert "locked" in result["b"]  # the other writer had to wait (and here gave up after 0.2 s)
+    assert a.execute("SELECT COUNT(*) FROM t").fetchone()[0] == 2

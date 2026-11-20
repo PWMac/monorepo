@@ -147,7 +147,7 @@ def replay_many(run_ids: list[int], profile: rules.Profile, end: str, cadence: s
     con = db.get()
     n = 0
     for i, d in enumerate(days):
-        con.execute("BEGIN")
+        con.execute("BEGIN IMMEDIATE")
         try:
             for sim in sims:
                 fin, fout = sim.fill_pending(d)

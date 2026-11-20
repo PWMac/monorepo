@@ -151,7 +151,7 @@ def build_snapshots(profile: Profile, ciks: list[int], since: str | None = None,
     sec = {r["cik"]: r for r in db.rows("SELECT cik,ticker,category,is_foreign,currency FROM securities")}
     con = db.get()
     n_done = 0
-    con.execute("BEGIN")
+    con.execute("BEGIN IMMEDIATE")
     try:
         for k, cik in enumerate(ciks):
             info = sec.get(cik)
@@ -189,7 +189,7 @@ def build_snapshots(profile: Profile, ciks: list[int], since: str | None = None,
             n_done += 1
             if n_done % 200 == 0:
                 con.execute("COMMIT")
-                con.execute("BEGIN")
+                con.execute("BEGIN IMMEDIATE")
             if progress and k % 25 == 0:
                 progress(k / max(len(ciks), 1))
         con.execute("COMMIT")

@@ -240,7 +240,7 @@ def migrate(con: sqlite3.Connection) -> None:
 @contextmanager
 def tx(con: sqlite3.Connection | None = None):
     con = con or get()
-    con.execute("BEGIN")
+    con.execute("BEGIN IMMEDIATE")
     try:
         yield con
         con.execute("COMMIT")

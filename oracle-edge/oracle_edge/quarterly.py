@@ -270,7 +270,7 @@ def build(profile: Profile, ciks: list[int], since: str | None = None, latest_on
     cats = {r["cik"]: (r["category"] or "standard") for r in db.rows("SELECT cik, category FROM securities")}
     con = db.get()
     n = 0
-    con.execute("BEGIN")
+    con.execute("BEGIN IMMEDIATE")
     try:
         for k, cik in enumerate(ciks):
             cat = cats.get(cik, "standard")
@@ -311,7 +311,7 @@ def build(profile: Profile, ciks: list[int], since: str | None = None, latest_on
             n += 1
             if n % 200 == 0:
                 con.execute("COMMIT")
-                con.execute("BEGIN")
+                con.execute("BEGIN IMMEDIATE")
             if progress and k % 25 == 0:
                 progress(k / max(len(ciks), 1))
         con.execute("COMMIT")
