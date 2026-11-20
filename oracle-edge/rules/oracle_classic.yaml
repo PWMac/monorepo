@@ -66,6 +66,34 @@ settings:
   fund_extra_slots: 1           # ...a strong buy may take this many slots above N (funded by reserve + trims)
   fund_trim_max: 0.34           # ...trim at most this share of any one holding
   fund_min_hold_days: 180       # ...sell a whole holding only after owning it this long
+  # ---- risk controls (all off here; the "Risk Optimized" profile turns them on) ----
+  max_position: null            # hard cap per holding, e.g. 0.35 (trims back once 5 points over); null = old rules
+  max_position_tolerance: 0.05
+  max_sector: null              # max share of the portfolio in one sector (from SIC codes), e.g. 0.50; new money only
+  max_correlated: null          # max share in a group of holdings whose daily returns correlate >= corr_threshold
+  corr_threshold: 0.7
+  corr_lookback_days: 252
+  market_overlay: false         # SPY vs its 200-day average + VIX: limits NEW purchases only, never sells
+  overlay_ma_days: 200
+  overlay_vix_stress: 30
+  overlay_caution_buy: 0.35     # share of normal new-money buying while SPY is below its 200-day average
+  overlay_stress_buy: 0.10      # ...and while the VIX is also above overlay_vix_stress
+  trade_cost_bps: 0             # trading cost per buy or sell, in basis points (backtests; 10 = 0.10%)
+  # ---- valuation ----
+  valuation_model: classic      # classic | enhanced (incremental ROIC, normalized earnings, dilution,
+                                #   maintenance capex, bear/base/bull scenarios)
+  scenario_weights: [0.25, 0.5, 0.25]
+  predictability_mos: false     # ask a bigger margin of safety when earnings are less predictable
+  predictability_mos_add: 0.20  # ...up to this many extra points at zero predictability
+  # ---- extra early warnings (soft: REVIEW only) ----
+  deterioration_warnings: true
+  warn_incr_roic_drop: 0.10
+  warn_gm_quarters: 3
+  warn_gm_drop: 0.01
+  warn_acq_ratio: 1.5
+  warn_wc_gap: 0.15
+  warn_sbc_fcf: 0.25
+  warn_concentration: 0.20
   # price targets, timing and alerts (see oracle_edge/targets.py)
   price_alerts: true           # watch buy/strong-buy/limit/trim levels and alert when approaching or reached
   alert_band_atr: 1.5          # "approaching" = within this many average daily ranges (ATR-14) of a target...

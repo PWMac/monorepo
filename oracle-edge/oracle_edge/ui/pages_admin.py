@@ -547,7 +547,8 @@ def profiles_page(pid: int | None = None):
                     "outlined dense").classes("w-64")
                 pn = ui.number("Holdings (N)", value=st.get("max_holdings", 15), format="%.0f", min=1).props(
                     "outlined dense").classes("w-32")
-                psz = ui.select({"equal": "Equal slices", "conviction": "Conviction (higher Rank, bigger slice)"},
+                psz = ui.select({"equal": "Equal slices", "conviction": "Conviction (higher Rank, bigger slice)",
+                                 "value_quality": "Better business at a better price gets more"},
                                 value=st.get("sizing", "equal"), label="Sizing").props("outlined dense").classes("w-72")
                 padds = ui.number("Max dip ADDs (variable style)", value=st.get("max_adds", 2), format="%.0f", min=0).props(
                     "outlined dense").classes("w-40")
@@ -576,6 +577,38 @@ def profiles_page(pid: int | None = None):
                 prwk = ui.number("Reserve: spend after weeks", value=st.get("reserve_max_weeks", 26), format="%.0f",
                                  min=0).props("outlined dense").classes("w-48")
                 paq = ui.switch("No ADD while REVIEW or Quality slipped", value=st.get("add_requires_quality", True))
+            ui.label("Risk controls").classes("oe-h2 pt-2")
+
+            def _pct(v):
+                return None if v in (None, "") else round(100 * float(v), 4)
+
+            with ui.row().classes("gap-3 items-end"):
+                rmp = ui.number("Max position % (blank = off)", value=_pct(st.get("max_position")), format="%.0f",
+                                min=1, max=100).props("outlined dense clearable").classes("w-56")
+                rms = ui.number("Max sector % (blank = off)", value=_pct(st.get("max_sector")), format="%.0f",
+                                min=1, max=100).props("outlined dense clearable").classes("w-52")
+                rmc = ui.number("Max correlated % (blank = off)", value=_pct(st.get("max_correlated")), format="%.0f",
+                                min=1, max=100).props("outlined dense clearable").classes("w-56")
+                rct = ui.number("Correlated means ≥", value=st.get("corr_threshold", 0.7), format="%.2f", min=0,
+                                max=1, step=0.05).props("outlined dense").classes("w-40")
+                rtc = ui.number("Trading cost (bps per trade)", value=st.get("trade_cost_bps", 0), format="%.0f",
+                                min=0).props("outlined dense").classes("w-56")
+            with ui.row().classes("gap-3 items-end"):
+                rov = ui.switch("Market overlay: limit new purchases while the S&P 500 is below its 200-day average",
+                                value=bool(st.get("market_overlay")))
+                rocb = ui.number("…buy % of normal", value=100 * float(st.get("overlay_caution_buy", 0.35)),
+                                 format="%.0f", min=0, max=100).props("outlined dense").classes("w-40")
+                rosb = ui.number("…when VIX > 30, buy %", value=100 * float(st.get("overlay_stress_buy", 0.10)),
+                                 format="%.0f", min=0, max=100).props("outlined dense").classes("w-44")
+            with ui.row().classes("gap-3 items-end"):
+                rvm = ui.select({"classic": "Classic valuation", "enhanced": "Enhanced valuation (incremental ROIC, "
+                                 "normalized earnings, dilution, maintenance capex, bear/base/bull)"},
+                                value=st.get("valuation_model", "classic"), label="Valuation").props(
+                    "outlined dense").classes("w-[520px]")
+                rpm = ui.switch("Bigger margin of safety for less predictable earnings",
+                                value=bool(st.get("predictability_mos")))
+                rdw = ui.switch("Extra early warnings (ROIC, margins, receivables, inventory, acquisitions, stock pay)",
+                                value=st.get("deterioration_warnings", True))
             with ui.row().classes("gap-3 items-end"):
                 pfund = ui.switch("When all slots are full, trim or sell clearly weaker holdings to buy a strong buy",
                                   value=st.get("fund_strong", False))
@@ -624,7 +657,16 @@ def profiles_page(pid: int | None = None):
                     "reserve_max_weeks": int(prwk.value or 0), "fund_strong": pfund.value,
                     "fund_extra_slots": int(pfx.value or 0),
                     "fund_trim_max": round(float(pft.value if pft.value is not None else 34) / 100, 6),
-                    "fund_min_hold_days": int(pfh.value or 0)})
+                    "fund_min_hold_days": int(pfh.value or 0),
+                    "max_position": round(float(rmp.value) / 100, 6) if rmp.value not in (None, "") else None,
+                    "max_sector": round(float(rms.value) / 100, 6) if rms.value not in (None, "") else None,
+                    "max_correlated": round(float(rmc.value) / 100, 6) if rmc.value not in (None, "") else None,
+                    "corr_threshold": round(float(rct.value or 0.7), 4), "trade_cost_bps": float(rtc.value or 0),
+                    "market_overlay": rov.value,
+                    "overlay_caution_buy": round(float(rocb.value if rocb.value is not None else 35) / 100, 6),
+                    "overlay_stress_buy": round(float(rosb.value if rosb.value is not None else 10) / 100, 6),
+                    "valuation_model": rvm.value, "predictability_mos": rpm.value,
+                    "deterioration_warnings": rdw.value})
                 for book, idx, mode, fl, tg, ex, wt, scale in rows_ui:
                     rr = b[book][idx]
                     rr["mode"] = mode.value
@@ -820,8 +862,29 @@ def backtest_page():
                 ui.button("Run holdings test", icon="tune", on_click=lambda: _launch("sweep", {
                     "profile_id": sprof.value, "start": sstart.value, "end": send.value,
                     "sizes": [int(x) for x in re.findall(r"\d+", ssizes.value or "")] or None})).props("unelevated")
-            for sw in db.rows("SELECT * FROM sweeps ORDER BY id DESC LIMIT 3"):
+            for sw in db.rows("SELECT * FROM sweeps WHERE COALESCE(kind,'holdings')='holdings' ORDER BY id DESC LIMIT 3"):
                 _sweep_card(dict(sw), profs)
+
+        # ---------------------------------------------------------- experiments
+        with ui.card().classes("oe-card w-full").style("border-left:4px solid #3d405b"):
+            ui.label("Experiments: find the best risk-adjusted setup").classes("oe-h2")
+            ui.label("Runs your live setup, the Risk Optimized defaults and experiments A–F (holdings, 20% cap, sector and "
+                     "correlation limits, market overlay) in one replay, then G: the most robust of A–F with the enhanced "
+                     "valuation (and G+ with a bigger margin of safety for less predictable earnings). Ranked by a "
+                     "robustness score: 30% median CAGR across three independent periods, 25% maximum drawdown, 20% "
+                     "worst 12 months, 15% consistency, 10% turnover. Trading costs come from the profile "
+                     "(Risk Optimized: 0.10% per trade).").classes("oe-small")
+            with ui.row().classes("items-end gap-3"):
+                risk_id = db.scalar("SELECT id FROM profiles WHERE name=?", (rules.RISK_NAME,))
+                eprof = ui.select({k: v.name for k, v in profs.items()}, value=risk_id or rules.default_profile().id,
+                                  label="Profile").props("outlined dense").classes("w-72")
+                estart = ui.input("Start", value=db.cfg("backfill_start", "2019-01-01")).props(
+                    "outlined dense").classes("w-36")
+                eend = ui.input("End", value=date.today().isoformat()).props("outlined dense").classes("w-36")
+                ui.button("Run experiments A–G", icon="science", on_click=lambda: _launch("experiments", {
+                    "profile_id": eprof.value, "start": estart.value, "end": eend.value})).props("unelevated")
+            for sw in db.rows("SELECT * FROM sweeps WHERE kind='experiments' ORDER BY id DESC LIMIT 2"):
+                _experiment_card(dict(sw), profs)
 
         # ---------------------------------------------------------- single backtest
         with ui.card().classes("oe-card w-full"):
@@ -1022,6 +1085,74 @@ def _sweep_card(sw: dict, profs: dict):
                         return
                     _after_apply(pid, msg)
                 ui.button("Save to profile", icon="check", on_click=apply).props("unelevated")
+
+
+def _experiment_card(sw: dict, profs: dict):
+    from .. import pipeline
+
+    p = profs.get(sw["profile_id"])
+    res = json.loads(sw["results_json"] or "[]")
+    rec = json.loads(sw["recommended_json"] or "null") or {}
+    with ui.card().classes("w-full").style("background:#fbfaf7"):
+        with ui.row().classes("w-full items-center justify-between"):
+            ui.label(f"Experiments #{sw['id']} · {p.name if p else '?'} · {sw['start_date']} → {sw['end_date']} · "
+                     f"{sw['status']}").classes("font-semibold")
+            ui.button(icon="delete", on_click=lambda: (pipeline.clear_sweep(sw["id"]), ui.navigate.reload())).props(
+                "flat round dense")
+        if not res:
+            ui.label("Running… progress shows in the top bar." if sw["status"] == "running" else "No results.").classes(
+                "oe-muted")
+            return
+        if rec.get("label"):
+            ui.html(f'<div style="font-size:15px">Most robust: <b>{rec["label"]}</b></div>', sanitize=False)
+        if rec.get("note"):
+            ui.label(rec["note"]).classes("oe-small").style("color:#a24d00")
+        bdd = next((r.get("bench_max_dd") for r in res if r.get("bench_max_dd") is not None), None)
+        b12 = next((r.get("bench_worst_12m") for r in res if r.get("bench_worst_12m") is not None), None)
+        bc = next((r.get("bench_cagr") for r in res if r.get("bench_cagr") is not None), None)
+        rows = []
+        for r in res:
+            if r.get("cagr") is None:
+                continue
+            rb = r.get("robustness") or {}
+            pc = r.get("period_cagr") or []
+            rows.append({
+                "run_id": r["run_id"], "exp": r["code"], "what": r["label"].split(" · ", 1)[-1],
+                "score": rb.get("score"), "cagr": round(100 * r["cagr"], 1), "dd": round(100 * r["max_dd"], 1),
+                "calmar": round(r["calmar"], 2) if r.get("calmar") is not None else None,
+                "w12": round(100 * r["worst_12m"], 1) if r.get("worst_12m") is not None else None,
+                "periods": " / ".join(f"{100 * x:.0f}%" for x in pc if x is not None),
+                "beat": sum(1 for x in (r.get("thirds_excess") or []) if x is not None and x > 0),
+                "turn": round(100 * r["turnover"], 0) if r.get("turnover") is not None else None,
+                "costs": f"${r['costs']:,.0f}" if r.get("costs") is not None else "",
+                "end": f"${r['end_value']:,.0f}" if r.get("end_value") else "",
+                "vs_live": "✓" if r.get("beats_live") else ""})
+        rows.sort(key=lambda x: -(x["score"] or 0))
+        grid = ui.aggrid({"columnDefs": [
+            {"field": "exp", "headerName": "Exp.", "width": 95, "minWidth": 95, "pinned": "left"},
+            {"field": "what", "headerName": "Configuration", "width": 330, "minWidth": 330, "pinned": "left", "tooltipField": "what"},
+            {"field": "score", "headerName": "Robustness", "width": 110, "minWidth": 110, "sort": "desc",
+             "headerTooltip": "0-100: 30% median period CAGR, 25% max drawdown, 20% worst 12 months, 15% consistency, "
+                              "10% turnover"},
+            {"field": "cagr", "headerName": "CAGR %", "width": 95, "minWidth": 95},
+            {"field": "dd", "headerName": "Max drawdown %", "width": 125, "minWidth": 125},
+            {"field": "calmar", "headerName": "Calmar", "width": 95, "minWidth": 95, "headerTooltip": "CAGR ÷ |max drawdown|"},
+            {"field": "w12", "headerName": "Worst 12 mo %", "width": 120, "minWidth": 120},
+            {"field": "periods", "headerName": "CAGR in each period", "width": 170, "minWidth": 170},
+            {"field": "beat", "headerName": "Periods beating S&P (of 3)", "width": 130, "minWidth": 130},
+            {"field": "turn", "headerName": "Turnover %/yr", "width": 115, "minWidth": 115},
+            {"field": "costs", "headerName": "Trading costs", "width": 115, "minWidth": 115},
+            {"field": "end", "headerName": "Ends with", "width": 115, "minWidth": 115},
+            {"field": "vs_live", "headerName": "Higher CAGR, same or lower drawdown than live", "width": 160, "minWidth": 160}],
+            "rowData": rows, "defaultColDef": {"sortable": True, "resizable": True, "wrapHeaderText": True,
+                                               "autoHeaderHeight": True},
+            "tooltipShowDelay": 300}).classes("w-full").style(f"height:{140 + 42 * len(rows)}px")
+        grid.on("cellClicked", lambda e: ui.navigate.to(f"/performance?run={e.args['data']['run_id']}"))
+        if bdd is not None:
+            ui.label(f"S&P 500 over the same period: CAGR {bc:.1%}, worst drop {bdd:.0%}"
+                     + (f", worst 12 months {b12:.0%}" if b12 is not None else "")
+                     + ". Periods are the three equal thirds of the test. Click a row to open its full results.").classes(
+                "oe-small")
 
 
 def _after_apply(pid: int, msg: str):

@@ -100,7 +100,7 @@
 <main>
 <h1>Oracle Edge</h1>
 <p class="lede">A one-click, portable, local stock screener that thinks like Warren Buffett. It keeps only the companies that pass his tests, ranks the ones selling at a sensible price, and logs a buy or sell signal whenever a stock enters or leaves that list. It refreshes itself after every market close.</p>
-<div class="meta">Plan v0.7 · updated November 20, 2026 · Location: a cloud-synced project folder · Status: app v0.9.0, installed from the repository with <span class="mono">oracle-edge\Install-OracleEdge.bat</span></div>
+<div class="meta">Plan v0.7 · updated November 20, 2026 · Location: a cloud-synced project folder · Status: app v0.10.0, installed from the repository with <span class="mono">oracle-edge\Install-OracleEdge.bat</span></div>
 
 <div class="card" style="border-color:var(--accent)">
 <b>Decisions locked (v0.2–v0.5)</b>
@@ -877,6 +877,14 @@ broker_link       (id, broker, account_hash, token_enc, refresh_expires_at, stat
 <tr><td>Repo</td><td><b>Private</b> GitHub repo for now. It's built public-ready (MIT license, no secrets in files, README), so flipping it to public later is one setting.</td></tr>
 </table>
 <h3>Answered in v0.5–v0.7</h3>
+<h3>Being tested in v0.10</h3>
+<table>
+<tr><th>Question</th><th>Approach</th></tr>
+<tr><td>Equal slices?</td><td>No forced equal weighting in the new <b>Risk Optimized</b> profile: better businesses at better prices get more (Quality × margin-of-safety factor).</td></tr>
+<tr><td>Exposure limits</td><td>Configurable maximum position (35%), sector (50%) and correlated exposure (60%); limits steer new money only.</td></tr>
+<tr><td>Market overlay, enhanced valuation</td><td>Built but off by default; experiments E/F and G/G+ decide whether they earn their place.</td></tr>
+<tr><td>How to choose</td><td>Experiments ranked by a robustness score (30% median period CAGR, 25% drawdown, 20% worst 12 months, 15% consistency, 10% turnover); the goal is higher CAGR with equal or lower drawdown than the live setup.</td></tr>
+</table>
 <p>The full test tables and reasoning are in the user guide (<code>Oracle-Edge-Guide.html</code>, section 13, "Why Buffettology 15% · best 7").
 This plan is the design record; the guide is the user manual kept current with each release.</p>
 <table>

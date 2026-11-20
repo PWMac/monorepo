@@ -68,6 +68,13 @@ pushes one stock above 25%, and lets cash wait when nothing qualifies. Backtest 
 holdings" tests every size × rule on your own history in one pass and compares the dollars with putting the same
 money into the S&P 500 on the same days.
 
+**Risk controls & experiments** (profile "Oracle Edge 15% · Risk Optimized"): value-and-quality position sizing,
+maximum position / sector / correlated exposure, an optional market overlay (S&P 500 vs its 200-day average and the
+VIX, new purchases only), trading costs, an optional enhanced valuation (incremental ROIC, normalized earnings,
+maintenance capex, dilution, bear/base/bull scenarios) and extra early warnings. Backtest → Experiments compares
+setups A–G with your live setup and ranks them by a robustness score (median period CAGR, drawdown, worst 12 months,
+consistency, turnover).
+
 **Price targets & alerts**: value sets the buy/strong-buy/trim prices; the 50/200-day averages and 52-week
 Fibonacci levels only pick a limit price inside the Buy Zone (and split the buy into thirds while the price is
 sliding). After each close the app flags stocks *approaching* (within ~1.5 average daily ranges) or *reaching*

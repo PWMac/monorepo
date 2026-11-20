@@ -5,6 +5,7 @@ Series used:
   NCBEILQ027S        fallback: nonfinancial corporate equities, $ millions
   GDP                nominal GDP, $ billions SAAR, quarterly
   DGS30 / DGS10      30-yr and 10-yr Treasury yields, %, daily
+  VIXCLS             CBOE volatility index (VIX), daily close (market overlay)
 """
 
 from __future__ import annotations
@@ -17,7 +18,7 @@ from .. import db
 from .http import Http
 
 URL = "https://fred.stlouisfed.org/graph/fredgraph.csv"
-SERIES = ["BOGZ1LM893064105Q", "NCBEILQ027S", "GDP", "DGS30", "DGS10"]
+SERIES = ["BOGZ1LM893064105Q", "NCBEILQ027S", "GDP", "DGS30", "DGS10", "VIXCLS"]
 
 # Daily FX (H.10). invert=True means the series is "foreign units per 1 USD".
 FX_SERIES = {
