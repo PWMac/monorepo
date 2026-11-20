@@ -259,6 +259,7 @@ def initial_load(job, skip_download: bool = False, resume: bool = False) -> str:
             sec.download_bulk(job.sub(0.02, 0.30, "Downloading SEC financial data (large file, one time)"))
         loaded = sec.ingest_bulk(zp, job.sub(0.30, INGEST_STEP_DONE, f"Reading financial statements for {n:,} companies"))
     fred.refresh_all(job.sub(INGEST_STEP_DONE, 0.51, "Market data (Buffett Indicator, Treasury yields, VIX)"))
+    _btc_daily(job)
     finish_setup(job, lo=0.51)
     db.set_cfg("initial_load_done", db.now())
     return f"Loaded {loaded:,} companies. Live history replayed from {backfill_start()}."
@@ -364,6 +365,7 @@ def daily_run(job, force: bool = False, send_email: bool = True, do_backup: bool
         quarterly.build(profs[0], new_cands, since=(date.today() - timedelta(days=400)).isoformat())
     detect_adr(cands)
     fred.refresh_all(job.sub(0.56, 0.58, "Market data"))
+    _btc_daily(job)
     total_signals = 0
     for k, p in enumerate(profs):
         rid = live_run(p)
@@ -393,6 +395,19 @@ def daily_run(job, force: bool = False, send_email: bool = True, do_backup: bool
         _safe_backup(job)
     return (f"Up to date through {end}: {total_signals} new signal(s), {n_alerts} price alert(s), "
             f"{len(annual)} new annual report(s), {len(q_only)} new 10-Q(s) checked.")
+
+
+def _btc_daily(job=None) -> None:
+    """Bitcoin early warning: refresh Bitcoin and QQQ, log today's call, raise market alerts. Never blocks a run."""
+    if job:
+        job.update(step="Bitcoin early warning")
+    try:
+        from . import btcsignal
+        from .market import regime_now
+
+        btcsignal.daily(regime_now()[0])
+    except Exception as e:
+        db.log("btc", "signal", False, str(e))
 
 
 def scan_targets(profs) -> int:

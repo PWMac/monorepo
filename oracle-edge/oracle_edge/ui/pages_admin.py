@@ -45,7 +45,7 @@ def setup_page():
         with ui.stepper().props("vertical animated").classes("w-full oe-card") as stepper:
             with ui.step("What this is"):
                 ui.markdown(
-                    "Oracle Edge screens U.S.-listed companies the way Warren Buffett would: **10 years of evidence**, "
+                    "Oracle Edge screens U.S.-listed companies the way the Oracle would: **10 years of evidence**, "
                     "**hard gates**, a **Quality** score, two conservative **valuation models**, and a ranked "
                     "**Buy Zone**. It logs BUY/SELL signals for a model portfolio and tracks how they performed.\n\n"
                     "*It's a research and signal-tracking tool, not financial advice. Signals are never sent to a "
@@ -93,7 +93,7 @@ def setup_page():
                 ex = ui.select(["Nasdaq", "NYSE", "CBOE", "OTC"], multiple=True,
                                value=db.cfg("exchanges", ["Nasdaq", "NYSE", "CBOE"]), label="Exchanges").props(
                     "outlined dense use-chips").classes("w-96")
-                ui.label("Small and foreign companies are included (Buffett-wide). Size floors and other rules "
+                ui.label("Small and foreign companies are included (Oracle-wide). Size floors and other rules "
                          "live in the profile (Profiles page).").classes("oe-small")
                 bf = ui.input("Backfill history from", value=db.cfg("backfill_start", "2019-01-01")).props(
                     "outlined dense").classes("w-56")
@@ -222,10 +222,42 @@ def _email_form(compact=False):
 
 
 # ===================================================================== SETTINGS
+def _market_temp_card():
+    from .. import btcsignal
+
+    s = btcsignal.settings()
+    with ui.card().classes("oe-card w-full"):
+        ui.label("Market temperature").classes("oe-h2")
+        ui.label("Two readings, tracked daily: the Buffett Indicator (market cap ÷ GDP) and the Bitcoin early "
+                 "warning. Neither is a hard stop: when either reaches an extreme, Today shows a recommendation "
+                 "and the daily email includes a market alert.").classes("oe-small")
+        with ui.row().classes("items-end gap-3"):
+            lb = ui.number("Bitcoin window (trading days)", value=s["lookback"], min=5, max=120, format="%.0f").props(
+                "outlined dense").classes("w-56")
+            hz = ui.number("QQQ horizon judged (trading days)", value=s["horizon"], min=5, max=120,
+                           format="%.0f").props("outlined dense").classes("w-60")
+            bp = ui.number("Warning: worst % of history", value=s["bear_pct"], min=5, max=40, format="%.0f").props(
+                "outlined dense").classes("w-56")
+            up = ui.number("Tailwind: best % of history", value=100 - s["bull_pct"], min=5, max=40,
+                           format="%.0f").props("outlined dense").classes("w-56")
+            on = ui.switch("Market alerts in the daily email", value=bool(s.get("alerts", True)))
+
+        def save():
+            btcsignal.save_settings({"lookback": int(lb.value or 20), "horizon": int(hz.value or 20),
+                                     "bear_pct": int(bp.value or 20), "bull_pct": 100 - int(up.value or 20),
+                                     "alerts": bool(on.value)})
+            ui.notify("Saved. The Market page and Today use the new window right away.", type="positive")
+
+        ui.button("Save", on_click=save).props("outline")
+        ui.label("The research behind the defaults found similar results for windows of about 15–30 days; the effect "
+                 "fades below about 10 and beyond about 40.").classes("oe-small")
+
+
 @ui.page("/settings")
 def settings_page():
     with frame("Settings"):
         ui.label("Settings").classes("oe-h1")
+        _market_temp_card()
         with ui.card().classes("oe-card w-full"):
             ui.label("SEC identity").classes("oe-h2")
             ua = ui.input("Name and email (sent to sec.gov)", value=db.cfg("sec_user_agent", "")).props(
@@ -485,7 +517,7 @@ def profiles_page(pid: int | None = None):
         profs = rules.list_profiles()
         cur = rules.get_profile(pid) if pid else rules.default_profile()
         ui.label("Filter profiles").classes("oe-h1")
-        ui.label("Oracle Classic is locked so the Buffett baseline always exists. Edit a copy with 'Save as'. "
+        ui.label("Oracle Classic is locked so the Oracle baseline always exists. Edit a copy with 'Save as'. "
                  "Saving bumps the version; results are rebuilt for that profile.").classes("oe-muted")
         with ui.row().classes("w-full gap-3"):
             for p in profs:
@@ -571,7 +603,7 @@ def profiles_page(pid: int | None = None):
                 pwk = ui.number("Add each week $", value=st.get("weekly_contribution", 0), format="%.0f", min=0).props(
                     "outlined dense").classes("w-40")
                 ppol = ui.select({"best_value": "Best value (highest expected return)",
-                                  "best_rank": "Best Buffett Rank", "spread": "Spread evenly",
+                                  "best_rank": "Best Oracle Rank", "spread": "Spread evenly",
                                   "patient": "Patient: wait for strong-buy prices",
                                   "reserve": "Sliding reserve: part now, the rest for strong buys"},
                                  value=st.get("new_money", "best_value"), label="New money goes to").props(
@@ -580,7 +612,7 @@ def profiles_page(pid: int | None = None):
                                  format="%.0f", min=5, max=100).props("outlined dense").classes("w-56")
                 ppw = ui.number("Patient: max weeks waiting", value=st.get("patient_max_weeks", 26), format="%.0f",
                                 min=0).props("outlined dense").classes("w-52")
-                pmin = ui.number("Min Buffett Rank to buy", value=st.get("min_rank_score", 0), format="%.0f",
+                pmin = ui.number("Min Oracle Rank to buy", value=st.get("min_rank_score", 0), format="%.0f",
                                  min=0).props("outlined dense").classes("w-48")
                 prmin = ui.number("Reserve: spend % at an ordinary buy", value=100 * float(st.get("reserve_min_deploy", 0.5)),
                                   format="%.0f", min=0, max=100).props("outlined dense").classes("w-60")

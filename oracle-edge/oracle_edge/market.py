@@ -115,3 +115,23 @@ def overlay_factor(state: str, st: dict) -> float:
     """Share of the usual new-money purchases still made in this state."""
     return {"normal": 1.0, "caution": float(st.get("overlay_caution_buy", 0.35)),
             "stress": float(st.get("overlay_stress_buy", 0.10))}.get(state, 1.0)
+
+
+def regime_now(d: str | None = None):
+    """Today's Buffett Indicator regime for the default profile (scaled daily by VTI), plus the Macro used."""
+    import bisect
+    from datetime import date
+
+    from . import rules
+
+    m = Macro()
+    vti = {r["date"]: r["adj_close"] for r in db.rows("SELECT date, adj_close FROM prices WHERE ticker='VTI' ORDER BY date")}
+    dates = sorted(vti)
+
+    def vti_adj(x):
+        i = bisect.bisect_right(dates, x) - 1
+        return vti[dates[i]] if i >= 0 else None
+
+    p = rules.default_profile()
+    return m.regime(d or date.today().isoformat(), p.settings["mos_gate"], p.settings.get("regime_modifier", False),
+                    vti_adj), m, vti_adj

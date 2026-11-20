@@ -8,10 +8,10 @@ import json
 
 from nicegui import app, ui
 
-from .. import db, rules, strength, targets
+from .. import btcsignal, db, rules, strength, targets
 from . import data
 from .layout import empty, frame, kpi
-from .theme import BADGES, BRAND, badge_html, fmt_value, ladder_html, money, num, pct, sparkline
+from .theme import BADGES, BRAND, BTC_COL, badge_html, fmt_value, ladder_html, money, num, pct, sparkline
 
 
 def _run_picker(current: int | None, live_only: bool = True, on_change=None):
@@ -79,11 +79,19 @@ def today_page():
         hold = data.holdings(run_id)
         st = data.stats(data.equity(run_id))
         # ---- KPI row
-        with ui.grid(columns=5).classes("w-full gap-3"):
+        btc = btcsignal.current()
+        with ui.grid(columns=6).classes("w-full gap-3"):
             zone_col = {"Extreme": "#a33a2b", "Significantly overvalued": "#a24d00", "Modestly overvalued": "#9a5b00",
                         "Fair": "#1f6f4a", "Undervalued": "#1f6f4a"}.get(reg.zone, None)
-            kpi(pct(reg.ratio) if reg.ratio else "—", "Market cap ÷ GDP", f"{reg.zone} · MOS gate {pct(reg.mos_gate)}",
-                zone_col, link="/market")
+            kpi(pct(reg.ratio) if reg.ratio else "—", "Buffett Indicator (market cap ÷ GDP)",
+                f"{reg.zone} · MOS gate {pct(reg.mos_gate)}", zone_col, link="/market")
+            if btc:
+                kpi(f"{btc['btc_ret'] * 100:+.1f}%", f"Bitcoin, {btc['settings']['lookback']} trading days",
+                    btcsignal.ZONE_LABEL[btc["zone"]] + (f" · cut-off {btc['bear_cut'] * 100:+.1f}%"
+                                                         if btc["bear_cut"] is not None else ""),
+                    BTC_COL.get(btc["zone"]), link="/market#btc")
+            else:
+                kpi("—", "Bitcoin early warning", "prices arrive with the next daily update", link="/market#btc")
             kpi(str(len(buy)), "In the Buy Zone", "wonderful + fairly priced", link="/list?kind=buy")
             kpi(str(len(pricey)), "Wonderful, but pricey", "watching for a buy price", link="/list?kind=pricey")
             pst = rules.get_profile(r["profile_id"]).settings if r else {}
@@ -102,13 +110,39 @@ def today_page():
                      ("" if bk.get("at") else "  ⚠"))
             ui.label(f"30-yr Treasury {pct(reg.t30, 2)}")
 
+        # ---- market warnings (never a hard stop)
+        adv = btcsignal.advice(reg, btc)
+        if adv:
+            with ui.card().classes("oe-card w-full").style("border-left:4px solid #8A5A12"):
+                ui.label("Market temperature").classes("oe-h2")
+                for a in adv:
+                    with ui.row().classes("w-full items-start gap-2 no-wrap"):
+                        ui.icon("warning" if a["level"] == "warn" else "info").classes(
+                            "text-amber-800" if a["level"] == "warn" else "text-green-800")
+                        with ui.column().classes("gap-0"):
+                            ui.label(a["title"]).classes("font-semibold")
+                            ui.label(a["text"]).classes("text-sm")
+                ui.label("Warnings, not hard stops: the model keeps following its rules. Details on the Market page."
+                         ).classes("oe-small")
+
         # ---- actions
         acts = data.actions(run_id, d) if d else []
+        al = targets.recent_alerts(7)
         with ui.card().classes("oe-card w-full"):
             ui.label(f"Actions for the next open ({len(acts)})").classes("oe-h2")
             if not acts:
-                ui.label("No new buy or sell signals today. Buffett's most common action is doing nothing.").classes(
+                ui.label("No new buy or sell signals today. The Oracle's most common action is doing nothing.").classes(
                     "oe-muted")
+                if al and d:
+                    ui.label(f"Why nothing, with {len(al)} price alert{'s' if len(al) != 1 else ''} below? An alert "
+                             "only means a price touched a level. A trade also needs the stock to pass every check "
+                             "on the close, stay in the Buy Zone for the confirmation days, and have room: a free "
+                             "slot, or a rank clearly ahead of a holding it would replace. Where each alerted "
+                             "stock stands today:").classes("text-sm mt-1")
+                    for q in data.quiet_day_reasons(run_id, d, al)[:15]:
+                        with ui.row().classes("items-center gap-2 no-wrap"):
+                            ui.link(q["ticker"], f"/stock/{q['ticker']}").classes("font-bold w-16")
+                            ui.label(q["why"]).classes("text-sm")
             for a in acts:
                 with ui.row().classes("oe-action w-full items-center justify-between"):
                     with ui.row().classes("items-center gap-3"):
@@ -131,7 +165,6 @@ def today_page():
                             "UPDATE signals SET acted_on=? WHERE id=?", (int(e.value), a["id"])))
 
         # ---- price alerts
-        al = targets.recent_alerts(7)
         if al or prof_alerts_on(r):
             with ui.card().classes("oe-card w-full"):
                 ui.label(f"Price alerts, last 7 days ({len(al)})").classes("oe-h2")
@@ -315,12 +348,12 @@ def list_page(kind: str = "buy"):
             _col("iv", "Intrinsic value", _USD, 120, "What the business is worth per share (average of the two models)."),
             _col("buy_below", "Buy below", _USD, 110, "Price that gives the profile's margin of safety."),
             _col("strong", "Strong buy below", _USD, 125, "Price that gives an extra 15% margin of safety."),
-            _col("mos", "Margin of safety", _PCT, 120, "How far the price is below value. Buffett: buy with a big margin."),
+            _col("mos", "Margin of safety", _PCT, 120, "How far the price is below value. The Oracle: buy with a big margin."),
             _col("away", "% above buy price", _PCT, 125, "How far the price must fall to reach the buy price (pricey list).",
                  sort="asc" if kind == "pricey" else None),
             _col("er", "Exp. 10-yr return", _PCT, 125,
                  "Expected yearly return over 10 years from today's price (Buffettology method)."),
-            _col("ey", "Earnings yield", _PCT, 110, "Earnings ÷ price. Buffett compares it with the 30-year Treasury."),
+            _col("ey", "Earnings yield", _PCT, 110, "Earnings ÷ price. The Oracle compares it with the 30-year Treasury."),
             _col("pe", "P/E", _NUM1, 80),
             _col("pe_med", "P/E 10-yr median", _NUM1, 110, "Typical P/E for this company over the lookback."),
             _col("mcap", "Market cap", _BIL, 105),
@@ -350,7 +383,7 @@ def list_page(kind: str = "buy"):
             _col("value", "Value score", _NUM0, 95, "How cheap the price is vs value (0–100)."),
         ]
         cols += [{"headerName": "Price and value", "children": price_cols},
-                 {"headerName": "The business, 10-year record (what Buffett checks)", "children": metric_cols},
+                 {"headerName": "The business, 10-year record (what the Oracle checks)", "children": metric_cols},
                  _col("sector", "Industry", None, 200)]
         g = ui.aggrid({
             "columnDefs": cols, "rowData": rows,
@@ -367,9 +400,9 @@ def list_page(kind: str = "buy"):
             ui.button("Export CSV", icon="download",
                       on_click=lambda: g.run_grid_method("exportDataAsCsv", {"fileName": f"oracle-edge-{kind}.csv"})
                       ).props("flat dense")
-        with ui.expansion("How to compare these like Buffett", icon="help_outline").classes("w-full oe-card"):
+        with ui.expansion("How to compare these like the Oracle", icon="help_outline").classes("w-full oe-card"):
             ui.markdown(
-                "- **Start with the business, then the price.** Sort by *Quality* or *ROE*: Buffett wants high returns on "
+                "- **Start with the business, then the price.** Sort by *Quality* or *ROE*: the Oracle wants high returns on "
                 "equity (15%+) with little debt (*Debt payback* under 3–4 years), steady earnings (*Predictability*) and "
                 "real cash (*Cash conversion* near 100%).\n"
                 "- **Moat clues:** high and stable *Gross margin* and *ROIC*, low *Capex ÷ net income*.\n"
@@ -491,7 +524,7 @@ def stock_page(ticker: str):
         # ---- rules
         with ui.card().classes("oe-card w-full"):
             with ui.row().classes("w-full justify-between items-center"):
-                ui.label("Buffett checklist").classes("oe-h2")
+                ui.label("Oracle checklist").classes("oe-h2")
                 cats = snap["category_scores"]
                 ui.label(" · ".join(f"{k.title()} {v:.0f}" for k, v in cats.items())).classes("oe-small")
             rules_by_id = {x["id"]: x for x in prof.all_rules()}
@@ -520,7 +553,7 @@ def stock_page(ticker: str):
         with ui.row().classes("w-full gap-4 no-wrap items-start"):
             with ui.card().classes("oe-card flex-1"):
                 ui.label("Your judgment").classes("oe-h2")
-                ui.label("Buffett's first filters can't be automated. Your answers are stored locally.").classes(
+                ui.label("The Oracle's first filters can't be automated. Your answers are stored locally.").classes(
                     "oe-small")
                 n = data.notes(s["cik"])
                 c1 = ui.checkbox("I understand how this business makes money", value=bool(n["understand"]))
@@ -648,7 +681,7 @@ def _targets_card(s, tp, t, owned):
                 with ui.row().classes("gap-6"):
                     for k, (pr, fr, lab) in enumerate(tp["tranches"], 1):
                         ui.label(f"{k}. ⅓ at {money(pr)} · {lab}").classes("text-sm font-semibold")
-            ui.label("Sells are business-driven, Buffett style: a SELL or REVIEW fills at the next open whatever the "
+            ui.label("Sells are business-driven, Oracle style: a SELL or REVIEW fills at the next open whatever the "
                      "chart says. Charts only fine-tune the entry price inside the Buy Zone.").classes("oe-small")
         elif tp:
             ui.label(tp["note"] or "No targets yet.").classes("oe-muted")
@@ -1008,7 +1041,7 @@ def market_page():
             kpi(pct(reg.mos_gate), "Margin of safety required",
                 "regime modifier ON" if rules.default_profile().settings.get("regime_modifier") else
                 "regime modifier off (profile setting)")
-            kpi(pct(reg.t30, 2), "30-yr Treasury", "Buffett's discount-rate anchor")
+            kpi(pct(reg.t30, 2), "30-yr Treasury", "The Oracle's discount-rate anchor")
             kpi(pct(reg.t10, 2) if reg.t10 else "—", "10-yr Treasury")
         with ui.card().classes("oe-card w-full"):
             ui.label("Buffett Indicator history").classes("oe-h2")
@@ -1027,6 +1060,99 @@ def market_page():
             }).classes("w-full h-96")
         ui.label("Zones: <90% undervalued · 90–120% fair · 120–150% modestly overvalued · 150–200% significantly "
                  "overvalued · >200% extreme. Different methods can differ by 20–40 points.").classes("oe-small")
+        _btc_section(reg)
+
+
+def _btc_section(reg):
+    s = btcsignal.settings()
+    btc = btcsignal.current(s)
+    L, H = s["lookback"], s["horizon"]
+    ui.element("a").props("id=btc")
+    ui.label("Bitcoin early warning").classes("oe-h1 mt-4")
+    ui.label(f"Bitcoin's change over the last {L} trading days, compared with its own history. In past data its "
+             f"extremes went with the next {H} trading days in tech stocks (QQQ): a drop into Bitcoin's worst "
+             f"{s['bear_pct']}% so far was followed by a weak month more often than usual. A warning about the "
+             "coming weeks, not a forecast and never a hard stop. Cut-offs use only data known on each day. "
+             "Change the window under Settings → Market temperature.").classes("oe-muted")
+    if not btc:
+        empty("No Bitcoin or QQQ prices yet. They download with the next daily update.")
+        return
+    st = btc["stats"]
+    with ui.grid(columns=4).classes("w-full gap-3"):
+        kpi(f"{btc['btc_ret'] * 100:+.1f}%", f"Bitcoin, last {L} trading days",
+            f"${btc.get('start_price') or 0:,.0f} on {btc.get('start_date', '?')} → ${btc['btc']:,.0f} on {btc['date']}",
+            BTC_COL.get(btc["zone"]))
+        kpi(btcsignal.ZONE_LABEL[btc["zone"]], "Reading", f"since {btc['since']} ({btc['days_in_zone']} trading days)",
+            BTC_COL.get(btc["zone"]))
+        kpi(f"{btc['bear_cut'] * 100:+.1f}%" if btc["bear_cut"] is not None else "—",
+            f"Warning cut-off (worst {s['bear_pct']}%)",
+            f"tailwind above {btc['bull_cut'] * 100:+.1f}%" if btc["bull_cut"] is not None else "")
+        b = st["bear"]
+        kpi(f"{b['up'] * 100:.0f}%" if b["up"] is not None else "—", f"QQQ up {H} days after a warning",
+            (f"avg {b['avg'] * 100:+.1f}% · {b['episodes']} episodes · normal days: "
+             f"{st['normal']['up'] * 100:.0f}% up" if b["up"] is not None and st["normal"]["up"] is not None else ""))
+    for a in btcsignal.advice(reg, btc):
+        ui.label(f"{a['title']}: {a['text']}").classes("text-sm")
+    rows = btcsignal.history(s)
+    with ui.card().classes("oe-card w-full"):
+        ui.label(f"Bitcoin {L}-day change and the warning cut-off").classes("oe-h2")
+        ui.echart({
+            "tooltip": {"trigger": "axis"}, "legend": {"top": 0},
+            "grid": {"left": 55, "right": 30, "top": 34, "bottom": 40},
+            "xAxis": {"type": "time"}, "yAxis": {"type": "value", "axisLabel": {"formatter": "{value}%"}},
+            "dataZoom": [{"type": "inside"}],
+            "series": [
+                {"type": "line", "name": f"Bitcoin {L}-day change", "showSymbol": False, "lineStyle": {"width": 1},
+                 "itemStyle": {"color": "#6F582C"},
+                 "data": [[r["date"], round(r["btc_ret"] * 100, 1)] for r in rows]},
+                {"type": "line", "name": "Warning cut-off", "showSymbol": False, "itemStyle": {"color": "#A8322D"},
+                 "lineStyle": {"type": "dashed", "width": 1.5},
+                 "data": [[r["date"], round(r["bear_cut"] * 100, 1)] for r in rows if r["bear_cut"] is not None]},
+                {"type": "line", "name": "Tailwind cut-off", "showSymbol": False, "itemStyle": {"color": "#1f6f4a"},
+                 "lineStyle": {"type": "dashed", "width": 1.5},
+                 "data": [[r["date"], round(r["bull_cut"] * 100, 1)] for r in rows if r["bull_cut"] is not None]},
+            ],
+        }).classes("w-full h-80")
+    with ui.card().classes("oe-card w-full"):
+        ui.label(f"What QQQ did over the next {H} trading days").classes("oe-h2")
+        ui.label("Days overlap within an episode, so the number of separate episodes says more about how much "
+                 "evidence there is than the number of days.").classes("oe-small")
+        _grid([{"zone": {"bear": "Warning (worst " + str(s["bear_pct"]) + "%)", "normal": "Normal",
+                         "bull": "Tailwind (best " + str(100 - s["bull_pct"]) + "%)"}[z],
+                "episodes": st[z]["episodes"], "days": st[z]["days"],
+                "up": round(st[z]["up"] * 100) if st[z]["up"] is not None else None,
+                "avg": round(st[z]["avg"] * 100, 1) if st[z]["avg"] is not None else None,
+                "worst": round(st[z]["worst"] * 100, 1) if st[z]["worst"] is not None else None,
+                "best": round(st[z]["best"] * 100, 1) if st[z]["best"] is not None else None}
+               for z in ("bear", "normal", "bull")],
+              [{"field": "zone", "headerName": "Bitcoin reading", "flex": 1, "minWidth": 180},
+               {"field": "episodes", "headerName": "Episodes", "width": 100},
+               {"field": "days", "headerName": "Days", "width": 90},
+               {"field": "up", "headerName": "QQQ up, % of the time", "width": 170},
+               {"field": "avg", "headerName": "QQQ average %", "width": 140},
+               {"field": "worst", "headerName": "Worst %", "width": 100},
+               {"field": "best", "headerName": "Best %", "width": 100}], height=190, click_to_stock=False)
+    fr = btcsignal.forward_record()
+    with ui.card().classes("oe-card w-full"):
+        ui.label("Live record (calls logged since it was switched on)").classes("oe-h2")
+        if not fr["calls"]:
+            ui.label("Each daily update logs that day's call. Results fill in once the "
+                     f"{H} trading days have passed, so the rule is judged on data it has never seen.").classes("oe-muted")
+        else:
+            parts = []
+            for z, lbl in (("bear", "warnings"), ("normal", "normal days"), ("bull", "tailwinds")):
+                x = fr["by_zone"][z]
+                if x["n"]:
+                    parts.append(f"{lbl}: {x['n']} resolved, QQQ up {x['up']:.0%}, average {x['avg']:+.1%}")
+            ui.label(f"{fr['calls']} call{'s' if fr['calls'] != 1 else ''} logged since {fr['first']}; "
+                     f"{fr['resolved']} resolved. " +
+                     ("; ".join(parts) if parts else "None resolved yet.")).classes("text-sm")
+    al = btcsignal.recent_alerts(30)
+    if al:
+        with ui.card().classes("oe-card w-full"):
+            ui.label("Market alerts, last 30 days").classes("oe-h2")
+            for a in al:
+                ui.label(f"{a['date']} · {a['message']}").classes("text-sm")
 
 
 # ===================================================================== MY HOLDINGS (real)

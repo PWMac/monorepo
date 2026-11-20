@@ -4,6 +4,9 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Oracle Edge · Guide</title>
+<meta name="theme-color" content="#0D341A">
+<link rel="icon" href="brand/favicon/favicon.svg" type="image/svg+xml">
+<link rel="icon" href="brand/favicon/favicon-32.png" sizes="32x32">
 <style>
 :root { --brand:#1f6f4a; --brand-soft:#e3f1ea; --ink:#1d2321; --muted:#5d6763; --line:#e2e0d8; --bg:#f7f6f2;
   --warn:#9a5b00; --warn-soft:#fbf0dc; --red:#a33a2b; --blue:#2c5d8f; --purple:#7a4f9e; }
@@ -11,9 +14,12 @@
 html { scroll-behavior:smooth; }
 body { margin:0; font-family:"Segoe UI", system-ui, -apple-system, Roboto, Arial, sans-serif; color:var(--ink);
   background:var(--bg); line-height:1.6; font-size:15.5px; }
-header.top { background:var(--brand); color:#fff; padding:28px 32px 26px; }
-header.top h1 { margin:0; font-size:30px; letter-spacing:-.3px; }
-header.top p { margin:6px 0 0; opacity:.9; max-width:860px; }
+header.top { background:#0D341A; color:#F7F2E3; padding:22px 32px 24px; border-bottom:2px solid #D6A840; }
+header.top h1 { margin:0; line-height:0; }
+header.top h1 img { height:66px; width:auto; }
+header.top p { margin:10px 0 0; opacity:.92; max-width:860px; }
+header.top a { color:#F2CB66; }
+header.top code { background:rgba(247,242,227,.14); color:#F7F2E3; }
 .wrap { display:grid; grid-template-columns:250px minmax(0,1fr); gap:32px; max-width:1240px; margin:0 auto;
   padding:24px 28px 80px; }
 nav.toc { position:sticky; top:16px; align-self:start; max-height:calc(100vh - 32px); overflow:auto;
@@ -59,14 +65,16 @@ tr:last-child td { border-bottom:none; }
 footer { color:var(--muted); font-size:12.5px; margin-top:50px; border-top:1px solid var(--line); padding-top:14px; }
 @media (max-width: 900px) { .wrap { grid-template-columns:1fr; } nav.toc { position:static; max-height:none; }
   .grid2, .grid3 { grid-template-columns:1fr; } }
-@media print { nav.toc { display:none; } .wrap { grid-template-columns:1fr; } header.top { color:#000; background:none; } }
+@media print { nav.toc { display:none; } .wrap { grid-template-columns:1fr; } header.top { color:#000; background:none; }
+  header.top h1 img { content:url(brand/logo/oracle-edge-header-tagline-light.png); } }
 </style>
 </head>
 <body>
 <header class="top">
-  <h1>Oracle Edge</h1>
-  <p>A local stock screener that thinks like Warren Buffett. This guide explains <b>what</b> the app does,
-  <b>how</b> it decides, and <b>why</b> it was built this way. Version 0.10.3.</p>
+  <h1><img src="brand/logo/oracle-edge-header-tagline.png" srcset="brand/logo/oracle-edge-header-tagline@2x.png 2x"
+     alt="Oracle Edge: Screen, Rank, Signal"></h1>
+  <p>A local stock screener that thinks like the Oracle. This guide explains <b>what</b> the app does,
+  <b>how</b> it decides, and <b>why</b> it was built this way. Version 0.11.0.</p>
   <p style="font-size:14px">Two documents: this <b>guide</b> is the user manual, kept current with every release and opened from
   "Guide" in the app. The <b>plan</b> (<code>docs/Value-Picker-Plan.html</code> with the source code) is the design record: the research, architecture,
   database layout and the decision log behind the app.</p>
@@ -110,7 +118,7 @@ footer { color:var(--muted); font-size:12.5px; margin-top:50px; border-top:1px s
 <!-- ================================================================ 1 -->
 <h2 id="what"><span class="n">1</span>What it is</h2>
 <p>Oracle Edge reads every U.S.-listed company's annual reports straight from the SEC, keeps only the businesses
-that pass Buffett-style tests, works out what each survivor is worth, and ranks the ones selling at a sensible
+that pass Oracle-style tests, works out what each survivor is worth, and ranks the ones selling at a sensible
 price. After every market close it refreshes itself, logs a <b>buy</b> signal when a stock enters the Buy Zone and a
 <b>sell</b> signal when the business stops qualifying, and tracks how those signals would have performed.</p>
 <div class="grid3">
@@ -197,7 +205,7 @@ later is a settings change, not a rewrite.</div>
 <h2 id="universe"><span class="n">5</span>Which companies are screened</h2>
 <ul>
   <li><b>Size and tradability:</b> market cap of at least $100 million and at least $250,000 traded per day. The floors are
-  deliberately low because Buffett has said that with small sums he'd hunt among small, overlooked companies.
+  deliberately low because the Oracle has said that with small sums he'd hunt among small, overlooked companies.
   The volume floor only keeps a stock practical to buy.</li>
   <li><b>Foreign companies</b> that file with the SEC (20-F / 40-F, many large ADRs) are included and valued in U.S.
   dollars per traded share. Companies listed only abroad aren't in the free data.</li>
@@ -222,7 +230,7 @@ the gates are:</p>
 <p>Two more gates apply only to <b>buying</b>: margin of safety and expected return (see section 8).</p>
 <h3>Scored rules: three anchor points</h3>
 <p>Every rule has a <b>floor</b> (scores 0), a <b>target</b> (scores 70) and an <b>excellent</b> level (scores 100), with straight
-lines in between. "Target" is Buffett's rule of thumb, so a company that just meets every rule of thumb scores about 70.</p>
+lines in between. "Target" is the Oracle's rule of thumb, so a company that just meets every rule of thumb scores about 70.</p>
 <p>Each rule's score blends <b>how good</b> the 10-year figure is with <b>how consistently</b> the company hit the target year
 by year:</p>
 <div class="formula">rule score = 0.6 × level score + 0.4 × (share of years at or better than target × 100)</div>
@@ -238,7 +246,7 @@ by year:</p>
 <p><b>Quality ≥ 70</b> is needed for the Buy Zone; 80 or more can make a buy a STRONG BUY.</p>
 <p><b>Confidence (0.85–1.00)</b> trims the rank slightly when recent line items are missing, history is short, or reported
 profits don't convert well into cash. It never boosts a score.</p>
-<div class="why"><b>Why level and consistency.</b> Buffett looks for <i>durable</i> advantages. A company that averaged 20% ROE
+<div class="why"><b>Why level and consistency.</b> The Oracle looks for <i>durable</i> advantages. A company that averaged 20% ROE
 thanks to two spectacular years is very different from one that earned 18% every year. The consistency term rewards
 the second.</div>
 
@@ -249,7 +257,7 @@ them in a copy under <b>Profiles</b>. Each company's report card shows its value
 the rule matters.</p>
 <h3>Standard companies</h3>
 <table>
-<tr><th>Rule</th><th>Measure</th><th>Target (70 pts)</th><th>Why Buffett cares</th></tr>
+<tr><th>Rule</th><th>Measure</th><th>Target (70 pts)</th><th>Why the Oracle cares</th></tr>
 <tr><td>Earnings every year <span class="pill" style="background:#fbe2dd;color:#a33a2b">gate</span></td><td>Years with a profit</td><td>10 of 10</td><td>Wild swings are typical of commodity businesses</td></tr>
 <tr><td>Debt payback <span class="pill" style="background:#fbe2dd;color:#a33a2b">gate</span></td><td>Long-term debt ÷ net income (3-yr avg)</td><td>≤ 4 years</td><td>A durable company could pay off its debt quickly</td></tr>
 <tr><td>Return on equity <span class="pill" style="background:#fbe2dd;color:#a33a2b">gate</span></td><td>Net income ÷ average equity, 10-yr avg</td><td>≥ 15%, no year &lt; 10%</td><td>Berkshire's own stated criterion: good ROE with little debt</td></tr>
@@ -271,11 +279,11 @@ the rule matters.</p>
 <tr><td>The "$1 test"</td><td>Market value added ÷ earnings retained</td><td>≥ 1.0×</td><td>Each retained dollar should create at least a dollar of value.
 A company that lost money over the period and lost market value fails it; one that paid out everything it earned has nothing retained to test.</td></tr>
 <tr><td>Capex margin</td><td>Capex ÷ net income</td><td>≤ 50%</td><td>Doesn't need much equipment to grow</td></tr>
-<tr><td>Owner earnings growth</td><td>Growth of net income + D&amp;A − capex</td><td>≥ 5% a year</td><td>Buffett's own measure of cash an owner could take out</td></tr>
+<tr><td>Owner earnings growth</td><td>Growth of net income + D&amp;A − capex</td><td>≥ 5% a year</td><td>The Oracle's own measure of cash an owner could take out</td></tr>
 <tr><td>Cash conversion</td><td>Free cash flow ÷ net income</td><td>≥ 90%</td><td>Reported profit is real cash</td></tr>
 <tr><td>Return on invested capital</td><td>After-tax operating profit ÷ (debt + equity − cash)</td><td>≥ 15%</td><td>Harder to inflate with borrowing than ROE</td></tr>
 <tr><td>Earnings yield vs bonds</td><td>Owner earnings ÷ market cap − 30-yr Treasury</td><td>≥ 0</td><td>A stock should beat a risk-free bond</td></tr>
-<tr><td>PEPG <span class="small">(info only)</span></td><td>P/E ÷ 5-yr EBITDA growth</td><td>≤ 1.5</td><td>GuruFocus's Buffett-Munger cross-check</td></tr>
+<tr><td>PEPG <span class="small">(info only)</span></td><td>P/E ÷ 5-yr EBITDA growth</td><td>≤ 1.5</td><td>GuruFocus's PEPG cross-check</td></tr>
 </table>
 
 <div class="grid2">
@@ -310,7 +318,7 @@ A company that lost money over the period and lost market value fails it; one th
 </div>
 <div class="why"><b>Why separate rulebooks.</b> A bank has no gross margin, and its "debt" (customer deposits) is its raw
 material. An insurer's "debt" is float, the premiums it holds before paying claims, which is the engine of Berkshire
-itself. Standard rules would fail every bank and insurer for the wrong reasons, yet Buffett owns many. Each company is
+itself. Standard rules would fail every bank and insurer for the wrong reasons, yet the Oracle owns many. Each company is
 judged only by rules that fit its business.</div>
 
 <!-- ================================================================ 8 -->
@@ -342,7 +350,7 @@ is (ROE − growth) ÷ (required return − growth), capped at 3×. Banks use ta
 10-year projection is used. <b>Foreign filers</b> are converted to dollars with Federal Reserve exchange rates and divided by the
 ADR ratio so the value matches the U.S.-traded share. If the implied P/E is implausible (under 3 or over 150), the stock
 stays <i>pending</i> rather than showing a wrong number.</p>
-<div class="why"><b>Why the Treasury rate.</b> Buffett has said he discounts at the long-term government rate and
+<div class="why"><b>Why the Treasury rate.</b> The Oracle has said he discounts at the long-term government rate and
 gets his safety from a large margin of safety rather than a high discount rate. The 2-point add-on keeps very low rates
 from inflating values. The 10% bar reflects his long-held expectation for a good equity investment.</div>
 <div class="why"><b>Why two models and the lower one.</b> Each model fails in different ways: a DCF is sensitive to the
@@ -370,8 +378,8 @@ points more. Both options are tested as experiments G and G+ (section 15).</p>
 
 <!-- ================================================================ 9 -->
 <h2 id="rank"><span class="n">9</span>Ranking and the lists</h2>
-<div class="formula">Buffett Rank = Quality<sup>0.65</sup> × Value<sup>0.35</sup> × Confidence</div>
-<p>Quality carries more weight than price, following Buffett's "a wonderful company at a fair price beats a fair
+<div class="formula">Oracle Rank = Quality<sup>0.65</sup> × Value<sup>0.35</sup> × Confidence</div>
+<p>Quality carries more weight than price, following the Oracle's "a wonderful company at a fair price beats a fair
 company at a wonderful price". Multiplying rather than adding means a terrible score on either side can't be hidden by
 the other.</p>
 <table>
@@ -383,7 +391,7 @@ the other.</p>
 </table>
 <h3 id="lists">Comparing stocks side by side</h3>
 <p>Click the <b>In the Buy Zone</b>, <b>Wonderful, but pricey</b> or <b>Model holdings</b> card on Today to open that list as a sortable
-table (the other two cards open Market and Performance). Each list shows the same columns, so stocks can be compared the way Buffett would:</p>
+table (the other two cards open Market and Performance). Each list shows the same columns, so stocks can be compared the way the Oracle would:</p>
 <ul>
 <li><b>The business first.</b> Sort by Quality or ROE. Look for 15%+ returns on equity with little debt (debt payback under 3–4 years),
 steady earnings (Predictability) and real cash (cash conversion near 100%). High, stable gross margin and ROIC with low capex hint at a moat.</li>
@@ -415,7 +423,7 @@ day's opening price.</p>
 <table>
 <tr><th>Signal</th><th>Rating</th><th>How it's set</th></tr>
 <tr><td>BUY, STRONG BUY, ADD</td><td>1 to 5 stars<br><span class="small">Marginal · Fair · Good · Strong · Very strong</span></td>
-<td>Every buy has passed all the gates (1 star). One more star each for: Buffett Rank score ≥ 65; Rank score ≥ 75;
+<td>Every buy has passed all the gates (1 star). One more star each for: Oracle Rank score ≥ 65; Rank score ≥ 75;
 Quality ≥ 80; and a strong-buy price (margin of safety at least 15 points above the buy gate).</td></tr>
 <tr><td>SELL</td><td><b>Act: sell</b></td><td>The business no longer qualifies.</td></tr>
 <tr><td>REVIEW</td><td><b>High</b> or <b>Low</b></td><td>High: a hard warning that becomes a SELL if the next filing confirms it. Low: a watch item that never sells.</td></tr>
@@ -428,7 +436,7 @@ The Buy Zone list and the Signals log have sortable columns for them.</p>
 
 <!-- ================================================================ 11 -->
 <h2 id="selling"><span class="n">11</span>When it sells, and why so rarely</h2>
-<p>Buffett's favorite holding period is "forever". He sells for a few reasons: the business has deteriorated, he made a
+<p>The Oracle's favorite holding period is "forever". He sells for a few reasons: the business has deteriorated, he made a
 mistake, the price has become absurd, or he needs the money for something clearly better. Oracle Edge follows the
 same rules and <b>never sells because the price fell</b>. A lower price for an intact business is an ADD, not a SELL.</p>
 <h3>REVIEW: an early warning before a SELL</h3>
@@ -449,7 +457,7 @@ carry. The checks can be switched off per profile ("Extra early warnings").</p>
 last year's year-to-date), so problems show up months before the next annual report.</p>
 <div class="why"><b>Why wait for confirmation.</b> One bad quarter is noise surprisingly often. Requiring the next filing to
 confirm a hard warning avoids selling a great business on a blip, while still acting within a quarter when the problem is
-real. Buffett has written that his costliest errors include being slow to correct mistakes, so the confirmation is one
+real. The Oracle has written that his costliest errors include being slow to correct mistakes, so the confirmation is one
 filing, not "wait and hope".</div>
 <h3>Trimming</h3>
 <ul>
@@ -519,8 +527,8 @@ expensive stock just to stay invested. If nothing qualifies, the cash waits, the
 <table>
 <tr><th>Rule</th><th>Where the money goes</th><th>When it makes sense</th></tr>
 <tr><td><b>Best value</b> (default)</td><td>The stock, owned or new, with the highest expected 10-year return, i.e. the cheapest against its value.
-When that one reaches its cap, the next best.</td><td>Buffett's "buy the most value per dollar". Money is invested right away, but only at a margin of safety.</td></tr>
-<tr><td><b>Best Rank</b></td><td>The highest Buffett Rank first (quality weighted more than price).</td><td>When you'd rather add to the best business than the cheapest.</td></tr>
+When that one reaches its cap, the next best.</td><td>The Oracle's "buy the most value per dollar". Money is invested right away, but only at a margin of safety.</td></tr>
+<tr><td><b>Best Rank</b></td><td>The highest Oracle Rank first (quality weighted more than price).</td><td>When you'd rather add to the best business than the cheapest.</td></tr>
 <tr><td><b>Spread evenly</b></td><td>Split equally across every qualifying stock.</td><td>The smoothest; closest to classic dollar-cost averaging.</td></tr>
 <tr><td><b>Patient</b></td><td>Holds cash until a stock reaches a <b>strong-buy</b> price (an extra 15% margin of safety). After 26 weeks of waiting it falls back to best value.</td><td>"Stockpile for the fat pitch". The holdings test shows whether waiting paid off.</td></tr>
 <tr><td><b>Sliding reserve</b></td><td>Buys part now and saves the rest. How much of the week's money is spent slides with how good the
@@ -551,7 +559,7 @@ return 16.2%, MOS 31%)"</i>, on Today and in the email. That answers "where shou
 periods found the cost of waiting for the perfect moment usually exceeds the benefit of even perfect timing. Investing
 immediately came a close second to an imaginary perfect timer, and staying in cash came last. Vanguard found that investing a
 lump sum beat spreading it out about two-thirds (68%) of the time, because markets rise more often than they fall. So the
-defaults invest new money as soon as there's a good price. The app adds the Buffett twist: a good price is required, so cash waits
+defaults invest new money as soon as there's a good price. The app adds the Oracle twist: a good price is required, so cash waits
 when nothing in the Buy Zone qualifies. Use the holdings test to see whether "Patient" did better on your history.</div>
 
 <h3>How many, and which rule? Let your own history decide</h3>
@@ -569,7 +577,7 @@ would be worth, and the downside (worst drop and worst 12 months) next to the S&
 </ul>
 <p><b>Save to profile</b> stores the holdings and the new-money rule. A locked profile gets a copy, for example
 "Buffettology 20% · best 8". Then use <b>Recalculate</b> on a backtest, or <b>Rebuild live signals</b>, to apply it.</p>
-<div class="why"><b>Why concentrate?</b> Buffett wrote in his 1993 letter that an investor who understands business economics
+<div class="why"><b>Why concentrate?</b> The Oracle wrote in his 1993 letter that an investor who understands business economics
 and can find five to ten sensibly priced companies with durable advantages doesn't need conventional diversification. Research on
 fund managers' "best ideas" (Cohen, Polk and Silli) finds that their highest-conviction picks beat the market and the rest of their
 own portfolios. On your own data (2019–2026), 5–12 holdings beat 20–30 under both Buffettology and Classic.</div>
@@ -620,7 +628,7 @@ rejected: it was the worst rule at 17% and 20% too, which suggests its good 15% 
 
 <h4>4. Selling to fund strong buys: off</h4>
 <p>With 7 holdings, turning on "sell weaker holdings to fund strong buys" cut the return from 28.1% to 22.1% (spread evenly) and from 27.0%
-to 21.4% (sliding reserve). It trimmed stocks whose prices had risen, which were mostly the winners, and they kept rising. That matches Buffett's
+to 21.4% (sliding reserve). It trimmed stocks whose prices had risen, which were mostly the winners, and they kept rising. That matches the Oracle's
 habit of rarely selling a wonderful business to chase a cheaper one. The model also ignores taxes, which would make it worse.</p>
 
 <h4>What the test can't tell you</h4>
@@ -672,8 +680,12 @@ included), plus the number of stocks held. Cash earns nothing in the model, so i
 </ul>
 
 <!-- ================================================================ 14 -->
-<h2 id="market"><span class="n">14</span>Market temperature (the Buffett Indicator)</h2>
-<p>Total U.S. stock market value divided by GDP, which Buffett once called "probably the best single measure of where
+<h2 id="market"><span class="n">14</span>Market temperature (the Buffett Indicator and the Bitcoin early warning)</h2>
+<p>Two readings are tracked every day, on Today and the Market page. <b>Neither is a hard stop</b>: the model keeps
+following its rules. When either one reaches an extreme, Today shows a <b>Market temperature</b> card with a
+recommendation, and the daily email includes a market alert (sent once, when a reading moves into or out of an extreme).</p>
+<h3>The Buffett Indicator</h3>
+<p>Total U.S. stock market value divided by GDP, which the Oracle once called "probably the best single measure of where
 valuations stand." It's built from the Fed's quarterly Z.1 market value and GDP, then carried forward daily using the
 total-market ETF (VTI).</p>
 <table>
@@ -684,8 +696,33 @@ total-market ETF (VTI).</p>
 <tr><td>150–200%</td><td>Significantly overvalued</td><td>35%</td></tr>
 <tr><td>over 200%</td><td>Extreme</td><td>40%</td></tr>
 </table>
-<p>The modifier is <b>off</b> by default (the gate stays at 25%), because Buffett values businesses one at a time rather than
-timing the market. The temperature is shown for context.</p>
+<p>The modifier is <b>off</b> by default (the gate stays at 25%), because the Oracle values businesses one at a time rather than
+timing the market. The temperature is shown for context. An alert goes out when it moves into or out of
+<i>Significantly overvalued</i> or <i>Extreme</i>.</p>
+
+<h3 id="btc">The Bitcoin early warning</h3>
+<p>Bitcoin's change over the last <b>20 trading days</b> (Settings → Market temperature changes the window), compared with
+its own history. In past data its extremes went with the <b>next month in tech stocks (QQQ)</b>: after Bitcoin fell into its
+worst 20% so far, QQQ rose over the following month much less often than usual; after a rise into its best 20%, more often.
+The middle of the range told nothing. It works as a warning about the coming weeks, not as a forecast of how far QQQ will move.</p>
+<table>
+<tr><th>Reading</th><th>When</th><th>Suggestion</th></tr>
+<tr><td><b>Bearish extreme</b> (warning)</td><td>Bitcoin's 20-day change is in its worst 20% so far</td><td>Hold off adding new
+money to tech-heavy holdings for the coming weeks; if you want less risk, trim part of a position rather than selling all of it.</td></tr>
+<tr><td><b>Normal</b></td><td>Anywhere in between</td><td>Nothing to do.</td></tr>
+<tr><td><b>Bullish extreme</b> (tailwind)</td><td>In its best 20% so far</td><td>Historically a supportive month. Nothing to do.</td></tr>
+</table>
+<ul>
+<li><b>No peeking.</b> Each day's cut-offs come only from the days before it, so the history on the Market page shows what the rule
+would have said at the time. Bitcoin is read at each stock-market close, so "20 days" means 20 trading days.</li>
+<li><b>Evidence.</b> The Market page shows what QQQ did after each kind of reading, with the number of separate episodes. Days within
+an episode overlap, so a handful of episodes is thin evidence, however many days they span.</li>
+<li><b>Live record.</b> Every daily update logs that day's call. Once 20 trading days have passed, QQQ's result is filled in, so
+the rule builds a record on data it has never seen. Check it on the Market page before leaning on it.</li>
+<li><b>Both at once.</b> An expensive market and a Bitcoin selloff together is the most cautious setting: keep new purchases small
+until at least one eases.</li>
+<li><b>Data.</b> Bitcoin (BTC-USD) and QQQ come from the price sources (Stooq, then Yahoo) with every daily update.</li>
+</ul>
 
 <!-- ================================================================ 15 -->
 <h2 id="backtest"><span class="n">15</span>Backtests and profiles</h2>
@@ -792,12 +829,14 @@ It picks up at the market data, scoring, prices and history replay and skips the
 <h2 id="screens"><span class="n">17</span>The screens</h2>
 <table>
 <tr><th>Screen</th><th>What it's for</th></tr>
-<tr><td><b>Today</b></td><td>Market temperature, actions for the next open with strength ratings (and "mark done"), price alerts, the Buy Zone, pricey and
-near-miss lists, holdings. The summary cards are clickable: each opens its full list (below).</td></tr>
+<tr><td><b>Today</b></td><td>The Buffett Indicator and the Bitcoin early warning, a Market temperature card when either is at an extreme,
+actions for the next open with strength ratings (and "mark done"), price alerts, the Buy Zone, pricey and near-miss lists, holdings.
+On a day with no actions but recent price alerts, it explains where each alerted stock stands (already held, still confirming, no free
+slot, not cheap enough at the close, and so on), because an alert only means a price touched a level. The summary cards are clickable: each opens its full list (below).</td></tr>
 <tr><td><b>Stock lists</b></td><td>Opened from the Today cards (Buy Zone, Wonderful but pricey, Model holdings), with tabs for near misses and
 all wonderful companies. One sortable table per list: rank, strength, Rank score, Quality, Value; price, intrinsic value, buy and strong-buy
 prices, margin of safety, % above the buy price, expected 10-year return, earnings yield, P/E vs its 10-year median, market cap; and the
-10-year business record Buffett checks (ROE, ROIC, gross and net margin, EPS and owner-earnings growth, cash conversion, capex, debt
+10-year business record the Oracle checks (ROE, ROIC, gross and net margin, EPS and owner-earnings growth, cash conversion, capex, debt
 payback, debt-to-equity, buybacks, the $1 test, predictability). Shift-click to sort by a second column, hover a header for its meaning,
 filter by text, export to CSV, click a row to open the stock.</td></tr>
 <tr><td><b>Stock report card</b></td><td>Quality, value, rank, the price ladder, price targets and your own alerts, the price-vs-value chart,
@@ -805,13 +844,15 @@ early warnings, every rule with its 10-year history, your judgment checklist (ci
 <tr><td><b>My holdings</b></td><td>Your real positions with badges</td></tr>
 <tr><td><b>Signals</b></td><td>The full signal journal with strength ratings, scores, filters and CSV export</td></tr>
 <tr><td><b>Performance</b></td><td>Your money vs the same money in the S&amp;P 500, growth of $1, drawdowns, episodes, rank-bucket results, Buy Zone stints</td></tr>
-<tr><td><b>Market</b></td><td>Buffett Indicator history and its valuation zones</td></tr>
+<tr><td><b>Market</b></td><td>Buffett Indicator history and its valuation zones; the Bitcoin early warning: today's reading, its
+history against the cut-offs, what QQQ did after each kind of reading, the live record and recent market alerts</td></tr>
 <tr><td><b>Profiles</b></td><td>Edit rules (standard, bank and insurer tabs) and the portfolio: starting money, weekly amount, how many to hold, where new money goes, swap limits</td></tr>
 <tr><td><b>Backtest</b></td><td>Find the best number of holdings and new-money rule; run and recalculate historical replays</td></tr>
 <tr><td><b>Data</b></td><td>Price sources (order, API keys, test), recent data problems, coverage gaps, foreign filers' ADR ratios, re-run first-time load, run the daily update now</td></tr>
-<tr><td><b>Settings</b></td><td>SEC identity, email, daily schedule, backup folder and restore</td></tr>
+<tr><td><b>Settings</b></td><td>Market temperature (Bitcoin window, horizon, cut-offs, market alerts), SEC identity, email, daily schedule,
+backup folder and restore</td></tr>
 </table>
-<p>Checking "Outside my circle of competence" on a stock's report card hides it from your lists. Buffett's first filter is
+<p>Checking "Outside my circle of competence" on a stock's report card hides it from your lists. The Oracle's first filter is
 whether he understands the business, and no formula can make that call for you.</p>
 
 <!-- ================================================================ 18 -->
@@ -820,6 +861,7 @@ whether he understands the business, and no formula can make that call for you.<
   Start.bat              start the app (one click)
   Run-Daily.bat          what the scheduled task runs
   README.html            this guide (also under Guide in the app's menu)
+  brand\                 logo, icons, fonts and theme (the app and this guide use it)
   oracle_edge\           the Python code
   rules\                 default rulebook (oracle_classic.yaml)
   data\oracle_edge.db    your database: filings, prices, scores, signals
@@ -833,6 +875,7 @@ Source code: the oracle-edge folder of the git repository (e.g. C:\repos\monorep
   Install-OracleEdge.bat                installs this folder's code to C:\OracleEdge (double-click)
   oracle_edge\, rules\, tests\, tools\   the app (same as C:\OracleEdge, minus data and runtime)
   docs\Value-Picker-Plan.html           the design plan
+  brand\                                logo, icons, fonts and theme colors (brand\README.md has the rules)
 
   Start.bat                             in this folder: never runs or overwrites anything (see below)
   tools\diagnostics\                    read-only backtest diagnostics
@@ -846,10 +889,10 @@ your backups are kept, so one can be restored afterwards. Run-Daily.bat likewise
 <!-- ================================================================ 19 -->
 <h2 id="whys"><span class="n">19</span>Why it works this way</h2>
 <div class="card"><b>Why rules of thumb instead of machine learning?</b><br>Every decision can be traced to a number and a rule
-you can read and change. A model that "likes" a stock for unexplainable reasons would be the opposite of Buffett's "invest
+you can read and change. A model that "likes" a stock for unexplainable reasons would be the opposite of the Oracle's "invest
 in what you understand".</div>
 <div class="card"><b>Why 10 years of history?</b><br>A full business cycle shows whether margins and returns survive a recession.
-Buffett looks for long, consistent records. The 5-year profile exists only to let backtests start earlier.</div>
+The Oracle looks for long, consistent records. The 5-year profile exists only to let backtests start earlier.</div>
 <div class="card"><b>Why wait two closes before buying?</b><br>A single day's price drop can push a stock into the zone and right
 back out. Two closes in a row filters that noise at little cost for a long-term holder.</div>
 <div class="card"><b>Why act at the next open, not the close?</b><br>Signals are computed after the close, so the earliest realistic
@@ -857,10 +900,10 @@ trade is the next open. Backtests fill there too, so the results are achievable.
 <div class="card"><b>Why a model portfolio if I have my own account?</b><br>It gives every stock a complete answer from day one, measures
 whether the signals beat the market, and makes size-based rules (trim, swap) work. Your real holdings can sit alongside it.</div>
 <div class="card"><b>Why only the best N stocks?</b><br>The old style bought everything that qualified and averaged 64 holdings,
-which made it a broad value fund that lagged the S&amp;P 500. Buffett concentrates on his best ideas, and fund research finds the
+which made it a broad value fund that lagged the S&amp;P 500. The Oracle concentrates on his best ideas, and fund research finds the
 top-conviction picks do the work. A fixed number of slots forces each new idea to beat what you already own.</div>
 <div class="card"><b>Why must a holding be owned a year before it can be swapped?</b><br>Without it the portfolio rotates out of winners as soon as
-they get pricier and something cheaper appears: lots of trading, taxes and missed compounding. Buffett's "sell something cheap
+they get pricier and something cheaper appears: lots of trading, taxes and missed compounding. The Oracle's "sell something cheap
 to buy something cheaper" is for clearly better ideas, not small rank differences.</div>
 <div class="card"><b>Why is new money only added to stocks still in the Buy Zone?</b><br>"Keep investing in the best" means adding where the
 price still offers a margin of safety. Money isn't pushed into expensive stocks just to stay fully invested; it waits, as
@@ -930,7 +973,7 @@ use the checklist on each report card.</li>
 <tr><td><b>XBRL</b></td><td>The tagged data format companies use to file financial statements with the SEC</td></tr>
 </table>
 
-<footer>Oracle Edge v0.10.3 · research tool, not financial advice · MIT license. The full design plan, with research sources,
+<footer>Oracle Edge v0.11.0 · research tool, not financial advice · MIT license. The full design plan, with research sources,
 is in <code>docs/Value-Picker-Plan.html</code> with the source code.</footer>
 </main>
 </div>

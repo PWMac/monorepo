@@ -30,12 +30,12 @@ def seed_profiles() -> None:
     _insert("Oracle Classic", classic, locked=True, active=True, notes=classic.get("description"))
     b15 = copy.deepcopy(classic)
     b15["settings"]["hurdle"] = 0.15
-    b15["description"] = "Stricter: Mary Buffett's 15% expected-return bar."
+    b15["description"] = "Stricter: the Buffettology 15% expected-return bar."
     _insert("Buffettology 15%", b15, locked=True, active=False, notes=b15["description"])
     relaxed = copy.deepcopy(classic)
     relaxed["settings"]["lookback_years"] = 5
     relaxed["settings"]["min_years"] = 5
-    relaxed["description"] = "5-year lookbacks so backtests can start earlier (less Buffett-faithful)."
+    relaxed["description"] = "5-year lookbacks so backtests can start earlier (less Oracle-faithful)."
     _insert("Relaxed backfill (5y)", relaxed, locked=True, active=False, notes=relaxed["description"])
     _seed_timing()
     _seed_risk_optimized()

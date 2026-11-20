@@ -1,7 +1,7 @@
 [project]
 name = "oracle-edge"
-version = "0.10.3"
-description = "Oracle Edge: a local, Buffett-style stock screener, ranker and signal tracker."
+version = "0.11.0"
+description = "Oracle Edge: a local, Oracle-style stock screener, ranker and signal tracker."
 readme = "README.md"
 license = { text = "MIT" }
 requires-python = ">=3.12,<3.13"

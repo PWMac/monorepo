@@ -56,9 +56,11 @@ class Stooq(PriceSource):
     def __init__(self):
         self.http = Http("Mozilla/5.0 OracleEdge", per_second=3)
 
+    SPECIAL = {"BTC-USD": "btcusd"}
+
     @staticmethod
     def symbol(t: str) -> str:
-        return t.lower().replace(".", "-") + ".us"
+        return Stooq.SPECIAL.get(t) or t.lower().replace(".", "-") + ".us"
 
     def daily_bars(self, tickers, start, end):
         frames = []

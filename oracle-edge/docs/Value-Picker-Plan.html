@@ -4,6 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Oracle Edge — Application Plan</title>
+<link rel="icon" href="../brand/favicon/favicon.svg" type="image/svg+xml">
 <style>
   :root{
     --bg:#f7f6f2; --panel:#ffffff; --ink:#1d2321; --muted:#5d6763; --line:#e2e0d8;
@@ -72,7 +73,7 @@
   <a href="#summary">1. Summary</a>
   <a href="#principles">2. Design principles</a>
   <div class="grp">The brain</div>
-  <a href="#criteria">3. Buffett criteria (defaults)</a>
+  <a href="#criteria">3. Oracle criteria (defaults)</a>
   <a href="#indicator">4. The Buffett Indicator</a>
   <a href="#ranking">5. Screening &amp; ranking method</a>
   <a href="#signals">6. Buy / sell signals</a><a href="#targets">6B. Price targets</a>
@@ -98,22 +99,23 @@
 </nav>
 
 <main>
-<h1>Oracle Edge</h1>
-<p class="lede">A one-click, portable, local stock screener that thinks like Warren Buffett. It keeps only the companies that pass his tests, ranks the ones selling at a sensible price, and logs a buy or sell signal whenever a stock enters or leaves that list. It refreshes itself after every market close.</p>
-<div class="meta">Plan v0.7 · updated November 20, 2026 · Location: a cloud-synced project folder · Status: app v0.10.3, installed from the repository with <span class="mono">oracle-edge\Install-OracleEdge.bat</span></div>
+<h1><img src="../brand/logo/oracle-edge-header-tagline-light.png" srcset="../brand/logo/oracle-edge-header-tagline-light@2x.png 2x"
+   alt="Oracle Edge: Screen, Rank, Signal" style="height:60px;width:auto;display:block"></h1>
+<p class="lede">A one-click, portable, local stock screener that thinks like the Oracle. It keeps only the companies that pass his tests, ranks the ones selling at a sensible price, and logs a buy or sell signal whenever a stock enters or leaves that list. It refreshes itself after every market close.</p>
+<div class="meta">Plan v0.8 · updated November 20, 2026 · Location: a cloud-synced project folder · Status: app v0.11.0, installed from the repository with <span class="mono">oracle-edge\Install-OracleEdge.bat</span></div>
 
 <div class="card" style="border-color:var(--accent)">
 <b>Decisions locked (v0.2–v0.5)</b>
 <table style="margin:8px 0 0">
 <tr><th>Topic</th><th>Decision</th><th>Where it shows up</th></tr>
 <tr><td>Name</td><td><b>Oracle Edge</b></td><td>Everywhere</td></tr>
-<tr><td>Buy/sell</td><td><b>Clear signal ladder, Buffett style.</b> Sell only when the business breaks or something much better comes along, never on price alone.</td><td>§6</td></tr>
+<tr><td>Buy/sell</td><td><b>Clear signal ladder, Oracle style.</b> Sell only when the business breaks or something much better comes along, never on price alone.</td><td>§6</td></tr>
 <tr><td>Data</td><td><b>Start free, switch with one click.</b> Every source is a plug-in with automatic fallback.</td><td>§8</td></tr>
 <tr><td>Backtest</td><td><b>2019 → today</b> by default, strict 10-year rules</td><td>§11</td></tr>
-<tr><td>Universe</td><td><b>Buffett-wide:</b> U.S. companies of all sizes down to small caps, plus foreign companies that file with the SEC. Non-SEC foreign markets (e.g. Tokyo) come later via a paid data source.</td><td>§3G</td></tr>
-<tr><td>Financials</td><td><b>Included</b>, with their own bank and insurer rulebooks (Buffett owns many)</td><td>§3H</td></tr>
-<tr><td>Expected return</td><td><b>Buffett's own yardstick:</b> discount at the long-term Treasury rate (plus 1–2 pts when rates are low), demand a big margin of safety, and require at least a 10% expected return. Buffettology's 15% is available as a stricter template.</td><td>§5</td></tr>
-<tr><td>Trimming</td><td><b>Buffett's rules:</b> trim at nose-bleed valuations, trim oversized positions, and fund better ideas</td><td>§6</td></tr>
+<tr><td>Universe</td><td><b>Oracle-wide:</b> U.S. companies of all sizes down to small caps, plus foreign companies that file with the SEC. Non-SEC foreign markets (e.g. Tokyo) come later via a paid data source.</td><td>§3G</td></tr>
+<tr><td>Financials</td><td><b>Included</b>, with their own bank and insurer rulebooks (the Oracle owns many)</td><td>§3H</td></tr>
+<tr><td>Expected return</td><td><b>The Oracle's own yardstick:</b> discount at the long-term Treasury rate (plus 1–2 pts when rates are low), demand a big margin of safety, and require at least a 10% expected return. Buffettology's 15% is available as a stricter template.</td><td>§5</td></tr>
+<tr><td>Trimming</td><td><b>The Oracle's rules:</b> trim at nose-bleed valuations, trim oversized positions, and fund better ideas</td><td>§6</td></tr>
 <tr><td>Alerts</td><td><b>Email</b> daily digest when there are actions, plus a Windows notification</td><td>§6, §13</td></tr>
 <tr><td>Price targets</td><td><b>Value sets the price; the chart only times the entry.</b> Buy/strong-buy/trim prices come from intrinsic value. Moving averages and Fibonacci levels pick a limit price inside the Buy Zone. Alerts fire when a price is approaching (volatility band) or reached.</td><td>§6B</td></tr>
 <tr><td>Tech stack</td><td><b>All-Python with NiceGUI</b>: one language, polished UI components, easy to share on GitHub</td><td>§9</td></tr>
@@ -135,11 +137,11 @@
 <p><b>How it works, end to end:</b></p>
 <ol>
   <li><b>Gather.</b> After each market close it pulls end-of-day prices and checks the SEC for any new 10-K or 10-Q filings.</li>
-  <li><b>Measure.</b> For each company it calculates about 30 Buffett metrics over a 10-year window, covering both the level of each number and how consistent it has been.</li>
+  <li><b>Measure.</b> For each company it calculates about 30 Oracle metrics over a 10-year window, covering both the level of each number and how consistent it has been.</li>
   <li><b>Sieve.</b> Hard <span class="pill gate">Gate</span> rules drop anything that fails outright. The rest get a 0–100 <b>Quality score</b>.</li>
   <li><b>Price it.</b> Two conservative intrinsic-value models give each company an <b>expected 10-year return</b> and a <b>margin of safety</b>, which together make the <b>Value score</b>.</li>
-  <li><b>Rank.</b> Buffett Rank = Quality<sup>0.65</sup> × Value<sup>0.35</sup> × Confidence. Both have to be good, and business quality counts a bit more than cheapness: "a wonderful company at a fair price" beats "a fair company at a wonderful price".</li>
-  <li><b>Signal.</b> Every stock gets one clear badge from a seven-step ladder (STRONG BUY · BUY · ADD · HOLD · WATCH · REVIEW · SELL/SWAP), plus exact price levels: "strong buy below $A, buy below $B". SELL fires only when the business itself breaks or a much better opportunity needs the money, which is how Buffett sells. Each holding is tracked from BUY to SELL against the S&amp;P 500.</li>
+  <li><b>Rank.</b> Oracle Rank = Quality<sup>0.65</sup> × Value<sup>0.35</sup> × Confidence. Both have to be good, and business quality counts a bit more than cheapness: "a wonderful company at a fair price" beats "a fair company at a wonderful price".</li>
+  <li><b>Signal.</b> Every stock gets one clear badge from a seven-step ladder (STRONG BUY · BUY · ADD · HOLD · WATCH · REVIEW · SELL/SWAP), plus exact price levels: "strong buy below $A, buy below $B". SELL fires only when the business itself breaks or a much better opportunity needs the money, which is how the Oracle sells. Each holding is tracked from BUY to SELL against the S&amp;P 500.</li>
   <li><b>Context.</b> The market-wide Buffett Indicator (total market cap ÷ GDP) appears as a "market temperature" gauge. You can also have it raise the margin-of-safety bar when the market is expensive.</li>
 </ol>
 
@@ -147,7 +149,7 @@
 <h2 id="principles">2. Design principles</h2>
 <div class="grid2">
   <div class="card"><b>Explain everything.</b> Every pass, fail and rank links to the numbers behind it, a 10-year sparkline and a plain-English reason. No black box.</div>
-  <div class="card"><b>Consistency over snapshots.</b> Buffett cared about 10 years of evidence, not one good quarter. Every rule is scored on its median <i>and</i> on how many years it passed.</div>
+  <div class="card"><b>Consistency over snapshots.</b> The Oracle cared about 10 years of evidence, not one good quarter. Every rule is scored on its median <i>and</i> on how many years it passed.</div>
   <div class="card"><b>Honest history.</b> Backfills only use data that was public on each simulated date (point-in-time), so the backtest can't peek at the future.</div>
   <div class="card"><b>Private and portable.</b> No account and no cloud. Your data and settings stay in one SQLite file inside the folder.</div>
   <div class="card"><b>Safe by default.</b> Signals are tracked in a model portfolio, not your account. Placing real orders (a later phase) always needs your confirmation.</div>
@@ -155,14 +157,14 @@
 </div>
 
 <!-- ============ 3 ============ -->
-<h2 id="criteria">3. Buffett criteria — the default "Oracle Classic" profile</h2>
+<h2 id="criteria">3. Oracle criteria — the default "Oracle Classic" profile</h2>
 <p>The defaults combine your image (Brian Feroldi's income-statement rules of thumb, taken from Mary Buffett &amp; David Clark's <i>Warren Buffett and the Interpretation of Financial Statements</i>) with the companion balance-sheet and cash-flow rules from that book. They also draw on <i>Buffettology</i>, Hagstrom's <i>The Warren Buffett Way</i>, Berkshire's published acquisition criteria and the shareholder letters.</p>
 <p><b>Rule modes:</b> <span class="pill gate">Gate</span> must pass or the stock is out · <span class="pill scored">Scored</span> adds to the Quality score · <span class="pill buy">Buy gate</span> must pass for a BUY signal (valuation) · <span class="pill info">Info</span> shown but not scored. You can switch any rule between modes in a custom profile.</p>
 <p class="small">Lookback defaults to the last 10 fiscal years, with a minimum of 7. "Median" means the 10-year median. "Consistency" is the share of years that met the target.</p>
 
 <h3>A. Income statement (from your image)</h3>
 <table>
-<tr><th>#</th><th>Rule</th><th>Formula</th><th>Default</th><th>Mode</th><th>Why Buffett cares</th></tr>
+<tr><th>#</th><th>Rule</th><th>Formula</th><th>Default</th><th>Mode</th><th>Why the Oracle cares</th></tr>
 <tr><td>1</td><td>Gross margin</td><td>Gross profit ÷ Revenue</td><td>&gt; 40%</td><td><span class="pill scored">Scored</span></td><td>Shows the company isn't competing on price, which hints at a moat.</td></tr>
 <tr><td>2</td><td>SG&amp;A margin</td><td>SG&amp;A ÷ Gross profit</td><td>&lt; 30%</td><td><span class="pill scored">Scored</span></td><td>Doesn't have to spend heavily to keep customers.</td></tr>
 <tr><td>3</td><td>R&amp;D margin</td><td>R&amp;D ÷ Gross profit</td><td>&lt; 30% (0 is fine)</td><td><span class="pill scored">Scored</span></td><td>Heavy R&amp;D means the advantage has to be rebuilt over and over.</td></tr>
@@ -189,7 +191,7 @@
 <table>
 <tr><th>#</th><th>Rule</th><th>Formula</th><th>Default</th><th>Mode</th><th>Why</th></tr>
 <tr><td>16</td><td>Capex margin</td><td>Capex ÷ Net income</td><td>&lt; 25% excellent, &lt; 50% OK</td><td><span class="pill scored">Scored</span></td><td>Doesn't need much equipment to grow profits.</td></tr>
-<tr><td>17</td><td>Owner earnings</td><td>Net income + D&amp;A − maintenance capex − Δ working capital</td><td>Positive &amp; growing</td><td><span class="pill scored">Scored</span></td><td>Buffett's own measure of the cash an owner could take out.</td></tr>
+<tr><td>17</td><td>Owner earnings</td><td>Net income + D&amp;A − maintenance capex − Δ working capital</td><td>Positive &amp; growing</td><td><span class="pill scored">Scored</span></td><td>The Oracle's own measure of the cash an owner could take out.</td></tr>
 <tr><td>18</td><td>Cash conversion</td><td>Free cash flow ÷ Net income</td><td>≥ 90%</td><td><span class="pill scored">Scored</span></td><td>Confirms the reported profit is real cash. A big gap is an accounting red flag.</td></tr>
 </table>
 
@@ -211,10 +213,10 @@
 <h3>F. Valuation (decides whether a qualifying company is a buy today)</h3>
 <table>
 <tr><th>#</th><th>Rule</th><th>Formula</th><th>Default</th><th>Mode</th><th>Why</th></tr>
-<tr><td>24</td><td>Margin of safety</td><td>1 − Price ÷ Intrinsic value (conservative)</td><td>≥ 25%</td><td><span class="pill buy">Buy gate</span></td><td>Graham's core principle, which Buffett kept.</td></tr>
-<tr><td>25</td><td>Expected 10-yr return</td><td>Lower of the two IV models (see §5)</td><td>≥ 10%/yr (Buffett's informal bar; Buffettology template: 15%)</td><td><span class="pill buy">Buy gate</span></td><td>Turns "price" into "what will I earn from here?"</td></tr>
-<tr><td>26</td><td>Earnings yield vs bonds</td><td>Owner earnings ÷ Market cap vs 10-yr Treasury yield</td><td>Yield &gt; Treasury</td><td><span class="pill scored">Scored</span></td><td>Buffett compares a stock to an "equity bond" against risk-free bonds.</td></tr>
-<tr><td>27</td><td>PEPG</td><td>P/E ÷ 5-yr EBITDA growth %</td><td>≤ 1.5</td><td><span class="pill info">Info</span></td><td>GuruFocus's Buffett-Munger valuation check, kept for cross-reference.</td></tr>
+<tr><td>24</td><td>Margin of safety</td><td>1 − Price ÷ Intrinsic value (conservative)</td><td>≥ 25%</td><td><span class="pill buy">Buy gate</span></td><td>Graham's core principle, which the Oracle kept.</td></tr>
+<tr><td>25</td><td>Expected 10-yr return</td><td>Lower of the two IV models (see §5)</td><td>≥ 10%/yr (the Oracle's informal bar; Buffettology template: 15%)</td><td><span class="pill buy">Buy gate</span></td><td>Turns "price" into "what will I earn from here?"</td></tr>
+<tr><td>26</td><td>Earnings yield vs bonds</td><td>Owner earnings ÷ Market cap vs 10-yr Treasury yield</td><td>Yield &gt; Treasury</td><td><span class="pill scored">Scored</span></td><td>The Oracle compares a stock to an "equity bond" against risk-free bonds.</td></tr>
+<tr><td>27</td><td>PEPG</td><td>P/E ÷ 5-yr EBITDA growth %</td><td>≤ 1.5</td><td><span class="pill info">Info</span></td><td>GuruFocus's PEPG valuation check, kept for cross-reference.</td></tr>
 </table>
 
 <h3>G. Universe &amp; market context</h3>
@@ -222,15 +224,15 @@
 <tr><th>#</th><th>Rule</th><th>Default</th><th>Mode</th><th>Notes</th></tr>
 <tr><td>28</td><td>Buffett Indicator regime</td><td>Market cap ÷ GDP band</td><td><span class="pill info">Info</span> (optional modifier)</td><td>See §4. Optionally raises the MOS gate from 25% to 30–40% when the market is expensive.</td></tr>
 <tr><td>U1</td><td>Data sufficiency</td><td>≥ 7 annual reports with all core line items</td><td><span class="pill gate">Gate</span></td><td>Avoids ranking companies the app can't actually measure.</td></tr>
-<tr><td>U2</td><td>Size &amp; tradability</td><td>Mkt cap ≥ $100M; avg $ volume ≥ $250k/day</td><td><span class="pill gate">Gate</span></td><td>Deliberately low. Buffett has said that with a small sum he would hunt among small, overlooked companies. The volume floor just keeps a stock buyable for an individual. Both are editable.</td></tr>
-<tr><td>U2b</td><td>Foreign companies</td><td>Include SEC filers (20-F / 40-F, IFRS)</td><td><span class="pill gate">Gate</span></td><td>Buffett buys abroad when the numbers are compelling (see note below). Foreign rows show the reporting currency and a currency-risk flag.</td></tr>
+<tr><td>U2</td><td>Size &amp; tradability</td><td>Mkt cap ≥ $100M; avg $ volume ≥ $250k/day</td><td><span class="pill gate">Gate</span></td><td>Deliberately low. The Oracle has said that with a small sum he would hunt among small, overlooked companies. The volume floor just keeps a stock buyable for an individual. Both are editable.</td></tr>
+<tr><td>U2b</td><td>Foreign companies</td><td>Include SEC filers (20-F / 40-F, IFRS)</td><td><span class="pill gate">Gate</span></td><td>The Oracle buys abroad when the numbers are compelling (see note below). Foreign rows show the reporting currency and a currency-risk flag.</td></tr>
 <tr><td>U3</td><td>Sector routing</td><td>Banks → Bank rulebook · Insurers → Insurer rulebook · REITs, BDCs, SPACs, shells → excluded · everything else → standard rules</td><td><span class="pill gate">Gate</span></td><td>See §3H. Each company is scored only by rules that make sense for its business.</td></tr>
 </table>
 
-<div class="callout blue"><b>Why the universe is this wide.</b> Berkshire's big Japanese bet shows Buffett will buy abroad: its stakes in three of the five trading houses <i>(Mitsubishi, Mitsui, Itochu)</i> passed 10% by the end of 2025. In 2004 he also bought around two dozen cheap South Korean stocks personally, and he advises watching small, obscure stocks that trade at steep discounts to value. He is also open that he can't forecast currency moves, hence the currency flag. <b>Data limit:</b> free SEC data covers U.S. companies and foreign companies that file with the SEC (many large ADRs). Companies listed only abroad, like the Japanese trading houses, need a paid global source (e.g. EODHD fundamentals). That's a later add-on, flagged in §19.</div>
+<div class="callout blue"><b>Why the universe is this wide.</b> Berkshire's big Japanese bet shows the Oracle will buy abroad: its stakes in three of the five trading houses <i>(Mitsubishi, Mitsui, Itochu)</i> passed 10% by the end of 2025. In 2004 he also bought around two dozen cheap South Korean stocks personally, and he advises watching small, obscure stocks that trade at steep discounts to value. He is also open that he can't forecast currency moves, hence the currency flag. <b>Data limit:</b> free SEC data covers U.S. companies and foreign companies that file with the SEC (many large ADRs). Companies listed only abroad, like the Japanese trading houses, need a paid global source (e.g. EODHD fundamentals). That's a later add-on, flagged in §19.</div>
 
 <h3>H. Bank &amp; insurer rulebooks</h3>
-<p><b>Why separate rules?</b> A bank has no "gross margin" or "cost of goods". Its debt (customer deposits) <i>is</i> its raw material, so the standard rules would fail every bank on debt-to-equity and margins. That says nothing about whether it's a good bank. Insurers are similar: their "debt" is customer premiums held as <b>float</b>, which is the engine of Berkshire itself. Buffett owns both kinds (American Express, Bank of America, Chubb), so Oracle Edge scores them with rules that fit:</p>
+<p><b>Why separate rules?</b> A bank has no "gross margin" or "cost of goods". Its debt (customer deposits) <i>is</i> its raw material, so the standard rules would fail every bank on debt-to-equity and margins. That says nothing about whether it's a good bank. Insurers are similar: their "debt" is customer premiums held as <b>float</b>, which is the engine of Berkshire itself. The Oracle owns both kinds (American Express, Bank of America, Chubb), so Oracle Edge scores them with rules that fit:</p>
 <div class="grid2">
 <table>
 <tr><th>Banks</th><th>Default</th></tr>
@@ -256,11 +258,11 @@
 </table>
 </div>
 <p class="small">Some of these figures (combined ratio, charge-offs) aren't consistently tagged in SEC data, so the rulebooks are built in phase 2, after the core engine. Until then, banks and insurers appear with a "rulebook pending" label instead of being scored wrongly.</p>
-<div class="callout warn"><b>What can't be automated.</b> Buffett's first filters are qualitative: is the business understandable (circle of competence), is management honest and owner-minded, and will the moat last 20 years? The app approximates these with numbers (rules 21–23, buybacks, margin stability). Each stock's report card also gets a short <b>Your judgment</b> checklist, and a stock you mark "outside my circle" is hidden from your rankings.</div>
+<div class="callout warn"><b>What can't be automated.</b> The Oracle's first filters are qualitative: is the business understandable (circle of competence), is management honest and owner-minded, and will the moat last 20 years? The app approximates these with numbers (rules 21–23, buybacks, margin stability). Each stock's report card also gets a short <b>Your judgment</b> checklist, and a stock you mark "outside my circle" is hidden from your rankings.</div>
 
 <!-- ============ 4 ============ -->
 <h2 id="indicator">4. The Buffett Indicator ("market temperature")</h2>
-<p><b>What it is:</b> total U.S. stock market value ÷ U.S. GDP. Buffett called it probably the best single gauge of overall valuation, in a 2001 Fortune interview. It rates the whole market, not individual stocks, so the app uses it as a <b>regime overlay</b> rather than a per-stock filter.</p>
+<p><b>What it is:</b> total U.S. stock market value ÷ U.S. GDP. The Oracle called it probably the best single gauge of overall valuation, in a 2001 Fortune interview. It rates the whole market, not individual stocks, so the app uses it as a <b>regime overlay</b> rather than a per-stock filter.</p>
 <div class="grid3">
   <div class="card"><div class="stat">≈ 255%</div><div class="stat-l">Fed Z.1 official reading, Q2 2026</div></div>
   <div class="card"><div class="stat">≈ 260%</div><div class="stat-l">Price-scaled estimate, Oct 20, 2026</div></div>
@@ -284,6 +286,8 @@
 <div class="callout blue"><b>Caveats shown in the app:</b> methods differ (Z.1, Wilshire and GDP+Fed-balance-sheet versions can be 20–40 points apart). Mega-cap concentration and global revenue push the ratio up structurally. It's a slow-moving context signal, not a timing tool.</div>
 
 <!-- ============ 5 ============ -->
+<div class="callout"><b>Added in v0.11: the Bitcoin early warning.</b> A second market-temperature reading: Bitcoin's change over the last 20 trading days (a setting) against its own expanding history. A drop into its worst 20% so far has gone with a weak next month for QQQ; a rise into its best 20% with a strong one. Like the Buffett Indicator it never blocks a trade: it drives a recommendation on Today and a market alert in the daily email. Every day's call is logged and scored 20 trading days later, so the rule builds a record on data it has never seen.</div>
+
 <h2 id="ranking">5. Screening &amp; ranking method</h2>
 <p>Most screeners give you a pass/fail list with no order. This one runs four stages so the top of the list is always the best <i>combination</i> of business quality and price.</p>
 
@@ -334,7 +338,7 @@ Quality      = Σ category_weight × avg(rule_scores in category)
 <li>Start: owner earnings per share (5-yr normalized)</li>
 <li>Growth g = lowest of: sustainable growth ROE×(1−payout), 10-yr EPS CAGR, 15% cap</li>
 <li>10 years at g, fading to 3% terminal growth</li>
-<li>Discount rate = <b>long-term (30-yr) Treasury yield</b>, plus 2 pts while that yield is under 5%. This is Buffett's own method: he discounts at the long-term government rate, adds a point or two when rates look low, and handles risk with a big margin of safety rather than a higher rate.</li>
+<li>Discount rate = <b>long-term (30-yr) Treasury yield</b>, plus 2 pts while that yield is under 5%. This is the Oracle's own method: he discounts at the long-term government rate, adds a point or two when rates look low, and handles risk with a big margin of safety rather than a higher rate.</li>
 <li>Result: IV<sub>A</sub> and implied return at today's price</li>
 </ul></div>
 <div class="card">
@@ -351,15 +355,15 @@ Quality      = Σ category_weight × avg(rule_scores in category)
 Intrinsic value (IV) = min(IV_A, IV_B)
 Margin of safety     = 1 − Price ÷ IV
 Value score (0–100)  = 0 at ER 5% · 70 at hurdle (10%) · 100 at ER ≥ 20%</pre>
-<div class="callout blue"><b>Buffett's return expectations, as built in.</b> (1) <b>Discounting:</b> long-term Treasury rate, with no extra "risk premium". Risk is handled by demanding a big discount to value (the margin-of-safety gate). (2) <b>Hurdle:</b> Buffett says he has never formally used a hurdle rate. In practice he has often passed on deals expected to return less than about 10%, and every candidate is compared with what bonds pay (rule 26). Default: <b>10%</b>. (3) <b>Stricter option:</b> the <i>Buffettology 15%</i> profile uses the 15% bar from Mary Buffett's books. (4) Because a Treasury discount rate makes intrinsic values high for fast growers, growth is capped at sustainable growth, fades to 3% after 10 years, and only "quite certain" businesses (the ones that passed the gates) are valued at all.</div>
+<div class="callout blue"><b>The Oracle's return expectations, as built in.</b> (1) <b>Discounting:</b> long-term Treasury rate, with no extra "risk premium". Risk is handled by demanding a big discount to value (the margin-of-safety gate). (2) <b>Hurdle:</b> The Oracle says he has never formally used a hurdle rate. In practice he has often passed on deals expected to return less than about 10%, and every candidate is compared with what bonds pay (rule 26). Default: <b>10%</b>. (3) <b>Stricter option:</b> the <i>Buffettology 15%</i> profile uses the 15% bar from Mary Buffett's books. (4) Because a Treasury discount rate makes intrinsic values high for fast growers, growth is capped at sustainable growth, fades to 3% after 10 years, and only "quite certain" businesses (the ones that passed the gates) are valued at all.</div>
 
-<h3>Final Buffett Rank</h3>
-<pre>Buffett Rank Score = Quality^0.65 × Value^0.35 × Confidence      (0–100)
+<h3>Final Oracle Rank</h3>
+<pre>Oracle Rank Score = Quality^0.65 × Value^0.35 × Confidence      (0–100)
 
 Confidence  = 0.85–1.00 based on years of data, missing line items, restatements and
               whether net income and operating cash flow agree.
 Tie-break   = higher margin of safety, then higher ROIC.</pre>
-<div class="callout"><b>Why this formula?</b> Multiplying (instead of averaging) means a weak score on either side drags the whole rank down, so a stock can't ride one great number. The 65/35 tilt toward quality encodes Buffett's line that a wonderful company at a fair price beats a fair company at a wonderful price. Both exponents are profile settings, so you can test 50/50 or 75/25 in a backtest and let the rank-bucket report (§7) show which works better.</div>
+<div class="callout"><b>Why this formula?</b> Multiplying (instead of averaging) means a weak score on either side drags the whole rank down, so a stock can't ride one great number. The 65/35 tilt toward quality encodes the Oracle's line that a wonderful company at a fair price beats a fair company at a wonderful price. Both exponents are profile settings, so you can test 50/50 or 75/25 in a backtest and let the rank-bucket report (§7) show which works better.</div>
 
 <h3>Worked example (illustrative companies)</h3>
 <p>Four companies that all passed the gates, in a "fair" market regime (MOS gate 25%):</p>
@@ -383,8 +387,8 @@ Tie-break   = higher margin of safety, then higher ROIC.</pre>
 
 <!-- ============ 6 ============ -->
 <h2 id="signals">6. Buy / sell signals: the Oracle Edge ladder</h2>
-<p>Every stock always has <b>exactly one badge</b>, computed after each close for your portfolio. SWAP and the TRIM badges are Buffett's three "sell part or all" cases: something better needs the money, the price got silly, or one position got too big. Each badge comes with a <b>one-line reason</b> and <b>exact price levels</b>, so the answer to "should I buy or sell this?" is never fuzzy.</p>
-<div class="callout"><b>Buffett-style selling, built in.</b> Buffett has given two reasons to sell: <b>the business changed for the worse</b>, or <b>the money is needed for a clearly better opportunity</b>. He also warns that delaying the fix for a mistake is the real sin. Selling after a price drop, or because a great company got expensive, is not on the list. (He has called his early McDonald's sale a big mistake.) The ladder follows exactly that.</div>
+<p>Every stock always has <b>exactly one badge</b>, computed after each close for your portfolio. SWAP and the TRIM badges are the Oracle's three "sell part or all" cases: something better needs the money, the price got silly, or one position got too big. Each badge comes with a <b>one-line reason</b> and <b>exact price levels</b>, so the answer to "should I buy or sell this?" is never fuzzy.</p>
+<div class="callout"><b>Oracle-style selling, built in.</b> The Oracle has given two reasons to sell: <b>the business changed for the worse</b>, or <b>the money is needed for a clearly better opportunity</b>. He also warns that delaying the fix for a mistake is the real sin. Selling after a price drop, or because a great company got expensive, is not on the list. (He has called his early McDonald's sale a big mistake.) The ladder follows exactly that.</div>
 
 <table>
 <tr><th>Badge</th><th>Applies to</th><th>Trigger (defaults, editable per profile)</th><th>What to do</th></tr>
@@ -396,8 +400,8 @@ Tie-break   = higher margin of safety, then higher ROIC.</pre>
 <tr><td><span class="pill" style="background:#ffe7cc;color:#a24d00">⚠ REVIEW</span></td><td>Owned</td><td>Early warning, not yet a sell: Quality down ≥ 10 pts since purchase · a gate within 10% of failing · a gate failed on <i>quarterly</i> (trailing-12-month) data only · accounting red flag (profits far above cash flow, sudden dilution, auditor change).</td><td>Read the latest filing. Becomes SELL automatically if the next filing confirms it.</td></tr>
 <tr><td><span class="pill gate" style="background:#a33a2b;color:#fff">▼ SELL — thesis broken</span></td><td>Owned</td><td>Fails any gate on <i>annual</i> (10-K) data · a REVIEW confirmed by the next filing · Quality &lt; 55.</td><td>Sell at the next open. The business changed.</td></tr>
 <tr><td><span class="pill blue" style="background:#2c5d8f;color:#fff">⇄ SWAP</span></td><td>Owned</td><td>A new BUY/STRONG BUY beats your <i>weakest</i> holding by ≥ 15 Rank points <b>and</b> ≥ 4 pts of expected return, <b>and</b> money is needed for it: you've hit an optional holdings limit, or your entered cash isn't enough.</td><td>Sell the weakest, buy the new one. With no limit and enough cash, the new stock just shows as BUY, and the weaker holding gets an "upgrade available" note.</td></tr>
-<tr><td><span class="pill" style="background:#7a4f9e;color:#fff">✂ TRIM — nose-bleed price</span></td><td>Owned</td><td>Price ≥ 2× intrinsic value <b>and</b> P/E ≥ 2× its own 10-yr median, for 10 consecutive closes.</td><td>Sell about one-third and keep the core. This mirrors Buffett's admission that he erred by not selling several large holdings during the 1998–2000 bubble, when Coca-Cola's valuation got extreme.</td></tr>
-<tr><td><span class="pill" style="background:#7a4f9e;color:#fff">✂ TRIM — oversized</span></td><td>Owned</td><td>One position grows above 40% of the portfolio.</td><td>Trim back to 30%. Like Buffett's 2024 Apple sales: he cut the stake and still kept it as his largest holding.</td></tr>
+<tr><td><span class="pill" style="background:#7a4f9e;color:#fff">✂ TRIM — nose-bleed price</span></td><td>Owned</td><td>Price ≥ 2× intrinsic value <b>and</b> P/E ≥ 2× its own 10-yr median, for 10 consecutive closes.</td><td>Sell about one-third and keep the core. This mirrors the Oracle's admission that he erred by not selling several large holdings during the 1998–2000 bubble, when Coca-Cola's valuation got extreme.</td></tr>
+<tr><td><span class="pill" style="background:#7a4f9e;color:#fff">✂ TRIM — oversized</span></td><td>Owned</td><td>One position grows above 40% of the portfolio.</td><td>Trim back to 30%. Like the Oracle's 2024 Apple sales: he cut the stake and still kept it as his largest holding.</td></tr>
 </table>
 
 <h3>Never a sell signal</h3>
@@ -445,7 +449,7 @@ Tie-break   = higher margin of safety, then higher ROIC.</pre>
 <li>The performance record in §7 (did following the signals beat the S&amp;P 500?)</li>
 <li>A way for SWAP and the oversized TRIM to work, since they need a portfolio with a size limit</li>
 </ul>
-It uses <b>percentages only</b>, so there's no dollar amount to set. <b>The number of holdings is variable:</b> every BUY is added and every SELL removed, so the portfolio grows or shrinks with the opportunities, the way Buffett lets his cash pile up when nothing qualifies. Each buy starts at an equal weight (or 1.5× for STRONG BUY), then weights drift with prices. An optional holdings limit can be set if you want to force concentration, and the 40% size cap always applies. If you'd rather get badges for your <b>real</b> holdings, add them under <b>My holdings</b> (or sync from Schwab later). The app then shows badges for both, side by side.</div>
+It uses <b>percentages only</b>, so there's no dollar amount to set. <b>The number of holdings is variable:</b> every BUY is added and every SELL removed, so the portfolio grows or shrinks with the opportunities, the way the Oracle lets his cash pile up when nothing qualifies. Each buy starts at an equal weight (or 1.5× for STRONG BUY), then weights drift with prices. An optional holdings limit can be set if you want to force concentration, and the 40% size cap always applies. If you'd rather get badges for your <b>real</b> holdings, add them under <b>My holdings</b> (or sync from Schwab later). The app then shows badges for both, side by side.</div>
 
 <!-- ============ 6B ============ -->
 <h2 id="targets">6B. Price targets &amp; alerts (moving averages, Fibonacci)</h2>
@@ -454,7 +458,7 @@ It uses <b>percentages only</b>, so there's no dollar amount to set. <b>The numb
 <h3>What the research says</h3>
 <ul>
 <li><b>Fibonacci retracements</b> (23.6/38.2/50/61.8%) are widely watched, but there is little solid evidence that they predict anything. The academic tests are small: one energy-sector sample (2017–2020) and a 4-stock, one-quarter test where only about 27% of support turns lined up with a Fibonacci level. Many traders watch these levels, which can make them self-fulfilling, so they are useful as <b>places to rest a limit order</b>, not as signals.</li>
-<li><b>Moving-average timing</b> (50/200-day): the longest study (155 years, Zakamulin) found no statistically significant edge in the recent half of the data. The rules give many false signals but tend to cut losses in bear markets. One study found the daily 200-day rule did <i>worse</i> than random timing on a risk-adjusted basis. <b>Conclusion: no MA crossover sell signals</b>; that would fight Buffett's "sell only when the business breaks."</li>
+<li><b>Moving-average timing</b> (50/200-day): the longest study (155 years, Zakamulin) found no statistically significant edge in the recent half of the data. The rules give many false signals but tend to cut losses in bear markets. One study found the daily 200-day rule did <i>worse</i> than random timing on a risk-adjusted basis. <b>Conclusion: no MA crossover sell signals</b>; that would fight the Oracle's "sell only when the business breaks."</li>
 <li><b>Value + momentum</b> is the best-supported combination. Asness, Moskowitz &amp; Pedersen (Journal of Finance, 2013) found value and momentum negatively correlated in every market, with the mix beating either alone. That justifies one modest timing tool: <b>don't catch a falling knife</b>. When a cheap stock is still sliding, buy in thirds rather than all at once.</li>
 </ul>
 
@@ -466,7 +470,7 @@ It uses <b>percentages only</b>, so there's no dollar amount to set. <b>The numb
 <tr><td><b>Suggested limit</b></td><td>Above the zone: the highest support level at or under the buy-below price (else the buy-below price itself). In the zone: a support within one average daily range under today's price (else buy at the open).</td><td>The price to put on a good-till-cancelled limit order</td></tr>
 <tr><td><b>Support levels</b></td><td>50- and 200-day averages, 52-week Fibonacci 38.2/50/61.8% retracements, 52-week low</td><td>Candidates for the limit; shown on the chart</td></tr>
 <tr><td><b>Staged buy</b></td><td>If price is below a falling 50-day average: ⅓ at the limit, ⅓ at the next support at least one daily range lower, ⅓ at the strong-buy price</td><td>Avoids guessing the bottom</td></tr>
-<tr><td><b>Intrinsic value</b></td><td>Valuation (Models A and B, lower used)</td><td>Reference only. Buffett doesn't sell at fair value.</td></tr>
+<tr><td><b>Intrinsic value</b></td><td>Valuation (Models A and B, lower used)</td><td>Reference only. The Oracle doesn't sell at fair value.</td></tr>
 <tr><td><b>Trim above</b></td><td>2 × value (and P/E ≥ 2× its 10-yr median for 10 days)</td><td>TRIM signal (unchanged)</td></tr>
 </table>
 <p>SELL and REVIEW still fill at the next open whatever the chart says. A broken business isn't held for a bounce.</p>
@@ -765,13 +769,13 @@ broker_link       (id, broker, account_hash, token_enc, refresh_expires_at, stat
 <!-- ============ 15 ============ -->
 <h2 id="profiles">15. Filter profiles ("tweak and save as")</h2>
 <ul>
-<li><b>Oracle Classic</b> is <b>locked</b>. Editing it starts a copy (<i>Save as…</i>), so the Buffett baseline always exists for comparison.</li>
+<li><b>Oracle Classic</b> is <b>locked</b>. Editing it starts a copy (<i>Save as…</i>), so the Oracle baseline always exists for comparison.</li>
 <li>Each rule can be edited for <b>threshold</b>, <b>mode</b> (Gate / Scored / Buy gate / Info / Off), <b>weight</b>, <b>lookback</b> and <b>consistency %</b>.</li>
 <li><b>Live preview</b> recounts the lists as you move a slider, using cached metrics, so you see the effect immediately.</li>
 <li><b>Versioning:</b> saving a change bumps the version, and every run and signal records the version it used. Old results stay reproducible after edits.</li>
 <li><b>Diff view</b> compares any two profiles: which rules differ, and which stocks are in one list but not the other.</li>
 <li>Several profiles can be "active" and scored on every daily run. Signals and episodes are tracked separately for each.</li>
-<li>Starter templates besides Classic: <i>Buffettology 15%</i> (strict 15% hurdle), <i>Young Buffett</i> (smaller caps, deeper value, more like the 1970s), <i>Relaxed backfill</i> (5-yr lookbacks).</li>
+<li>Starter templates besides Classic: <i>Buffettology 15%</i> (strict 15% hurdle), <i>Young the Oracle</i> (smaller caps, deeper value, more like the 1970s), <i>Relaxed backfill</i> (5-yr lookbacks).</li>
 <li>Import/export a profile as a small JSON file.</li>
 </ul>
 
@@ -781,7 +785,7 @@ broker_link       (id, broker, account_hash, token_enc, refresh_expires_at, stat
 <tr><th>Typical gap elsewhere</th><th>What this app does</th></tr>
 <tr><td>Single-period snapshot filters (most free screeners)</td><td>10-year level <i>and</i> consistency scoring, with partial credit</td></tr>
 <tr><td>Pass/fail list with no ordering</td><td>Quality × Value rank, "Buy below $X" and near-miss lists</td></tr>
-<tr><td>Paywalled, opaque formulas (e.g. premium Buffett-Munger screens)</td><td>Every number traced to its SEC filing; formulas documented in-app</td></tr>
+<tr><td>Paywalled, opaque formulas (e.g. premium PEPG screens)</td><td>Every number traced to its SEC filing; formulas documented in-app</td></tr>
 <tr><td>No memory: the list just changes day to day</td><td>Daily snapshots, BUY/SELL signals with reasons, a "What changed?" diff</td></tr>
 <tr><td>No proof the screen works</td><td>Episode tracking vs SPY, plus the rank-bucket test</td></tr>
 <tr><td>Backtests on restated, survivor-only data</td><td>Point-in-time facts by filing date, delisted-aware, holdout period</td></tr>
@@ -813,7 +817,7 @@ broker_link       (id, broker, account_hash, token_enc, refresh_expires_at, stat
 <tr><td><b>Moatmatic</b></td><td>Economic moats, found automatically</td><td>Punchy, sounds like an app</td></tr>
 <tr><td><b>Cherry Coke Capital</b></td><td>His famous drink</td><td>Fun, memorable. Coca-Cola trademark caution if ever public.</td></tr>
 <tr><td><b>Oracle's Ledger</b></td><td>"Oracle of Omaha" + accounting focus</td><td>"Oracle" collides with the software company</td></tr>
-<tr><td><b>Mr. Market</b></td><td>Graham's parable Buffett loves to quote</td><td>Fits the "price vs value" core</td></tr>
+<tr><td><b>Mr. Market</b></td><td>Graham's parable the Oracle loves to quote</td><td>Fits the "price vs value" core</td></tr>
 <tr><td><b>Margin of Safety (MOS)</b></td><td>The central idea</td><td>Also a Seth Klarman book title</td></tr>
 <tr><td><b>Circle of Competence</b></td><td>His rule to stay within what you understand</td><td>Short form "The Circle"</td></tr>
 <tr><td><b>Durable Edge</b></td><td>"Durable competitive advantage"</td><td>Professional, plain</td></tr>
@@ -837,9 +841,9 @@ broker_link       (id, broker, account_hash, token_enc, refresh_expires_at, stat
 <!-- ============ 20 ============ -->
 <h2 id="risks">20. Risks &amp; known limits</h2>
 <ul>
-<li><b>Few or no buys right now.</b> With the market near record valuations, strict Buffett rules may give an empty Buy Zone. That's the correct answer, not a bug, and the "pricey" list with buy-below prices is the useful output in that case.</li>
+<li><b>Few or no buys right now.</b> With the market near record valuations, strict Oracle rules may give an empty Buy Zone. That's the correct answer, not a bug, and the "pricey" list with buy-below prices is the useful output in that case.</li>
 <li><b>XBRL messiness</b> (custom tags, restatements, fiscal-year shifts, segment-only reporting). Covered by the concept map, quality flags and confidence factor.</li>
-<li><b>Buffett's real edge is qualitative.</b> The app shortlists; you decide. The report card's "Your judgment" box exists for this reason.</li>
+<li><b>The Oracle's real edge is qualitative.</b> The app shortlists; you decide. The report card's "Your judgment" box exists for this reason.</li>
 <li><b>Sector bias.</b> These rules favor consumer brands, software, payments and asset-light businesses, and screen out capital-heavy ones by design.</li>
 <li><b>Free price feeds break</b> (yfinance especially). That's why sources are switchable with automatic fallback, and a paid source is a one-click upgrade.</li>
 <li><b>Small caps and foreign filers</b> have messier data (fewer tags, IFRS, currency). The confidence factor and Data Doctor make this visible rather than hiding it.</li>
@@ -851,7 +855,7 @@ broker_link       (id, broker, account_hash, token_enc, refresh_expires_at, stat
 <h3>Answered in v0.2</h3>
 <table>
 <tr><th>Question</th><th>Answer</th></tr>
-<tr><td>Sell philosophy</td><td>Buffett style: sell when the thesis breaks or for a much better opportunity (SWAP). Clear badges and price levels (§6).</td></tr>
+<tr><td>Sell philosophy</td><td>Oracle style: sell when the thesis breaks or for a much better opportunity (SWAP). Clear badges and price levels (§6).</td></tr>
 <tr><td>Data budget</td><td>Start free (SEC + Stooq/yfinance). Paid later with one-click switching (§8).</td></tr>
 <tr><td>Backtest depth</td><td>2019 → today (§11)</td></tr>
 <tr><td>Where things live</td><td>App and live DB on C:. Plan and daily DB backups in a cloud-synced folder (§9).</td></tr>
@@ -861,7 +865,7 @@ broker_link       (id, broker, account_hash, token_enc, refresh_expires_at, stat
 <table>
 <tr><th>Question</th><th>Answer</th></tr>
 <tr><td>Paper portfolio?</td><td>Renamed <b>model portfolio</b>, explained in §6. It needs no dollar amount, and you can add real holdings alongside it.</td></tr>
-<tr><td>Universe</td><td>Buffett-wide: small caps ($100M+) and foreign SEC filers; non-SEC foreign markets later (§3G)</td></tr>
+<tr><td>Universe</td><td>Oracle-wide: small caps ($100M+) and foreign SEC filers; non-SEC foreign markets later (§3G)</td></tr>
 <tr><td>Financials</td><td>Included with their own rulebooks (§3H)</td></tr>
 <tr><td>Expected return</td><td>Treasury-rate discounting + margin of safety + 10% bar; Buffettology 15% template (§5)</td></tr>
 <tr><td>Trimming</td><td>Nose-bleed valuation and oversized-position trims, on by default (§6)</td></tr>

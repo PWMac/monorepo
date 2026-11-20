@@ -1,6 +1,6 @@
-# Oracle Edge
+<img src="brand/logo/oracle-edge-header-tagline-light.png" alt="Oracle Edge: Screen, Rank, Signal" height="60">
 
-A local, one-click, Buffett-style stock screener. It keeps only companies that pass Warren Buffett's
+A local, one-click, Oracle-style stock screener. It keeps only companies that pass the Oracle's
 tests over 10 years of SEC filings, ranks the ones selling at a sensible price, and logs clear
 BUY / ADD / HOLD / WATCH / REVIEW / SELL / SWAP / TRIM signals for a model portfolio, refreshed after
 every market close.
@@ -44,7 +44,7 @@ it from [uv releases](https://github.com/astral-sh/uv/releases) the first time.
 3. **Value 0-100**: two conservative models (owner-earnings DCF at the 30-yr Treasury rate, +2 pts while
    rates are under 5%; and a 10-year Buffettology-style projection). The lower value and lower expected
    return are used.
-4. **Buffett Rank** = Quality^0.65 × Value^0.35 × Confidence.
+4. **Oracle Rank** = Quality^0.65 × Value^0.35 × Confidence.
 
 Rules and thresholds live in `rules/oracle_classic.yaml` (locked default). Edit copies in the app.
 
