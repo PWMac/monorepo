@@ -74,7 +74,7 @@ footer { color:var(--muted); font-size:12.5px; margin-top:50px; border-top:1px s
   <h1><img src="brand/logo/oracle-edge-header-tagline.png" srcset="brand/logo/oracle-edge-header-tagline@2x.png 2x"
      alt="Oracle Edge: Screen, Rank, Signal"></h1>
   <p>A local stock screener that thinks like the Oracle. This guide explains <b>what</b> the app does,
-  <b>how</b> it decides, and <b>why</b> it was built this way. Version 0.11.0.</p>
+  <b>how</b> it decides, and <b>why</b> it was built this way. Version 0.11.1.</p>
   <p style="font-size:14px">Two documents: this <b>guide</b> is the user manual, kept current with every release and opened from
   "Guide" in the app. The <b>plan</b> (<code>docs/Value-Picker-Plan.html</code> with the source code) is the design record: the research, architecture,
   database layout and the decision log behind the app.</p>
@@ -686,8 +686,9 @@ following its rules. When either one reaches an extreme, Today shows a <b>Market
 recommendation, and the daily email includes a market alert (sent once, when a reading moves into or out of an extreme).</p>
 <h3>The Buffett Indicator</h3>
 <p>Total U.S. stock market value divided by GDP, which the Oracle once called "probably the best single measure of where
-valuations stand." It's built from the Fed's quarterly Z.1 market value and GDP, then carried forward daily using the
-total-market ETF (VTI).</p>
+valuations stand." It's built from the Fed's quarterly Z.1 market value of nonfinancial corporate equities and GDP, then
+carried forward daily using the total-market ETF (VTI). This matches the published readings (about 220–230% in 2026). Versions
+before 0.11.1 used the all-sectors series, which also counts financial companies and read about 1.7 times higher.</p>
 <table>
 <tr><th>Ratio</th><th>Zone</th><th>Margin of safety, if "raise MOS when market is expensive" is on</th></tr>
 <tr><td>under 90%</td><td>Undervalued</td><td>20%</td></tr>
@@ -973,7 +974,7 @@ use the checklist on each report card.</li>
 <tr><td><b>XBRL</b></td><td>The tagged data format companies use to file financial statements with the SEC</td></tr>
 </table>
 
-<footer>Oracle Edge v0.11.0 · research tool, not financial advice · MIT license. The full design plan, with research sources,
+<footer>Oracle Edge v0.11.1 · research tool, not financial advice · MIT license. The full design plan, with research sources,
 is in <code>docs/Value-Picker-Plan.html</code> with the source code.</footer>
 </main>
 </div>

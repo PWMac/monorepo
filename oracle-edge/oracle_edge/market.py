@@ -63,16 +63,23 @@ class Macro:
         return v / 100.0 if v else None
 
     def buffett_indicator(self, d: str, vti_adj=None) -> tuple[float | None, str | None]:
-        qd, eq = self.asof("BOGZ1LM893064105Q", d)
+        # Nonfinancial corporate equities (the Fed Z.1 series behind the published ~220-230% readings). The
+        # all-sectors series also counts financial companies' shares and reads ~1.7x higher, off the zone scale.
+        qd, eq = self.asof("NCBEILQ027S", d)
         if eq is None:
-            qd, eq = self.asof("NCBEILQ027S", d)
+            qd, eq = self.asof("BOGZ1LM893064105Q", d)
         _, gdp = self.asof("GDP", d)
         if eq is None or not gdp:
             return None, None
         ratio = (eq / 1000.0) / gdp
-        # scale by the total-market ETF's move since the quarter's value date
+        # scale by the total-market ETF's move since the level's date: FRED dates a quarter by its first day, but
+        # Z.1 levels are as of the quarter's last day
         if vti_adj and qd:
-            p0, p1 = vti_adj(qd), vti_adj(d)
+            from datetime import date as _date, timedelta as _td
+
+            q0 = _date.fromisoformat(qd)
+            q_end = (_date(q0.year + (q0.month + 2) // 12, (q0.month + 2) % 12 + 1, 1) - _td(days=1)).isoformat()
+            p0, p1 = vti_adj(min(q_end, d)), vti_adj(d)
             if p0 and p1:
                 ratio *= p1 / p0
         return ratio, qd

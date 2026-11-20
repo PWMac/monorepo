@@ -107,3 +107,19 @@ def test_quiet_day_reasons():
     out = data.quiet_day_reasons(rid, "2026-11-19", al)
     assert [o["ticker"] for o in out] == ["AAA", "BBB"]
     assert "all 7 slots" in out[0]["why"] and "approaching" in out[1]["why"]
+
+
+def test_buffett_indicator_uses_nonfinancial_equities_and_quarter_end():
+    from oracle_edge.market import Macro
+
+    with db.tx() as con:
+        con.execute("DELETE FROM macro WHERE series IN ('NCBEILQ027S','BOGZ1LM893064105Q','GDP')")
+        con.executemany("INSERT INTO macro(series,date,value) VALUES(?,?,?)",
+                        [("NCBEILQ027S", "2026-04-01", 70_000_000.0), ("BOGZ1LM893064105Q", "2026-04-01", 120_000_000.0),
+                         ("GDP", "2026-04-01", 31_000.0)])
+    m = Macro()
+    r, q = m.buffett_indicator("2026-11-19")
+    assert q == "2026-04-01" and abs(r - 70_000 / 31_000) < 1e-9
+    seen = []
+    r2, _ = m.buffett_indicator("2026-11-19", lambda d: seen.append(d) or 100.0)
+    assert seen[0] == "2026-06-30"  # the level is as of the quarter's last day
