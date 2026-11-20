@@ -259,7 +259,7 @@ def scan(run_id: int, st: dict, d: str | None = None) -> list[dict]:
                 rows.append({"cik": s["cik"], "ticker": s["ticker"], "name": s["name"], "list": "", "price": None,
                              "buy_below": None, "strong_buy_below": None, "iv": None, "owned": 0})
                 seen.add(s["cik"])
-    con.execute("BEGIN")
+    con.execute("BEGIN IMMEDIATE")
     try:
         for r in rows:
             t = technicals(r["ticker"], d)

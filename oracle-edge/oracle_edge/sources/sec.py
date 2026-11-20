@@ -261,7 +261,7 @@ def ingest_bulk(zip_path: Path, progress=None) -> int:
         names = [nm for nm in names if int(re.sub(r"\D", "", nm) or 0) in wanted]
         total = len(names) or 1
         batch = 0
-        con.execute("BEGIN")
+        con.execute("BEGIN IMMEDIATE")
         for i, nm in enumerate(names):
             cik = int(re.sub(r"\D", "", nm))
             try:
@@ -274,7 +274,7 @@ def ingest_bulk(zip_path: Path, progress=None) -> int:
             batch += 1
             if batch >= 200:
                 con.execute("COMMIT")
-                con.execute("BEGIN")
+                con.execute("BEGIN IMMEDIATE")
                 batch = 0
             if progress and i % 50 == 0:
                 progress(i / total)
