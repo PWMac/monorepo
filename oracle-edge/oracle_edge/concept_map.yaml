@@ -257,6 +257,7 @@ retained_earnings:
   kind: instant
   tags:
     - us-gaap:RetainedEarningsAccumulatedDeficit
+    - us-gaap:RetainedEarningsUnappropriated
     - ifrs-full:RetainedEarnings
 # ---- financials (bank / insurer rulebooks) ----
 deposits:

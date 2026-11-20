@@ -111,6 +111,12 @@ def build_statement(state: dict[tuple[str, str], float], lookback: int) -> dict:
             s["gross_profit"][i] = s["revenue"][i] - s["cogs"][i]
         if s["sga"][i] is None and (s["selling_marketing"][i] is not None or s["gna"][i] is not None):
             s["sga"][i] = (s["selling_marketing"][i] or 0.0) + (s["gna"][i] or 0.0)
+        if s["sga"][i] is None and s["gross_profit"][i] is not None and s["operating_income"][i] is not None:
+            # SG&A tagged only with a company-specific tag: gross profit - operating income - R&D. Anything else
+            # between the two lines (amortization, restructuring) lands here too, so this errs on the high side.
+            v = s["gross_profit"][i] - s["operating_income"][i] - abs(s["rnd"][i] or 0.0)
+            if v > 0:
+                s["sga"][i] = v
         if s["da"][i] is None and s["depreciation"][i] is not None:
             s["da"][i] = abs(s["depreciation"][i]) + abs(s["amortization"][i] or 0.0)
         if s["operating_income"][i] is None:
