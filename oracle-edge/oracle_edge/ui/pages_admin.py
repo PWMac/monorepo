@@ -283,17 +283,21 @@ def settings_page():
             ui.label("Backups").classes("oe-h2")
             bdir = ui.input("Backup folder", value=str(backup.backup_dir())).props("outlined dense").classes("w-[560px]")
             r = backup.retention()
+            ui.label("One backup a day, stored once. Older ones are thinned out: keep the last N days, the newest of "
+                     "each of the last N weeks and months, and one per year (Yearly 0 = keep every year).").classes(
+                "oe-small")
             with ui.row():
-                rd = ui.number("Daily", value=r["daily"], format="%d").props("outlined dense").classes("w-24")
-                rw = ui.number("Weekly", value=r["weekly"], format="%d").props("outlined dense").classes("w-24")
-                rm = ui.number("Monthly", value=r["monthly"], format="%d").props("outlined dense").classes("w-24")
+                rd = ui.number("Daily", value=r["daily"], format="%d", min=1).props("outlined dense").classes("w-24")
+                rw = ui.number("Weekly", value=r["weekly"], format="%d", min=0).props("outlined dense").classes("w-24")
+                rm = ui.number("Monthly", value=r["monthly"], format="%d", min=0).props("outlined dense").classes("w-24")
+                ry = ui.number("Yearly", value=r["yearly"], format="%d", min=0).props("outlined dense").classes("w-24")
             lb = db.cfg("last_backup", {}) or {}
             ui.label(f"Last backup: {lb.get('at', 'never')} {lb.get('path', '')}").classes("oe-small")
 
             def save_b():
                 db.set_cfg("backup_dir", bdir.value)
-                db.set_cfg("backup_retention", {"daily": int(rd.value), "weekly": int(rw.value),
-                                                "monthly": int(rm.value)})
+                db.set_cfg("backup_retention", {"daily": max(int(rd.value or 7), 1), "weekly": int(rw.value or 0),
+                                                "monthly": int(rm.value or 0), "yearly": int(ry.value or 0)})
                 ui.notify("Saved")
 
             def restore_dialog():
@@ -306,7 +310,8 @@ def settings_page():
                         ui.label("No backups found in the folder.").classes("oe-muted")
                     for it in items[:40]:
                         with ui.row().classes("w-full justify-between items-center"):
-                            ui.label(f"{it['kind']} · {it['name']} · {it['size_mb']} MB · {it['modified']}")
+                            ui.label(f"{it['day']} · {it['name']} · {it['size_mb']} MB"
+                                     + (f" · old {it['kind']} folder" if it["kind"] != "backup" else ""))
 
                             def do(it=it):
                                 safety = backup.restore(it["path"])

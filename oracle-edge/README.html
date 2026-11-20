@@ -66,7 +66,7 @@ footer { color:var(--muted); font-size:12.5px; margin-top:50px; border-top:1px s
 <header class="top">
   <h1>Oracle Edge</h1>
   <p>A local stock screener that thinks like Warren Buffett. This guide explains <b>what</b> the app does,
-  <b>how</b> it decides, and <b>why</b> it was built this way. Version 0.9.0.</p>
+  <b>how</b> it decides, and <b>why</b> it was built this way. Version 0.9.1.</p>
   <p style="font-size:14px">Two documents: this <b>guide</b> is the user manual, kept current with every release and opened from
   "Guide" in the app. The <b>plan</b> (<code>docs/Value-Picker-Plan.html</code> with the source code) is the design record: the research, architecture,
   database layout and the decision log behind the app.</p>
@@ -132,7 +132,7 @@ trades yourself.</div>
   Nothing is downloaded from GitHub. <b>To upgrade after changing the code, run it again:</b> it first stops the
   copy that's running in the background (so the new version is the one you see), keeps your data, and the database upgrades
   itself. The version you're running is shown at the bottom of the app's left menu.</li>
-  <li><b>Start:</b> double-click <b>Oracle Edge</b> on the desktop, or <code>Start.bat</code>. The first start
+  <li><b>Start:</b> double-click <b>Oracle Edge</b> on the desktop (it runs <code>C:\OracleEdge\Start.bat</code>). The first start
   downloads its private Python (about a minute). Your browser opens at <code>http://127.0.0.1:8765</code>.</li>
   <li><b>Setup wizard:</b> enter a name and email for the SEC (they require it for downloads), choose the
   history start (default 2019) and start the <b>first-time load</b>. It downloads all company filings once
@@ -667,7 +667,7 @@ The task is named <b>Oracle Edge Daily</b> and sits at the top level of <b>Task 
 <b>Open Task Scheduler</b> button.</td></tr>
 <tr><td><b>Backups</b></td><td>After each daily run, a consistent snapshot of the database is zipped to the backup folder set in Settings (a new install
 defaults to <code>Documents\Oracle Edge backups</code>; a cloud-synced folder is best).
-It's written as <code>.part</code> and renamed when complete, so a cloud drive never syncs half a file. Keeps 14 daily, 8 weekly and 12 monthly copies. Restore one from <b>Settings → Restore a backup</b>.</td></tr>
+It's written as <code>.part</code> and renamed when complete, so a cloud drive never syncs half a file. Each day is stored once, and older backups are thinned out with the standard rotation: the last <b>7 days</b>, one per week for the last <b>4 weeks</b>, one per month for the last <b>12 months</b>, and one per year <b>for good</b> (all adjustable in Settings). Everything else is deleted automatically. Expect roughly 25 files (each about the size of the zipped database) after a few years. Restore one from <b>Settings → Restore a backup</b>.</td></tr>
 <tr><td><b>Secrets</b></td><td>Email passwords and API keys are stored in <b>Windows Credential Manager</b>, never in the app folder. Copying
 the folder to someone else or pushing it to GitHub doesn't leak them; the new person enters their own.</td></tr>
 <tr><td><b>Privacy</b></td><td>The app listens only on <code>127.0.0.1</code> (your own PC). It contacts the SEC, the price sources, FRED and your
@@ -738,7 +738,14 @@ Source code: the oracle-edge folder of the git repository (e.g. C:\repos\monorep
   oracle_edge\, rules\, tests\, tools\   the app (same as C:\OracleEdge, minus data and runtime)
   docs\Value-Picker-Plan.html           the design plan
 
+  Start.bat                             in this folder: never runs or overwrites anything (see below)
+  tools\diagnostics\                    read-only backtest diagnostics
+
 Backups: the folder set in Settings (default Documents\Oracle Edge backups)</div>
+<p><b>Start.bat in the source folder</b> doesn't start a second copy. If Oracle Edge isn't installed yet, it runs the installer. If it is
+installed, it says so, changes nothing, and points you to the desktop shortcut or <code>Install-OracleEdge.bat</code>. Only if you type
+<b>FRESH</b> and then <b>YES</b> does it delete <code>C:\OracleEdge</code> (database, settings and history) and install from scratch;
+your backups are kept, so one can be restored afterwards. Run-Daily.bat likewise only runs from the installed copy.</p>
 
 <!-- ================================================================ 19 -->
 <h2 id="whys"><span class="n">19</span>Why it works this way</h2>
@@ -819,7 +826,7 @@ use the checklist on each report card.</li>
 <tr><td><b>XBRL</b></td><td>The tagged data format companies use to file financial statements with the SEC</td></tr>
 </table>
 
-<footer>Oracle Edge v0.9.0 · research tool, not financial advice · MIT license. The full design plan, with research sources,
+<footer>Oracle Edge v0.9.1 · research tool, not financial advice · MIT license. The full design plan, with research sources,
 is in <code>docs/Value-Picker-Plan.html</code> with the source code.</footer>
 </main>
 </div>

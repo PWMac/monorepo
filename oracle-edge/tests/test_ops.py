@@ -14,8 +14,7 @@ def test_backup_and_restore(tmp_path):
     target = tmp_path / "Backups"
     path = backup.run_backup(target)
     assert path.endswith(".db.zip")
-    for kind in ("daily", "weekly", "monthly"):
-        assert len(list((target / kind).glob("*.db.zip"))) == 1
+    assert len(list(target.glob("oracle_edge_*.db.zip"))) == 1  # stored once, not once per tier
     with zipfile.ZipFile(path) as z:
         assert {"oracle_edge.db", "profiles.json", "settings.json"} <= set(z.namelist())
     assert not list(target.rglob("*.part"))  # no half-written files left for the cloud to sync
@@ -29,12 +28,17 @@ def test_backup_and_restore(tmp_path):
 
 
 def test_retention_prunes(tmp_path):
+    from datetime import date
+
     t = tmp_path / "B"
-    (t / "daily").mkdir(parents=True)
-    for i in range(20):
-        (t / "daily" / f"oracle_edge_2026-01-{i + 1:02d}.db.zip").write_bytes(b"x")
+    t.mkdir()
+    days = [date(2026, 1, i + 1) for i in range(20)]
+    for d in days:
+        (t / f"oracle_edge_{d.isoformat()}.db.zip").write_bytes(b"x")
     backup.prune(t)
-    assert len(list((t / "daily").glob("*.zip"))) == 14
+    left = sorted(p.name for p in t.glob("*.zip"))
+    assert len(left) == len(backup.keep_set(days, backup.retention())) < 20
+    assert "oracle_edge_2026-01-20.db.zip" in left and "oracle_edge_2026-01-01.db.zip" not in left
 
 
 class FakeSMTP:
