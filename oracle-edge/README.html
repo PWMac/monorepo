@@ -74,7 +74,7 @@ footer { color:var(--muted); font-size:12.5px; margin-top:50px; border-top:1px s
   <h1><img src="brand/logo/oracle-edge-header-tagline.png" srcset="brand/logo/oracle-edge-header-tagline@2x.png 2x"
      alt="Oracle Edge: Screen, Rank, Signal"></h1>
   <p>A local stock screener that thinks like the Oracle. This guide explains <b>what</b> the app does,
-  <b>how</b> it decides, and <b>why</b> it was built this way. Version 0.11.1.</p>
+  <b>how</b> it decides, and <b>why</b> it was built this way. Version 0.11.2.</p>
   <p style="font-size:14px">Two documents: this <b>guide</b> is the user manual, kept current with every release and opened from
   "Guide" in the app. The <b>plan</b> (<code>docs/Value-Picker-Plan.html</code> with the source code) is the design record: the research, architecture,
   database layout and the decision log behind the app.</p>
@@ -840,8 +840,22 @@ prices, margin of safety, % above the buy price, expected 10-year return, earnin
 10-year business record the Oracle checks (ROE, ROIC, gross and net margin, EPS and owner-earnings growth, cash conversion, capex, debt
 payback, debt-to-equity, buybacks, the $1 test, predictability). Shift-click to sort by a second column, hover a header for its meaning,
 filter by text, export to CSV, click a row to open the stock.</td></tr>
-<tr><td><b>Stock report card</b></td><td>Quality, value, rank, the price ladder, price targets and your own alerts, the price-vs-value chart,
+<tr><td><b>Stock page: Report card tab</b></td><td>Quality, value, rank, the price ladder, price targets and your own alerts, the price-vs-value chart,
 early warnings, every rule with its 10-year history, your judgment checklist (circle of competence, management, moat) and signal history</td></tr>
+<tr><td><b>Stock page: Chart &amp; key stats tab</b></td><td>What a Yahoo or Google Finance quote page shows, from the app's own data:
+<ul style="margin:4px 0">
+<li><b>Chart:</b> candles or a line with volume and the 50- and 200-day averages; ranges 1M, 6M, YTD, 1Y, 5Y and Max; scroll to zoom;
+"Compare with S&amp;P 500" switches to % change from the start of the range. Returns for 1D to 5Y under it.</li>
+<li><b>Key statistics:</b> previous close, open, day's and 52-week range, volume and 3-month average, market cap, shares outstanding,
+beta (5 years of monthly returns against the S&amp;P 500), P/E and EPS (trailing 12 months when the 10-Qs allow, otherwise the last
+fiscal year), dividend and yield, revenue, net margin, return on equity, 1-year change against the S&amp;P 500, the last quarterly
+report and an estimated date for the next one. Hover a label for how it's worked out.</li>
+<li><b>Financials:</b> income statement, balance sheet and cash flow, annual or quarterly, with a revenue and net income chart and
+year-over-year change. 10-Qs report cash flow year-to-date and the fourth quarter only appears in the annual report, so quarters are
+rebuilt from the differences (Q4 = full year minus nine months).</li>
+</ul>
+Prices are end-of-day; there are no live quotes, analyst estimates or news. Foreign filers' statements are in their reporting
+currency, and their P/E uses the valuation's US-dollar conversion.</td></tr>
 <tr><td><b>My holdings</b></td><td>Your real positions with badges</td></tr>
 <tr><td><b>Signals</b></td><td>The full signal journal with strength ratings, scores, filters and CSV export</td></tr>
 <tr><td><b>Performance</b></td><td>Your money vs the same money in the S&amp;P 500, growth of $1, drawdowns, episodes, rank-bucket results, Buy Zone stints</td></tr>
@@ -974,7 +988,7 @@ use the checklist on each report card.</li>
 <tr><td><b>XBRL</b></td><td>The tagged data format companies use to file financial statements with the SEC</td></tr>
 </table>
 
-<footer>Oracle Edge v0.11.1 · research tool, not financial advice · MIT license. The full design plan, with research sources,
+<footer>Oracle Edge v0.11.2 · research tool, not financial advice · MIT license. The full design plan, with research sources,
 is in <code>docs/Value-Picker-Plan.html</code> with the source code.</footer>
 </main>
 </div>

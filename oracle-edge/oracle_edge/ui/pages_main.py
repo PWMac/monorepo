@@ -9,7 +9,7 @@ import json
 from nicegui import app, ui
 
 from .. import btcsignal, db, rules, strength, targets
-from . import data
+from . import data, quote
 from .layout import empty, frame, kpi
 from .theme import BADGES, BRAND, BTC_COL, badge_html, fmt_value, ladder_html, money, num, pct, sparkline
 
@@ -471,116 +471,138 @@ def stock_page(ticker: str):
                     ui.label(bd["reason"]).classes("text-sm")
             ui.label(f"Profile: {prof.name} · latest annual report filed {snap['filed'] if snap else '—'}").classes(
                 "oe-small")
-        if not snap:
-            empty("No annual-report data for this company yet.")
-            return
-        if snap["routed"] in ("bank", "insurer"):
-            with ui.card().classes("oe-card w-full").style("border-left:4px solid #2c5d8f"):
-                ui.label(f"Scored with the {snap['routed']} rulebook.").classes("font-semibold")
-                ui.label("Standard rules don't fit financials (no gross margin; deposits or float are the raw "
-                         "material), so this company is judged on " +
-                         ("return on assets, efficiency, capital, funding and credit losses, and valued on an "
-                          "ROE-justified price-to-tangible-book." if snap["routed"] == "bank" else
-                          "underwriting profit (combined ratio), float growth, book value growth and reserving, and "
-                          "valued on an ROE-justified price-to-book.")).classes("oe-small")
-        if s["is_foreign"]:
-            _adr_card(s)
-        with ui.grid(columns=5).classes("w-full gap-3"):
-            kpi(num(snap["quality"], 0), "Quality", "business, 0–100")
-            kpi(num(ev["value"], 0) if ev and ev["value"] is not None else "—", "Value", "price, 0–100")
-            kpi(num(ev["rank_score"], 1) if ev and ev["rank_score"] else "—", "Rank score",
-                f"#{ev['rank']} in Buy Zone" if ev and ev["rank"] else (ev["list"] if ev else "not evaluated"))
-            kpi(pct(ev["mos"]) if ev and ev["mos"] is not None else "—", "Margin of safety",
-                f"needs ≥ {pct(prof.settings['mos_gate'])}")
-            kpi(pct(ev["exp_return"], 1) if ev and ev["exp_return"] is not None else "—", "Expected 10-yr return",
-                f"needs ≥ {pct(prof.settings['hurdle'])}")
-        tp, tech = targets.plan_for(run_id, s["cik"], prof.settings) if run_id else (None, None)
-        if ev:
-            det = ev["detail"]
-            with ui.card().classes("oe-card w-full"):
-                ui.label("Price ladder").classes("oe-h2")
-                ui.html(ladder_html(ev["price"], ev["strong_buy_below"], ev["buy_below"], ev["iv"],
-                                    det.get("expensive_above"), (tp or {}).get("limit")),
-                        sanitize=False).classes("w-full")
-                with ui.row().classes("gap-8 oe-small"):
-                    ui.label(f"Model A ({det.get('model_a') or 'owner-earnings DCF'}): value {money(det.get('iv_a'))}, return "
-                             f"{pct(det.get('er_a'), 1)}")
-                    ui.label(f"Model B (10-yr projection): value {money(det.get('iv_b'))}, return "
-                             f"{pct(det.get('er_b'), 1)}")
-                    ui.label(f"Discount rate {pct(det.get('r'), 1)} "
-                             f"({'the higher of the hurdle and the Treasury rule' if det.get('category') in ('bank', 'insurer') else '30-yr Treasury rule'})"
-                             f" · growth used "
-                             f"{pct(det.get('g'), 1)} · exit P/E {num(det.get('exit_pe'), 1)}")
-                    ui.label(f"P/E now {num(det.get('pe_now'), 1)} vs 10-yr median {num(det.get('pe_median'), 1)} · "
-                             f"owner-earnings yield {pct(det.get('ey'), 1)} · PEPG {num(det.get('pepg'), 2)}")
-            owned = bool(db.scalar("SELECT 1 FROM positions p JOIN portfolios f ON f.id=p.portfolio_id "
-                                   "WHERE f.run_id=? AND p.cik=?", (run_id, s["cik"])) or
-                         db.scalar("SELECT 1 FROM real_holdings WHERE cik=?", (s["cik"],)))
-            _targets_card(s, tp, tech, owned)
-            _price_chart(s["ticker"], run_id, s["cik"], tp, tech)
-        else:
-            _targets_card(s, tp, tech, False)
-        _warnings_card(s["cik"], snap, prof)
-        # ---- rules
+        with ui.tabs().props("dense no-caps align=left active-color=primary indicator-color=primary").classes(
+                "w-full border-b border-gray-200") as tabs:
+            t_rep = ui.tab("report", label="Report card", icon="fact_check")
+            t_q = ui.tab("quote", label="Chart & key stats", icon="candlestick_chart")
+        with ui.tab_panels(tabs, value=t_rep).props("animated=false").classes("w-full bg-transparent"):
+            with ui.tab_panel(t_rep).classes("p-0 gap-4"):
+                _report_card(s, r, prof, snap, ev, run_id)
+            with ui.tab_panel(t_q).classes("p-0 gap-4") as qpanel:
+                pass
+        drawn = {"q": False}
+
+        def lazy(e):
+            if e.value == "quote" and not drawn["q"]:  # build the chart once its tab is visible (correct sizing)
+                drawn["q"] = True
+                with qpanel:
+                    quote.render(s, ev)
+
+        tabs.on_value_change(lazy)
+
+
+def _report_card(s, r, prof, snap, ev, run_id):
+    """The Oracle report card: scores, price ladder, targets, early warnings, every rule and your notes."""
+    if not snap:
+        empty("No annual-report data for this company yet.")
+        return
+    if snap["routed"] in ("bank", "insurer"):
+        with ui.card().classes("oe-card w-full").style("border-left:4px solid #2c5d8f"):
+            ui.label(f"Scored with the {snap['routed']} rulebook.").classes("font-semibold")
+            ui.label("Standard rules don't fit financials (no gross margin; deposits or float are the raw "
+                     "material), so this company is judged on " +
+                     ("return on assets, efficiency, capital, funding and credit losses, and valued on an "
+                      "ROE-justified price-to-tangible-book." if snap["routed"] == "bank" else
+                      "underwriting profit (combined ratio), float growth, book value growth and reserving, and "
+                      "valued on an ROE-justified price-to-book.")).classes("oe-small")
+    if s["is_foreign"]:
+        _adr_card(s)
+    with ui.grid(columns=5).classes("w-full gap-3"):
+        kpi(num(snap["quality"], 0), "Quality", "business, 0–100")
+        kpi(num(ev["value"], 0) if ev and ev["value"] is not None else "—", "Value", "price, 0–100")
+        kpi(num(ev["rank_score"], 1) if ev and ev["rank_score"] else "—", "Rank score",
+            f"#{ev['rank']} in Buy Zone" if ev and ev["rank"] else (ev["list"] if ev else "not evaluated"))
+        kpi(pct(ev["mos"]) if ev and ev["mos"] is not None else "—", "Margin of safety",
+            f"needs ≥ {pct(prof.settings['mos_gate'])}")
+        kpi(pct(ev["exp_return"], 1) if ev and ev["exp_return"] is not None else "—", "Expected 10-yr return",
+            f"needs ≥ {pct(prof.settings['hurdle'])}")
+    tp, tech = targets.plan_for(run_id, s["cik"], prof.settings) if run_id else (None, None)
+    if ev:
+        det = ev["detail"]
         with ui.card().classes("oe-card w-full"):
-            with ui.row().classes("w-full justify-between items-center"):
-                ui.label("Oracle checklist").classes("oe-h2")
-                cats = snap["category_scores"]
-                ui.label(" · ".join(f"{k.title()} {v:.0f}" for k, v in cats.items())).classes("oe-small")
-            rules_by_id = {x["id"]: x for x in prof.all_rules()}
-            groups = [("Gates (must pass)", lambda x: x["mode"] == "gate"),
-                      ("Scored", lambda x: x["mode"] == "scored")]
-            for title, pred in groups:
-                ui.label(title).classes("text-sm font-semibold mt-2")
-                for rr in [x for x in snap["rules_json"] if pred(x)]:
-                    rd = rules_by_id.get(rr["id"], {})
-                    icon, cls = ("check_circle", "oe-rule-pass") if rr["passed"] else (
-                        ("cancel", "oe-rule-fail") if rr["passed"] is False else ("help", "oe-rule-na"))
-                    with ui.row().classes("w-full items-center no-wrap gap-3 py-1 border-b border-gray-100"):
-                        ui.icon(icon).classes(cls)
-                        with ui.column().classes("gap-0 w-64"):
-                            ui.label(rr["name"]).classes("font-medium")
-                            ui.label(rd.get("formula", "")).classes("oe-small")
-                        ui.label(fmt_value(rr["value"], rd.get("fmt", ""))).classes("w-28 oe-num font-semibold")
-                        ui.label(f"target {fmt_value(rd.get('target'), rd.get('fmt', ''))}").classes("w-32 oe-small")
-                        ui.html(sparkline(rr.get("series")), sanitize=False)
-                        ui.label(f"{rr['consistency'] * 100:.0f}% of yrs" if rr.get("consistency") is not None
-                                 else "").classes("w-24 oe-small")
-                        ui.label(f"{rr['score']:.0f} pts" if rr.get("score") is not None else "—").classes(
-                            "w-16 oe-num")
-                        ui.label(rd.get("why", "")).classes("oe-small flex-1")
-        # ---- judgment + signals
-        with ui.row().classes("w-full gap-4 no-wrap items-start"):
-            with ui.card().classes("oe-card flex-1"):
-                ui.label("Your judgment").classes("oe-h2")
-                ui.label("The Oracle's first filters can't be automated. Your answers are stored locally.").classes(
-                    "oe-small")
-                n = data.notes(s["cik"])
-                c1 = ui.checkbox("I understand how this business makes money", value=bool(n["understand"]))
-                c2 = ui.checkbox("I trust management to act like owners", value=bool(n["trust_mgmt"]))
-                c3 = ui.checkbox("The moat should last 20 years", value=bool(n["moat_20y"]))
-                c4 = ui.checkbox("Outside my circle of competence (hide from my lists)", value=bool(n["outside_circle"]))
-                note = ui.textarea("Notes", value=n.get("note") or "").classes("w-full")
+            ui.label("Price ladder").classes("oe-h2")
+            ui.html(ladder_html(ev["price"], ev["strong_buy_below"], ev["buy_below"], ev["iv"],
+                                det.get("expensive_above"), (tp or {}).get("limit")),
+                    sanitize=False).classes("w-full")
+            with ui.row().classes("gap-8 oe-small"):
+                ui.label(f"Model A ({det.get('model_a') or 'owner-earnings DCF'}): value {money(det.get('iv_a'))}, return "
+                         f"{pct(det.get('er_a'), 1)}")
+                ui.label(f"Model B (10-yr projection): value {money(det.get('iv_b'))}, return "
+                         f"{pct(det.get('er_b'), 1)}")
+                ui.label(f"Discount rate {pct(det.get('r'), 1)} "
+                         f"({'the higher of the hurdle and the Treasury rule' if det.get('category') in ('bank', 'insurer') else '30-yr Treasury rule'})"
+                         f" · growth used "
+                         f"{pct(det.get('g'), 1)} · exit P/E {num(det.get('exit_pe'), 1)}")
+                ui.label(f"P/E now {num(det.get('pe_now'), 1)} vs 10-yr median {num(det.get('pe_median'), 1)} · "
+                         f"owner-earnings yield {pct(det.get('ey'), 1)} · PEPG {num(det.get('pepg'), 2)}")
+        owned = bool(db.scalar("SELECT 1 FROM positions p JOIN portfolios f ON f.id=p.portfolio_id "
+                               "WHERE f.run_id=? AND p.cik=?", (run_id, s["cik"])) or
+                     db.scalar("SELECT 1 FROM real_holdings WHERE cik=?", (s["cik"],)))
+        _targets_card(s, tp, tech, owned)
+        _price_chart(s["ticker"], run_id, s["cik"], tp, tech)
+    else:
+        _targets_card(s, tp, tech, False)
+    _warnings_card(s["cik"], snap, prof)
+    # ---- rules
+    with ui.card().classes("oe-card w-full"):
+        with ui.row().classes("w-full justify-between items-center"):
+            ui.label("Oracle checklist").classes("oe-h2")
+            cats = snap["category_scores"]
+            ui.label(" · ".join(f"{k.title()} {v:.0f}" for k, v in cats.items())).classes("oe-small")
+        rules_by_id = {x["id"]: x for x in prof.all_rules()}
+        groups = [("Gates (must pass)", lambda x: x["mode"] == "gate"),
+                  ("Scored", lambda x: x["mode"] == "scored")]
+        for title, pred in groups:
+            ui.label(title).classes("text-sm font-semibold mt-2")
+            for rr in [x for x in snap["rules_json"] if pred(x)]:
+                rd = rules_by_id.get(rr["id"], {})
+                icon, cls = ("check_circle", "oe-rule-pass") if rr["passed"] else (
+                    ("cancel", "oe-rule-fail") if rr["passed"] is False else ("help", "oe-rule-na"))
+                with ui.row().classes("w-full items-center no-wrap gap-3 py-1 border-b border-gray-100"):
+                    ui.icon(icon).classes(cls)
+                    with ui.column().classes("gap-0 w-64"):
+                        ui.label(rr["name"]).classes("font-medium")
+                        ui.label(rd.get("formula", "")).classes("oe-small")
+                    ui.label(fmt_value(rr["value"], rd.get("fmt", ""))).classes("w-28 oe-num font-semibold")
+                    ui.label(f"target {fmt_value(rd.get('target'), rd.get('fmt', ''))}").classes("w-32 oe-small")
+                    ui.html(sparkline(rr.get("series")), sanitize=False)
+                    ui.label(f"{rr['consistency'] * 100:.0f}% of yrs" if rr.get("consistency") is not None
+                             else "").classes("w-24 oe-small")
+                    ui.label(f"{rr['score']:.0f} pts" if rr.get("score") is not None else "—").classes(
+                        "w-16 oe-num")
+                    ui.label(rd.get("why", "")).classes("oe-small flex-1")
+    # ---- judgment + signals
+    with ui.row().classes("w-full gap-4 no-wrap items-start"):
+        with ui.card().classes("oe-card flex-1"):
+            ui.label("Your judgment").classes("oe-h2")
+            ui.label("The Oracle's first filters can't be automated. Your answers are stored locally.").classes(
+                "oe-small")
+            n = data.notes(s["cik"])
+            c1 = ui.checkbox("I understand how this business makes money", value=bool(n["understand"]))
+            c2 = ui.checkbox("I trust management to act like owners", value=bool(n["trust_mgmt"]))
+            c3 = ui.checkbox("The moat should last 20 years", value=bool(n["moat_20y"]))
+            c4 = ui.checkbox("Outside my circle of competence (hide from my lists)", value=bool(n["outside_circle"]))
+            note = ui.textarea("Notes", value=n.get("note") or "").classes("w-full")
 
-                def save():
-                    data.save_notes({"cik": s["cik"], "understand": c1.value, "trust_mgmt": c2.value,
-                                     "moat_20y": c3.value, "outside_circle": c4.value, "note": note.value})
-                    ui.notify("Saved", type="positive")
+            def save():
+                data.save_notes({"cik": s["cik"], "understand": c1.value, "trust_mgmt": c2.value,
+                                 "moat_20y": c3.value, "outside_circle": c4.value, "note": note.value})
+                ui.notify("Saved", type="positive")
 
-                ui.button("Save", on_click=save).props("unelevated")
-            with ui.card().classes("oe-card flex-1"):
-                ui.label("Signal history").classes("oe-h2")
-                sigs = data.stock_signals(s["cik"])
-                if not sigs:
-                    ui.label("No signals for this stock yet.").classes("oe-muted")
-                for g in sigs[:15]:
-                    with ui.row().classes("w-full items-center gap-2 no-wrap"):
-                        ui.label(g["date"]).classes("oe-small w-24")
-                        ui.html(badge_html(g["type"], True), sanitize=False)
-                        ui.html(strength.strength_html(g["type"], g["rank_score"], g["quality"], g["mos"],
-                                                       g["reason"] or "", small=True), sanitize=False)
-                        ui.label(g["reason"] or "").classes("text-sm flex-1")
-                        ui.label("live" if g["kind"] == "live" else "backtest").classes("oe-small")
+            ui.button("Save", on_click=save).props("unelevated")
+        with ui.card().classes("oe-card flex-1"):
+            ui.label("Signal history").classes("oe-h2")
+            sigs = data.stock_signals(s["cik"])
+            if not sigs:
+                ui.label("No signals for this stock yet.").classes("oe-muted")
+            for g in sigs[:15]:
+                with ui.row().classes("w-full items-center gap-2 no-wrap"):
+                    ui.label(g["date"]).classes("oe-small w-24")
+                    ui.html(badge_html(g["type"], True), sanitize=False)
+                    ui.html(strength.strength_html(g["type"], g["rank_score"], g["quality"], g["mos"],
+                                                   g["reason"] or "", small=True), sanitize=False)
+                    ui.label(g["reason"] or "").classes("text-sm flex-1")
+                    ui.label("live" if g["kind"] == "live" else "backtest").classes("oe-small")
 
 
 def _warnings_card(cik, snap, prof):

@@ -166,9 +166,29 @@ def ladder_html(price, strong, buy, iv, expensive, limit=None) -> str:
     parts = []
     for a, b, bg, fg, label in segs:
         parts.append(f'<div class="seg" style="left:{x(a)}%;width:{x(b) - x(a)}%;background:{bg};color:{fg}">{label}</div>')
-    for v, cap in ((strong, "strong buy"), (buy, "buy below"), (iv, "value"), (expensive, "1.5× value")):
-        parts.append(f'<div class="tick" style="left:{x(v)}%">${v:,.0f}<br>{cap}</div>')
+    rows = 1
+    for grp in _tick_groups([(x(v), v, cap) for v, cap in ((strong, "strong buy"), (buy, "buy below"), (iv, "value"),
+                                                             (expensive, "1.5× value"))]):
+        if len({f"{v:,.0f}" for _, v, _ in grp}) == 1:  # same price: one label ("$116 strong buy · buy below")
+            xs = sum(t[0] for t in grp) / len(grp)
+            parts.append(f'<div class="tick" style="left:{xs}%">${grp[0][1]:,.0f}<br>'
+                         f'{" · ".join(t[2] for t in grp)}</div>')
+            continue
+        for k, (xx, v, cap) in enumerate(grp):  # close but different: stagger onto separate rows
+            rows = max(rows, k + 1)
+            parts.append(f'<div class="tick" style="left:{xx}%;top:{48 + 28 * k}px">${v:,.0f}<br>{cap}</div>')
     if limit and abs(x(limit) - x(price)) > 9 and abs(limit / buy - 1) > 0.01:
         parts.append(f'<div class="tick lim" style="left:{x(limit)}%">limit ${limit:,.2f}<br>◆</div>')
     parts.append(f'<div class="now" style="left:{x(price)}%">Today ${price:,.2f}<br>▼</div>')
-    return f'<div class="oe-ladder">{"".join(parts)}</div>'
+    return f'<div class="oe-ladder" style="height:{64 + 28 * (rows - 1)}px">{"".join(parts)}</div>'
+
+
+def _tick_groups(ticks: list[tuple], gap: float = 8.0) -> list[list[tuple]]:
+    """Group ladder ticks whose labels would overlap (closer than `gap` percent of the width)."""
+    groups: list[list[tuple]] = []
+    for t in sorted(ticks, key=lambda t: t[0]):
+        if groups and t[0] - groups[-1][-1][0] < gap:
+            groups[-1].append(t)
+        else:
+            groups.append([t])
+    return groups
