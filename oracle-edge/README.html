@@ -720,6 +720,13 @@ would have said at the time. Bitcoin is read at each stock-market close, so "20 
 an episode overlap, so a handful of episodes is thin evidence, however many days they span.</li>
 <li><b>Live record.</b> Every daily update logs that day's call. Once 20 trading days have passed, QQQ's result is filled in, so
 the rule builds a record on data it has never seen. Check it on the Market page before leaning on it.</li>
+<li><b>Was it right?</b> The Market page scores every past call. A <b>warning</b> (▼) was right if QQQ fell over the next 20
+trading days; a <b>tailwind</b> (▲) was right if QQQ rose. On the chart each call is a triangle at the day it began: green when it was
+right, red when it was wrong, grey while the 20 days are still running; the shaded bands show how long each reading lasted (red for
+warnings, green for tailwinds), with QQQ underneath so you can see what followed. Above the chart, two scores compare each kind of call
+with the <b>base rate</b>, how often QQQ fell (or rose) in any 20-day window. A call adds information only when it beats that base rate;
+a warning that is "right" 48% of the time when QQQ falls in 45% of all windows is barely better than a coin with QQQ's usual lean.
+The table under the chart lists every call, newest first.</li>
 <li><b>Both at once.</b> An expensive market and a Bitcoin selloff together is the most cautious setting: keep new purchases small
 until at least one eases.</li>
 <li><b>Data.</b> Bitcoin (BTC-USD) and QQQ come from the price sources (Stooq, then Yahoo) with every daily update.</li>
@@ -828,6 +835,21 @@ It picks up at the market data, scoring, prices and history replay and skips the
 
 <!-- ================================================================ 17 -->
 <h2 id="screens"><span class="n">17</span>The screens</h2>
+<h3 id="charts">Working with the charts</h3>
+<p>Every chart over time (stock price, price vs value, your money, growth of $1, the Buffett Indicator, the Bitcoin early warning,
+financials) works the same way:</p>
+<ul>
+<li><b>Timeframe buttons</b> above the chart: 1M, 3M, 6M, YTD, 1Y, 3Y, 5Y, 10Y and Max (only the ones the data covers).</li>
+<li><b>Zoom and pan:</b> scroll the mouse wheel over the chart to zoom, drag to move along in time, or drag either end of the slider
+underneath. The slider shows the whole history in miniature, so you always see where the window sits.</li>
+<li><b>Tools</b> at the top right: box zoom (drag a rectangle around the part you want), undo zoom, reset to the full view, and save the
+chart as a PNG image.</li>
+<li><b>Crosshair:</b> hover to read exact values; on charts with two panels (price and volume, Bitcoin and QQQ) the crosshair and zoom
+move together.</li>
+<li><b>Legend:</b> click a name to hide or show that line; when the legend is long, arrows page through it.</li>
+<li>On a stock's price chart, the <b>vs S&amp;P 500</b> switch shows both as % change from the start of whatever range you pick, so
+the comparison restarts at zero each time you change the timeframe.</li>
+</ul>
 <table>
 <tr><th>Screen</th><th>What it's for</th></tr>
 <tr><td><b>Today</b></td><td>The Buffett Indicator and the Bitcoin early warning, a Market temperature card when either is at an extreme,
@@ -844,14 +866,15 @@ filter by text, export to CSV, click a row to open the stock.</td></tr>
 early warnings, every rule with its 10-year history, your judgment checklist (circle of competence, management, moat) and signal history</td></tr>
 <tr><td><b>Stock page: Chart &amp; key stats tab</b></td><td>What a Yahoo or Google Finance quote page shows, from the app's own data:
 <ul style="margin:4px 0">
-<li><b>Chart:</b> candles or a line with volume and the 50- and 200-day averages; ranges 1M, 6M, YTD, 1Y, 5Y and Max; scroll to zoom;
-"Compare with S&amp;P 500" switches to % change from the start of the range. Returns for 1D to 5Y under it.</li>
+<li><b>Chart:</b> the stock's whole history as candles or a line, with volume and the 50- and 200-day averages; timeframes from
+1M to Max plus zoom, pan and box zoom (see <a href="#charts">Working with the charts</a>); "vs S&amp;P 500" switches to % change from
+the start of the chosen range. Returns for 1D to 5Y under it.</li>
 <li><b>Key statistics:</b> previous close, open, day's and 52-week range, volume and 3-month average, market cap, shares outstanding,
 beta (5 years of monthly returns against the S&amp;P 500), P/E and EPS (trailing 12 months when the 10-Qs allow, otherwise the last
 fiscal year), dividend and yield, revenue, net margin, return on equity, 1-year change against the S&amp;P 500, the last quarterly
 report and an estimated date for the next one. Hover a label for how it's worked out.</li>
-<li><b>Financials:</b> income statement, balance sheet and cash flow, annual or quarterly, with a revenue and net income chart and
-year-over-year change. 10-Qs report cash flow year-to-date and the fourth quarter only appears in the annual report, so quarters are
+<li><b>Financials:</b> income statement, balance sheet and cash flow, annual or quarterly, 6, 10 or all periods, with a revenue and
+net income chart and year-over-year change. 10-Qs report cash flow year-to-date and the fourth quarter only appears in the annual report, so quarters are
 rebuilt from the differences (Q4 = full year minus nine months).</li>
 </ul>
 Prices are end-of-day; there are no live quotes, analyst estimates or news. Foreign filers' statements are in their reporting
@@ -860,7 +883,8 @@ currency, and their P/E uses the valuation's US-dollar conversion.</td></tr>
 <tr><td><b>Signals</b></td><td>The full signal journal with strength ratings, scores, filters and CSV export</td></tr>
 <tr><td><b>Performance</b></td><td>Your money vs the same money in the S&amp;P 500, growth of $1, drawdowns, episodes, rank-bucket results, Buy Zone stints</td></tr>
 <tr><td><b>Market</b></td><td>Buffett Indicator history and its valuation zones; the Bitcoin early warning: today's reading, its
-history against the cut-offs, what QQQ did after each kind of reading, the live record and recent market alerts</td></tr>
+history against the cut-offs with every past call marked right or wrong, scores against the base rate, a table of every call,
+what QQQ did after each kind of reading, the live record and recent market alerts</td></tr>
 <tr><td><b>Profiles</b></td><td>Edit rules (standard, bank and insurer tabs) and the portfolio: starting money, weekly amount, how many to hold, where new money goes, swap limits</td></tr>
 <tr><td><b>Backtest</b></td><td>Find the best number of holdings and new-money rule; run and recalculate historical replays</td></tr>
 <tr><td><b>Data</b></td><td>Price sources (order, API keys, test), recent data problems, coverage gaps, foreign filers' ADR ratios, re-run first-time load, run the daily update now</td></tr>

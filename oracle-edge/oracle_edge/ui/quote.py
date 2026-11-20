@@ -15,8 +15,8 @@ from datetime import date, timedelta
 from nicegui import ui
 
 from .. import db
+from .charts import decorate, range_start, zoom_chart
 
-RANGES = [("1M", 31), ("6M", 183), ("YTD", None), ("1Y", 365), ("5Y", 1827), ("Max", 0)]
 UP, DOWN, INK, GRID = "#1f6f4a", "#A8322D", "#1C2420", "#E4E2DA"
 
 
@@ -266,40 +266,40 @@ def stat_rows(st: dict, cur: str = "USD") -> list[tuple[str, str, str]]:
 
 
 # ------------------------------------------------------------------ chart
-def chart_options(bars: list[dict], spy: list[dict], days: int | None, kind: str = "candle",
-                  compare: bool = False) -> dict:
-    i0 = _since(bars, days)
-    win = bars[i0:]
-    dates = [b["date"] for b in win]
-    closes_all = [b["close"] for b in bars]
+def chart_options(bars: list[dict], spy: list[dict], kind: str = "candle", compare: bool = False,
+                  base_start: str | None = None) -> dict:
+    """Full price history (the range buttons and slider choose what's in view). In compare mode both lines are %
+    change from `base_start` (the start of the chosen range)."""
+    dates = [b["date"] for b in bars]
+    closes = [b["close"] for b in bars]
 
     def sma(n):
         out, run = [], 0.0
-        for k, c in enumerate(closes_all):
+        for k, c in enumerate(closes):
             run += c
             if k >= n:
-                run -= closes_all[k - n]
-            if k >= i0:
-                out.append(round(run / n, 2) if k >= n - 1 else None)
+                run -= closes[k - n]
+            out.append(round(run / n, 2) if k >= n - 1 else None)
         return out
 
-    up = win[-1]["close"] >= win[0]["close"] if win else True
-    col = UP if up else DOWN
     series = []
     if compare:
-        base = win[0]["adj"] if win else 1
+        import bisect
+
+        i0 = next((k for k, d in enumerate(dates) if base_start and d >= base_start), 0)
+        base = bars[i0]["adj"] if bars else 1
         sp = {b["date"]: b["adj"] for b in spy}
         sp_dates = sorted(sp)
-        import bisect
 
         def sp_at(d):
             k = bisect.bisect_right(sp_dates, d) - 1
             return sp[sp_dates[k]] if k >= 0 else None
 
-        s0 = sp_at(dates[0]) if dates else None
+        s0 = sp_at(dates[i0]) if dates else None
+        up = bars[-1]["adj"] >= base if bars else True
         series.append({"name": "This stock", "type": "line", "showSymbol": False, "data":
-                       [round((b["adj"] / base - 1) * 100, 2) for b in win], "lineStyle": {"color": col, "width": 1.6},
-                       "itemStyle": {"color": col}})
+                       [round((b["adj"] / base - 1) * 100, 2) for b in bars],
+                       "lineStyle": {"color": UP if up else DOWN, "width": 1.6}, "itemStyle": {"color": UP if up else DOWN}})
         series.append({"name": "S&P 500", "type": "line", "showSymbol": False, "data":
                        [round((sp_at(d) / s0 - 1) * 100, 2) if s0 and sp_at(d) else None for d in dates],
                        "lineStyle": {"color": "#8A5A12", "width": 1.2}, "itemStyle": {"color": "#8A5A12"}})
@@ -308,33 +308,33 @@ def chart_options(bars: list[dict], spy: list[dict], days: int | None, kind: str
         if kind == "candle":
             series.append({"name": "Price", "type": "candlestick",
                            "data": [[b["open"] or b["close"], b["close"], b["low"] or b["close"], b["high"] or b["close"]]
-                                    for b in win],
+                                    for b in bars],
                            "itemStyle": {"color": UP, "color0": DOWN, "borderColor": UP, "borderColor0": DOWN}})
         else:
-            series.append({"name": "Price", "type": "line", "showSymbol": False, "data": [b["close"] for b in win],
-                           "lineStyle": {"color": col, "width": 1.6}, "itemStyle": {"color": col},
+            series.append({"name": "Price", "type": "line", "showSymbol": False, "data": closes,
+                           "lineStyle": {"color": INK, "width": 1.5}, "itemStyle": {"color": INK},
                            "areaStyle": {"color": {"type": "linear", "x": 0, "y": 0, "x2": 0, "y2": 1, "colorStops": [
-                               {"offset": 0, "color": col + "33"}, {"offset": 1, "color": col + "00"}]}}})
+                               {"offset": 0, "color": "#1f6f4a33"}, {"offset": 1, "color": "#1f6f4a00"}]}}})
         series += [{"name": "50-day avg", "type": "line", "showSymbol": False, "data": sma(50),
                     "lineStyle": {"width": 1, "color": "#D6A840"}, "itemStyle": {"color": "#D6A840"}},
                    {"name": "200-day avg", "type": "line", "showSymbol": False, "data": sma(200),
                     "lineStyle": {"width": 1.2, "color": "#6F582C"}, "itemStyle": {"color": "#6F582C"}}]
         y_fmt = "${value}"
-    series.append({"name": "Volume", "type": "bar", "xAxisIndex": 1, "yAxisIndex": 1,
+    series.append({"name": "Volume", "type": "bar", "xAxisIndex": 1, "yAxisIndex": 1, "large": True,
                    "data": [{"value": b["volume"] or 0, "itemStyle": {"color": (UP if b["close"] >= (b["open"] or b["close"])
-                                                                                else DOWN) + "88"}} for b in win]})
+                                                                                else DOWN) + "88"}} for b in bars]})
     return {
         "animation": False,
         "tooltip": {"trigger": "axis", "axisPointer": {"type": "cross"}},
-        "legend": {"top": 0, "data": [x["name"] for x in series if x["name"] != "Volume"]},
+        "legend": {"top": 0, "left": 0, "data": [x["name"] for x in series if x["name"] != "Volume"]},
         "axisPointer": {"link": [{"xAxisIndex": "all"}]},
-        "grid": [{"left": 64, "right": 24, "top": 30, "height": "62%"}, {"left": 64, "right": 24, "top": "78%", "height": "14%"}],
+        "grid": [{"left": 64, "right": 24, "top": 44, "height": "56%"},
+                 {"left": 64, "right": 24, "top": "71%", "height": "12%"}],
         "xAxis": [{"type": "category", "data": dates, "boundaryGap": True, "axisLine": {"onZero": False},
                    "axisLabel": {"show": False}},
                   {"type": "category", "gridIndex": 1, "data": dates, "boundaryGap": True}],
         "yAxis": [{"scale": True, "axisLabel": {"formatter": y_fmt}, "splitLine": {"lineStyle": {"color": GRID}}},
                   {"gridIndex": 1, "scale": True, "axisLabel": {"show": False}, "splitLine": {"show": False}}],
-        "dataZoom": [{"type": "inside", "xAxisIndex": [0, 1]}],
         "series": series,
     }
 
@@ -412,33 +412,35 @@ def render(s: dict, ev: dict | None) -> None:
                 ui.label(f"{last - prev:+,.2f} ({chg * 100:+.2f}%)").classes("text-lg font-semibold").style(
                     f"color:{UP if chg >= 0 else DOWN}")
             ui.label(f"close of {st['date']} · end-of-day prices").classes("oe-small")
-        state = {"days": 365, "kind": "candle", "compare": False}
+        state = {"kind": "candle", "compare": False, "start": range_start(bars[-1]["date"], 365)}
+        dates = [b["date"] for b in bars]
         with ui.card().classes("oe-card w-full"):
-            with ui.row().classes("w-full items-center justify-between"):
-                btns = ui.row().classes("gap-1")
-                with ui.row().classes("items-center gap-3"):
-                    kind = ui.toggle({"candle": "Candles", "line": "Line"}, value="candle").props("dense no-caps")
-                    cmp_ = ui.switch("Compare with S&P 500")
-            chart = ui.echart(chart_options(bars, spy, 365)).classes("w-full").style("height:430px")
+            ctl = {}
+
+            def controls():
+                ctl["kind"] = ui.toggle({"candle": "Candles", "line": "Line"}, value="candle").props("dense no-caps")
+                ctl["cmp"] = ui.switch("vs S&P 500").tooltip("Both as % change from the start of the chosen range")
+
+            def rebase(_lab, start):
+                state["start"] = start
+                if state["compare"]:
+                    redraw()
+
+            chart = zoom_chart(chart_options(bars, spy), dates=dates, default="1Y", height="h-[480px]",
+                               name=f"{s['ticker']}-price", on_range=rebase, controls=controls)
+            kind, cmp_ = ctl["kind"], ctl["cmp"]
             rets = ui.row().classes("gap-5 oe-small")
 
             def redraw():
+                zoom = [dict(dz) for dz in chart.options["dataZoom"]]
+                new = decorate(chart_options(bars, spy, state["kind"], state["compare"], state["start"]),
+                               f"{s['ticker']}-price")
+                for dz, z in zip(new["dataZoom"], zoom):
+                    dz.update({k: z[k] for k in ("startValue", "endValue") if k in z})
                 chart.options.clear()
-                chart.options.update(chart_options(bars, spy, state["days"], state["kind"], state["compare"]))
+                chart.options.update(new)
                 chart.update()
-                for lab, b in buttons.items():
-                    b.props(f"color={'primary' if lab == state['label'] else 'grey-7'}")
 
-            def pick(lab, days):
-                state.update(days=days, label=lab)
-                redraw()
-
-            buttons = {}
-            with btns:
-                for lab, days in RANGES:
-                    buttons[lab] = ui.button(lab, on_click=lambda lab=lab, days=days: pick(lab, days)).props(
-                        f"flat dense no-caps color={'primary' if lab == '1Y' else 'grey-7'}")
-            state["label"] = "1Y"
             kind.on_value_change(lambda e: (state.update(kind=e.value), redraw()))
             cmp_.on_value_change(lambda e: (state.update(compare=e.value), redraw()))
             with rets:
@@ -465,17 +467,20 @@ def render(s: dict, ev: dict | None) -> None:
                 stmt = ui.toggle({"income": "Income statement", "balance": "Balance sheet", "cash": "Cash flow"},
                                  value="income").props("dense no-caps")
                 per = ui.toggle({"annual": "Annual", "quarterly": "Quarterly"}, value="annual").props("dense no-caps")
+                span = ui.toggle({6: "6", 10: "10", 40: "All"}, value=6).props("dense no-caps").tooltip(
+                    "How many years (or quarters) to show")
         box = ui.column().classes("w-full")
 
         def show():
             box.clear()
-            ends, sd = statements(s["cik"], per.value)
+            ends, sd = statements(s["cik"], per.value, int(span.value or 6))
             with box:
                 if not ends:
                     ui.label("No statements for this company yet." if per.value == "annual" else
                              "No quarterly figures (foreign filers report once a year).").classes("oe-muted")
                     return
-                ui.echart(fin_options(ends, sd, per.value)).classes("w-full").style("height:240px")
+                ui.echart(decorate(fin_options(ends, sd, per.value), f"{s['ticker']}-financials", slider=len(ends) > 10)
+                          ).classes("w-full").style("height:260px")
                 ui.label(f"Revenue and net income, millions of {cur}").classes("oe-small")
                 hdr = [e[:7] if per.value == "quarterly" else "FY " + e[:4] for e in ends]
                 lines = fin_rows(sd, stmt.value)
@@ -503,4 +508,5 @@ def render(s: dict, ev: dict | None) -> None:
 
         stmt.on_value_change(lambda e: show())
         per.on_value_change(lambda e: show())
+        span.on_value_change(lambda e: show())
         show()

@@ -141,6 +141,38 @@ def zone_stats(rows: list[dict]) -> dict:
     return out
 
 
+def episodes(rows: list[dict]) -> list[dict]:
+    """Each warning or tailwind episode, judged on the day it started (the day the call was made): a warning is
+    right if QQQ fell over the following horizon, a tailwind if QQQ rose. Pending until the horizon has passed."""
+    out, prev = [], None
+    for k, r in enumerate(rows):
+        z = r["zone"]
+        if z in ("bear", "bull") and z != prev:
+            f = r["qqq_fwd"]
+            verdict = None if f is None else ((f < 0) if z == "bear" else (f > 0))
+            out.append({"zone": z, "start": r["date"], "end": r["date"], "btc_ret": r["btc_ret"], "qqq_fwd": f,
+                        "correct": verdict, "i": k})
+        if z in ("bear", "bull") and out and out[-1]["zone"] == z and prev == z:
+            out[-1]["end"] = r["date"]
+        prev = z
+    return out
+
+
+def scorecard(rows: list[dict]) -> dict:
+    """Hit rates of the calls against the base rate (how often QQQ fell or rose over any horizon window)."""
+    eps = episodes(rows)
+    f_all = [r["qqq_fwd"] for r in rows if r["qqq_fwd"] is not None and r["zone"] != "warming"]
+    out = {"base_down": (sum(1 for x in f_all if x < 0) / len(f_all)) if f_all else None}
+    out["base_up"] = 1 - out["base_down"] if out["base_down"] is not None else None
+    for z in ("bear", "bull"):
+        done = [e for e in eps if e["zone"] == z and e["correct"] is not None]
+        out[z] = {"episodes": len([e for e in eps if e["zone"] == z]), "judged": len(done),
+                  "correct": sum(1 for e in done if e["correct"]),
+                  "rate": (sum(1 for e in done if e["correct"]) / len(done)) if done else None,
+                  "pending": len([e for e in eps if e["zone"] == z and e["correct"] is None])}
+    return out
+
+
 def current(s: dict | None = None) -> dict | None:
     s = s or settings()
     rows = history(s)

@@ -79,11 +79,13 @@ def test_key_stats_and_chart_options():
     assert abs(st["net_margin"] - 0.1) < 1e-9
     rows = dict((r[0], r[1]) for r in quote.stat_rows(st))
     assert rows["Market cap"].startswith("$") and "Previous close" in rows
-    opt = quote.chart_options(bars, bars, 365)
+    opt = quote.chart_options(bars, bars)
     assert [s["name"] for s in opt["series"]] == ["Price", "50-day avg", "200-day avg", "Volume"]
-    assert len(opt["xAxis"][0]["data"]) == len(opt["series"][0]["data"]) == len(opt["series"][1]["data"])
-    opt = quote.chart_options(bars, bars, 183, compare=True)
-    assert [s["name"] for s in opt["series"]][:2] == ["This stock", "S&P 500"] and opt["series"][0]["data"][0] == 0
+    assert len(opt["xAxis"][0]["data"]) == len(bars) == len(opt["series"][0]["data"]) == len(opt["series"][1]["data"])
+    start = bars[-120]["date"]
+    opt = quote.chart_options(bars, bars, compare=True, base_start=start)
+    assert [s["name"] for s in opt["series"]][:2] == ["This stock", "S&P 500"]
+    assert opt["series"][0]["data"][len(bars) - 120] == 0  # re-based at the start of the chosen range
 
 
 def test_ladder_labels_do_not_overlap():
@@ -92,3 +94,21 @@ def test_ladder_labels_do_not_overlap():
     html = ladder_html(100, 110, 118, 215, 323)  # close but different prices: two rows
     assert "top:76px" in html and 'height:92px' in html
     assert [len(g) for g in _tick_groups([(1, 0, ""), (5, 0, ""), (40, 0, ""), (75, 0, "")])] == [2, 1, 1]
+
+
+def test_zoom_helpers():
+    from oracle_edge.ui import charts
+
+    assert charts.range_start("2026-11-20", None) == "2026-01-01"
+    assert charts.range_start("2026-11-20", 31) == "2026-10-20"
+    assert charts.range_start("2026-11-20", 0) is None
+    labs = [p[0] for p in charts.presets_for("2024-01-01", "2026-11-20")]
+    assert labs[:5] == ["1M", "3M", "6M", "YTD", "1Y"] and "5Y" not in labs and labs[-1] == "Max"
+    opt = charts.decorate({"xAxis": [{}, {}], "yAxis": [{}, {}], "grid": [{"bottom": 20}], "series": [],
+                           "legend": {"top": 0}}, "x")
+    assert opt["dataZoom"][0]["xAxisIndex"] == [0, 1] and opt["dataZoom"][1]["type"] == "slider"
+    assert opt["grid"][0]["bottom"] == 64 and opt["yAxis"][1]["scale"] is True
+    assert set(opt["toolbox"]["feature"]) == {"dataZoom", "restore", "saveAsImage"}
+    lo, hi = charts._first_date({"series": [{"data": [["2020-01-02", 1], ["2021-05-01", 2]]},
+                                            {"data": [["2019-03-04", 3]]}]})
+    assert (lo, hi) == ("2019-03-04", "2021-05-01")
