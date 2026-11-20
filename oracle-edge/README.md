@@ -11,7 +11,9 @@ every market close.
 
 ## Quick start (Windows)
 
-1. Double-click **`Start.bat`**. The first start sets up a private Python inside `runtime\` (a few minutes, one time).
+1. Double-click **`Install-OracleEdge.bat`** in this `oracle-edge` folder. It copies the code, exactly as it is in this
+   folder (local edits included), to `C:\OracleEdge`, adds a desktop shortcut and starts the app. The first start sets
+   up a private Python inside `C:\OracleEdge\runtime\` (a few minutes, one time).
 2. Your browser opens to **http://127.0.0.1:8765**. The setup wizard asks for your SEC identity
    (name + email), price source, backup folder, schedule and email alerts.
 3. Click **Start first load**. It downloads SEC financial data (a few GB, once), scores every company,
@@ -19,16 +21,14 @@ every market close.
 
 macOS/Linux: install [uv](https://docs.astral.sh/uv/) and run `./start.sh`.
 
-### Installing from this repository
+### Updating after you change the code
 
-`uv.exe` (the 32 MB launcher) isn't stored in git. To build the one-click installer package:
+Edit the code here, then double-click `Install-OracleEdge.bat` again. It stops the running app, copies this folder's code
+to `C:\OracleEdge` and restarts it. Your database, settings, logs and private Python in `C:\OracleEdge` are never
+overwritten, and the database upgrades itself. Nothing is downloaded from GitHub; commit and push when you're ready.
 
-1. Download `uv-x86_64-pc-windows-msvc.zip` from [uv releases](https://github.com/astral-sh/uv/releases) and put
-   `uv.exe` next to `Start.bat`.
-2. Run `python tools/build_zip.py <folder>`. It writes `OracleEdge-app.zip` there.
-3. Copy `dist/Install-OracleEdge.bat` into the same folder and double-click it. It installs to `C:\OracleEdge`,
-   keeps existing data, makes a desktop shortcut and starts the app. The folder can be anywhere (a cloud drive is handy
-   because the daily backups can go there too).
+`uv.exe` (the 32 MB launcher) isn't stored in git. The installer keeps the copy already in `C:\OracleEdge`, or downloads
+it from [uv releases](https://github.com/astral-sh/uv/releases) the first time.
 
 ## How it ranks
 
