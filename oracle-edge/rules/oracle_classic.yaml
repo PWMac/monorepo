@@ -1,0 +1,246 @@
+# Oracle Classic: the default, locked Buffett profile. Edit a COPY in the app (Profiles -> Save as).
+# mode: gate (must pass, also scored) | scored | buy_gate (must pass for BUY) | info | off
+# direction: higher | lower | range.  Scores: floor = 0 pts, target = 70 pts, excellent = 100 pts.
+name: Oracle Classic
+description: Buffett's rules of thumb, 10-year consistency, Treasury-rate valuation, 10% return bar.
+
+settings:
+  lookback_years: 10
+  min_years: 7
+  quality_min: 70            # Buy Zone needs Quality >= this
+  hurdle: 0.10               # expected 10-yr return bar (Buffett's informal ~10%)
+  mos_gate: 0.25             # margin of safety needed for BUY
+  regime_modifier: false     # true = raise MOS gate when the Buffett Indicator is high
+  terminal_growth: 0.03
+  growth_cap: 0.15
+  exit_pe_cap: 20
+  low_rate_threshold: 0.05   # if 30-yr Treasury < this, add low_rate_addon to the discount rate
+  low_rate_addon: 0.02
+  rank_quality_weight: 0.65  # Rank = Quality^w x Value^(1-w) x Confidence
+  # signal ladder
+  buy_confirm_days: 2
+  strong_quality: 80
+  strong_extra_mos: 0.15
+  sell_quality: 55
+  review_quality_drop: 10
+  review_gate_margin: 0.10
+  add_discount: 0.10
+  add_cooldown_days: 60
+  nosebleed_iv_mult: 2.0
+  nosebleed_pe_mult: 2.0
+  nosebleed_days: 10
+  trim_fraction: 0.33
+  position_cap: 0.40
+  trim_to: 0.30
+  swap_rank_gap: 15
+  swap_er_gap: 0.04
+  strong_buy_units: 1.5
+  # universe
+  min_market_cap: 100000000
+  min_dollar_volume: 250000
+  include_foreign: true
+  near_miss_margin: 0.15
+  # quarterly early warnings (10-Q, trailing twelve months)
+  quarterly_warnings: true
+  block_buy_on_quarterly_flag: true
+  cash_vs_profit_min: 0.5      # TTM operating cash flow / TTM net income below this = red flag
+  dilution_max: 0.05           # diluted shares up more than this vs a year earlier = red flag
+  # portfolio construction (see oracle_edge/signals.py and the Guide, section 13)
+  portfolio_mode: focused      # focused = fixed number of holdings funded from one pot of money | variable = old style
+  max_holdings: 15             # focused mode: hold only the best N; run Backtest -> "Find the best number" to tune
+  sizing: equal                # equal = 1/N each | conviction = higher Buffett Rank gets a bigger slice
+  max_adds: 2                  # most ADDs per position (stops averaging down into a falling stock)
+  add_requires_quality: true   # no ADD while a REVIEW is open or Quality has slipped since purchase
+  swap_min_hold_days: 365      # a holding must be owned this long before it can be swapped for a better idea
+  initial_capital: 10000       # starting money ($) for the model portfolio and backtests
+  weekly_contribution: 250     # new money added every week ($); set it to what you really invest
+  new_money: best_value        # where cash goes: best_value | best_rank | spread | patient | reserve
+  max_buy_weight: 0.25         # new money never pushes one holding above this share of the portfolio
+  patient_extra_mos: 0.15      # patient: wait for a margin of safety this much above the buy gate...
+  patient_max_weeks: 26        # ...but never hold the cash longer than this
+  min_rank_score: 0            # optional floor: only buy stocks with at least this Buffett Rank
+  reserve_min_deploy: 0.5      # "reserve" rule: share of cash spent at an ordinary Buy Zone price (all at a strong buy)
+  reserve_max: 0.20             # ...the reserve never grows above this share of the portfolio
+  reserve_max_weeks: 26         # ...and is spent anyway after this long without a strong buy
+  fund_strong: false            # when slots are full, trim or sell clearly weaker holdings to buy a strong buy
+  fund_extra_slots: 1           # ...a strong buy may take this many slots above N (funded by reserve + trims)
+  fund_trim_max: 0.34           # ...trim at most this share of any one holding
+  fund_min_hold_days: 180       # ...sell a whole holding only after owning it this long
+  # price targets, timing and alerts (see oracle_edge/targets.py)
+  price_alerts: true           # watch buy/strong-buy/limit/trim levels and alert when approaching or reached
+  alert_band_atr: 1.5          # "approaching" = within this many average daily ranges (ATR-14) of a target...
+  alert_band_min: 0.02         # ...but never closer than 2%
+  alert_band_max: 0.08         # ...or farther than 8%
+  stage_in_downtrend: true     # in a downtrend, suggest buying in thirds at successive support levels
+  timing_filter: false         # true = in the Buy Zone but falling (below a falling 50-day average): wait
+  timing_max_wait: 60          # ...but buy anyway after this many signal days if still in the zone
+  # financials valuation (ROE-justified price-to-book)
+  fin_growth_cap: 0.06
+  fin_pb_cap: 3.0
+  fin_exit_pe_cap: 15
+
+category_weights:
+  profitability: 0.35
+  returns: 0.25
+  balance: 0.20
+  cash: 0.10
+  shareholder: 0.10
+
+rules:
+  # ---------------- A. Income statement (your image)
+  - {id: r1, name: Gross margin, category: profitability, mode: scored, metric: gross_margin, direction: higher,
+     floor: 0.20, target: 0.40, excellent: 0.60, weight: 1.0, fmt: pct,
+     formula: Gross profit / Revenue, why: Not competing on price - a sign of a moat.}
+  - {id: r2, name: SG&A margin, category: profitability, mode: scored, metric: sga_to_gp, direction: lower,
+     floor: 0.80, target: 0.30, excellent: 0.10, weight: 1.0, fmt: pct,
+     formula: SG&A / Gross profit, why: Doesn't have to spend heavily to keep customers.}
+  - {id: r3, name: R&D margin, category: profitability, mode: scored, metric: rnd_to_gp, direction: lower,
+     floor: 0.60, target: 0.30, excellent: 0.0, weight: 1.0, fmt: pct,
+     formula: R&D / Gross profit, why: Heavy R&D means the advantage must be rebuilt again and again.}
+  - {id: r4, name: Depreciation margin, category: profitability, mode: scored, metric: da_to_gp, direction: lower,
+     floor: 0.30, target: 0.10, excellent: 0.03, weight: 1.0, fmt: pct,
+     formula: D&A / Gross profit, why: Capital-light businesses keep more of what they earn.}
+  - {id: r5, name: Interest margin, category: profitability, mode: scored, metric: interest_to_opinc, direction: lower,
+     floor: 0.50, target: 0.15, excellent: 0.0, weight: 1.0, fmt: pct,
+     formula: Interest expense / Operating income, why: The lowest interest burden usually belongs to the company with the edge.}
+  - {id: r6, name: Tax margin, category: profitability, mode: scored, metric: tax_rate, direction: range,
+     floor: 0.0, target: 0.15, excellent: 0.30, ceiling: 0.45, weight: 0.5, fmt: pct,
+     formula: Income tax / Pre-tax income, why: Real earnings pay real taxes; a rate far below statutory is a red flag.}
+  - {id: r7, name: Net margin, category: profitability, mode: scored, metric: net_margin, direction: higher,
+     floor: 0.05, target: 0.20, excellent: 0.30, weight: 1.0, fmt: pct,
+     formula: Net income / Revenue, why: Over 20% for years often signals a durable advantage.}
+  - {id: r8, name: EPS growth, category: profitability, mode: scored, metric: eps_growth, direction: higher,
+     floor: -0.05, target: 0.05, excellent: 0.15, weight: 1.0, fmt: pct,
+     formula: 10-yr EPS CAGR (consistency = years EPS rose), why: Great companies grow profits year after year.}
+  - {id: r9, name: Earnings every year, category: profitability, mode: gate, metric: profitable_years, direction: higher,
+     floor: 0.7, target: 1.0, excellent: 1.0, weight: 1.0, fmt: ratio,
+     formula: Years with net income > 0 / years, why: Wild earnings swings are typical of commodity businesses.}
+  # ---------------- B. Balance sheet
+  - {id: r10, name: Debt payback, category: balance, mode: gate, metric: debt_payback, direction: lower,
+     floor: 8.0, target: 4.0, excellent: 0.0, weight: 1.0, fmt: years,
+     formula: Long-term debt / Net income (3-yr avg), why: A durable company could pay off its debt from ~4 years of earnings.}
+  - {id: r11, name: Cash vs debt, category: balance, mode: scored, metric: cash_to_debt, direction: higher,
+     floor: 0.2, target: 1.0, excellent: 2.0, weight: 1.0, fmt: x,
+     formula: (Cash + short-term investments) / Total debt, why: Doesn't need debt to fund itself.}
+  - {id: r12, name: Adjusted debt-to-equity, category: balance, mode: scored, metric: adj_de, direction: lower,
+     floor: 2.0, target: 0.8, excellent: 0.3, weight: 1.0, fmt: x,
+     formula: Total liabilities / (Equity + Treasury stock), why: Adding buybacks back stops repurchasers looking over-levered.}
+  - {id: r13, name: Retained earnings growth, category: balance, mode: scored, metric: retained_growth, direction: higher,
+     floor: 0.3, target: 0.7, excellent: 1.0, weight: 1.0, fmt: ratio,
+     formula: Share of years retained earnings rose, why: Shows the company is compounding its own capital.}
+  # ---------------- shareholder orientation
+  - {id: r14, name: Buybacks / share count, category: shareholder, mode: scored, metric: share_change, direction: lower,
+     floor: 0.03, target: 0.0, excellent: -0.03, weight: 1.0, fmt: pct,
+     formula: Diluted share count CAGR, why: Buybacks raise per-share value; dilution lowers it.}
+  - {id: r15, name: No preferred stock, category: shareholder, mode: scored, metric: has_preferred, direction: lower,
+     floor: 1.0, target: 0.0, excellent: 0.0, weight: 0.3, fmt: flag,
+     formula: Preferred stock outstanding, why: Durable companies rarely need expensive preferred funding.}
+  - {id: r21, name: The "$1 test", category: shareholder, mode: scored, metric: dollar_test, direction: higher,
+     floor: 0.5, target: 1.0, excellent: 2.0, weight: 1.0, fmt: x,
+     formula: Market-cap change / Retained earnings over the period, why: Each retained dollar should create at least a dollar of value.}
+  # ---------------- C. Cash flow
+  - {id: r16, name: Capex margin, category: cash, mode: scored, metric: capex_to_ni, direction: lower,
+     floor: 1.0, target: 0.50, excellent: 0.25, weight: 1.0, fmt: pct,
+     formula: Capex / Net income, why: Doesn't need much equipment to grow profits.}
+  - {id: r17, name: Owner earnings growth, category: cash, mode: scored, metric: owner_earnings_growth, direction: higher,
+     floor: -0.05, target: 0.05, excellent: 0.15, weight: 1.0, fmt: pct,
+     formula: Growth of NI + D&A - capex (consistency = years positive), why: Buffett's own measure of cash an owner could take out.}
+  - {id: r18, name: Cash conversion, category: cash, mode: scored, metric: cash_conversion, direction: higher,
+     floor: 0.5, target: 0.9, excellent: 1.1, weight: 1.0, fmt: pct,
+     formula: Free cash flow / Net income, why: Confirms reported profit is real cash.}
+  # ---------------- D. Returns
+  - {id: r19, name: Return on equity, category: returns, mode: gate, metric: roe, direction: higher,
+     floor: 0.05, target: 0.15, excellent: 0.30, weight: 1.5, fmt: pct, min_year: 0.10,
+     formula: Net income / Avg equity (10-yr avg; no year < 10%), why: Berkshire's stated criterion - good ROE with little debt.}
+  - {id: r20, name: Return on invested capital, category: returns, mode: scored, metric: roic, direction: higher,
+     floor: 0.05, target: 0.15, excellent: 0.30, weight: 1.0, fmt: pct,
+     formula: NOPAT / (Debt + Equity - Cash), why: Harder to inflate with leverage than ROE.}
+  # ---------------- E. Predictability
+  - {id: r22, name: Predictability, category: profitability, mode: scored, metric: predictability, direction: higher,
+     floor: 0.40, target: 0.80, excellent: 0.95, weight: 1.0, fmt: ratio,
+     formula: R-squared of 10-yr log-linear revenue & EPS trend, why: Steady growers are easier to value.}
+  - {id: r23, name: Margin stability, category: profitability, mode: scored, metric: margin_stability, direction: lower,
+     floor: 0.10, target: 0.03, excellent: 0.01, weight: 1.0, fmt: pct,
+     formula: Std. dev. of operating margin (penalty if falling), why: A moat shows as margins that hold through recessions.}
+  # ---------------- F. Valuation (computed daily from price)
+  - {id: r24, name: Margin of safety, category: valuation, mode: buy_gate, metric: mos, direction: higher,
+     floor: 0.0, target: 0.25, excellent: 0.50, weight: 1.0, fmt: pct,
+     formula: 1 - Price / Intrinsic value (lower of 2 models), why: Graham's core principle, which Buffett kept.}
+  - {id: r25, name: Expected 10-yr return, category: valuation, mode: buy_gate, metric: exp_return, direction: higher,
+     floor: 0.05, target: 0.10, excellent: 0.20, weight: 1.0, fmt: pct,
+     formula: Lower of the two models' 10-yr returns, why: Turns price into what you will earn from here.}
+  - {id: r26, name: Earnings yield vs bonds, category: valuation, mode: scored, metric: yield_spread, direction: higher,
+     floor: -0.03, target: 0.0, excellent: 0.03, weight: 1.0, fmt: pct,
+     formula: Owner earnings / Market cap - 30-yr Treasury, why: A stock is compared with an equity bond vs risk-free bonds.}
+  - {id: r27, name: PEPG, category: valuation, mode: info, metric: pepg, direction: lower,
+     floor: 3.0, target: 1.5, excellent: 0.8, weight: 0.0, fmt: x,
+     formula: P/E / 5-yr EBITDA growth %, why: GuruFocus's Buffett-Munger valuation check, for cross-reference.}
+  # ---------------- Universe
+  - {id: u1, name: Data sufficiency, category: universe, mode: gate, metric: data_years, direction: higher,
+     floor: 3, target: 7, excellent: 10, weight: 0.0, fmt: years,
+     formula: Annual reports with core line items, why: Avoids ranking companies the app can't measure.}
+
+# ======================================================================== BANKS
+# Deposits are a bank's raw material, so leverage/margin rules are replaced with these.
+bank_rules:
+  - {id: b1, name: Return on assets, category: returns, mode: gate, metric: roa, direction: higher,
+     floor: 0.005, target: 0.010, excellent: 0.015, weight: 1.5, fmt: pct,
+     formula: Net income / Avg total assets (10-yr avg), why: The best single test of a bank's earning power.}
+  - {id: b2, name: Return on equity, category: returns, mode: scored, metric: roe, direction: higher,
+     floor: 0.06, target: 0.12, excellent: 0.20, weight: 1.0, fmt: pct,
+     formula: Net income / Avg equity (10-yr avg), why: Good returns without excess leverage.}
+  - {id: b3, name: Efficiency ratio, category: profitability, mode: scored, metric: efficiency, direction: lower,
+     floor: 0.80, target: 0.60, excellent: 0.45, weight: 1.0, fmt: pct,
+     formula: Non-interest expense / (Net interest income + Non-interest income), why: Low-cost operators win over decades.}
+  - {id: b4, name: Equity / assets, category: balance, mode: scored, metric: equity_to_assets, direction: higher,
+     floor: 0.05, target: 0.08, excellent: 0.12, weight: 1.0, fmt: pct,
+     formula: Shareholders' equity / Total assets, why: A cushion for bad years.}
+  - {id: b5, name: Loans / deposits, category: balance, mode: scored, metric: loans_to_deposits, direction: lower,
+     floor: 1.10, target: 0.90, excellent: 0.70, weight: 1.0, fmt: pct,
+     formula: Loans / Deposits, why: Funded by cheap, sticky deposits rather than borrowed money.}
+  - {id: b6, name: Net charge-offs, category: profitability, mode: scored, metric: nco_ratio, direction: lower,
+     floor: 0.020, target: 0.005, excellent: 0.002, weight: 1.0, fmt: pct,
+     formula: Net charge-offs (or provision) / Loans (10-yr avg; incl. 2020), why: Conservative lending shows up in recessions.}
+  - {id: b7, name: Profitable every year, category: profitability, mode: gate, metric: profitable_years, direction: higher,
+     floor: 0.7, target: 1.0, excellent: 1.0, weight: 1.0, fmt: ratio,
+     formula: Years with net income > 0 / years, why: No blow-ups.}
+  - {id: b8, name: Buybacks / share count, category: shareholder, mode: scored, metric: share_change, direction: lower,
+     floor: 0.03, target: 0.0, excellent: -0.03, weight: 1.0, fmt: pct,
+     formula: Diluted share count CAGR, why: Buybacks raise per-share value; dilution lowers it.}
+  - {id: b9, name: The "$1 test", category: shareholder, mode: scored, metric: dollar_test, direction: higher,
+     floor: 0.5, target: 1.0, excellent: 2.0, weight: 1.0, fmt: x,
+     formula: Market-cap change / Retained earnings, why: Each retained dollar should create at least a dollar of value.}
+  - {id: bu1, name: Data sufficiency, category: universe, mode: gate, metric: data_years, direction: higher,
+     floor: 3, target: 7, excellent: 10, weight: 0.0, fmt: years,
+     formula: Annual reports with core line items, why: Avoids ranking companies the app can't measure.}
+
+# ======================================================================== INSURERS
+# Float (premiums held before claims are paid) is the engine of Berkshire itself.
+insurer_rules:
+  - {id: i1, name: Combined ratio < 100%, category: profitability, mode: gate, metric: combined_ok_years, direction: higher,
+     floor: 0.5, target: 0.8, excellent: 1.0, weight: 1.5, fmt: ratio,
+     formula: Share of years with (claims + expenses) / premiums < 100%, why: Underwriting profit means the float costs less than nothing.}
+  - {id: i2, name: Float growth, category: returns, mode: scored, metric: float_growth, direction: higher,
+     floor: 0.0, target: 0.05, excellent: 0.10, weight: 1.0, fmt: pct,
+     formula: CAGR of loss reserves + unearned premiums (consistency = years up), why: Growing low-cost float compounds value.}
+  - {id: i3, name: Return on equity, category: returns, mode: scored, metric: roe, direction: higher,
+     floor: 0.06, target: 0.12, excellent: 0.20, weight: 1.0, fmt: pct,
+     formula: Net income / Avg equity (10-yr avg), why: Good returns without excess leverage.}
+  - {id: i4, name: Book value per share growth, category: returns, mode: scored, metric: bvps_growth, direction: higher,
+     floor: 0.02, target: 0.08, excellent: 0.15, weight: 1.0, fmt: pct,
+     formula: CAGR of equity per diluted share, why: Buffett's own yardstick for Berkshire for decades.}
+  - {id: i5, name: Premiums / equity, category: balance, mode: scored, metric: premiums_to_equity, direction: lower,
+     floor: 3.0, target: 2.0, excellent: 1.0, weight: 1.0, fmt: x,
+     formula: Premiums earned / Equity (median), why: Not over-writing relative to capital.}
+  - {id: i6, name: Reserve development, category: balance, mode: scored, metric: adverse_reserve_years, direction: lower,
+     floor: 0.5, target: 0.2, excellent: 0.0, weight: 1.0, fmt: ratio,
+     formula: Share of years with adverse prior-year development > 2% of equity, why: Honest reserving shows as few nasty surprises.}
+  - {id: i7, name: Profitable years, category: profitability, mode: scored, metric: profitable_years, direction: higher,
+     floor: 0.6, target: 0.9, excellent: 1.0, weight: 1.0, fmt: ratio,
+     formula: Years with net income > 0 / years (9 of 10), why: Catastrophe years happen; repeated losses shouldn't.}
+  - {id: i8, name: Buybacks / share count, category: shareholder, mode: scored, metric: share_change, direction: lower,
+     floor: 0.03, target: 0.0, excellent: -0.03, weight: 1.0, fmt: pct,
+     formula: Diluted share count CAGR, why: Buybacks raise per-share value; dilution lowers it.}
+  - {id: iu1, name: Data sufficiency, category: universe, mode: gate, metric: data_years, direction: higher,
+     floor: 3, target: 7, excellent: 10, weight: 0.0, fmt: years,
+     formula: Annual reports with core line items, why: Avoids ranking companies the app can't measure.}
