@@ -1,0 +1,22 @@
+# Known ADR share ratios (ordinary shares per traded US share) for foreign filers whose annual report
+# the automatic reader can't parse. Used only when the ratio is still unknown; a ratio you set on a
+# stock page ("manual") always wins. Ratio 1 with "direct" = the ordinary shares themselves trade in the US.
+# Checked November 2026 against the companies' 20-F cover pages and depositary listings.
+ABEV:  {ratio: 1,  note: "1 ADS = 1 common share"}
+AKO-A: {ratio: 6,  note: "1 ADS = 6 Series A shares"}
+AMX:   {ratio: 20, note: "1 ADS = 20 Series B shares (since the 2023 single-series conversion)"}
+BWMX:  {ratio: 1,  note: "direct: ordinary shares listed on Nasdaq"}
+DAVA:  {ratio: 1,  note: "1 ADS = 1 Class A ordinary share"}
+DLO:   {ratio: 1,  note: "direct: Class A common shares listed on Nasdaq"}
+INFY:  {ratio: 1,  note: "1 ADS = 1 equity share"}
+INMD:  {ratio: 1,  note: "direct: ordinary shares listed on Nasdaq"}
+ITUB:  {ratio: 1,  note: "1 ADS = 1 preferred share"}
+JHX:   {ratio: 1,  note: "1 ADS/CUFS = 1 ordinary share"}
+NVO:   {ratio: 1,  note: "1 ADS = 1 B share"}
+OMAB:  {ratio: 8,  note: "1 ADS = 8 Series B shares"}
+PAX:   {ratio: 1,  note: "direct: Class A common shares listed on Nasdaq"}
+RELX:  {ratio: 1,  note: "1 ADS = 1 ordinary share"}
+RIO:   {ratio: 1,  note: "1 ADS = 1 ordinary share"}
+UL:    {ratio: 1,  note: "1 ADS = 1 ordinary share"}
+WIT:   {ratio: 1,  note: "1 ADS = 1 equity share"}
+XP:    {ratio: 1,  note: "direct: Class A common shares listed on Nasdaq"}

@@ -42,12 +42,12 @@ class Macro:
         if not currency or currency.upper() == "USD":
             return 1.0
         spec = FX_SERIES.get(currency.upper())
-        if not spec:
-            return None
-        _, v = self.asof(spec[0], d)
-        if not v:
-            return None
-        return 1.0 / v if spec[1] else v
+        if spec:
+            _, v = self.asof(spec[0], d)
+            if v:
+                return 1.0 / v if spec[1] else v
+        _, v = self.asof(f"YFX_{currency.upper()}", d)  # Yahoo fallback: foreign units per 1 USD
+        return 1.0 / v if v else None
 
     def asof(self, series: str, d: str):
         dates, vals = self.s.get(series, ([], []))

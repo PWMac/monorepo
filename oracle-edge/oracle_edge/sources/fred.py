@@ -30,11 +30,14 @@ FX_SERIES = {
     "MYR": ("DEXMAUS", True),
 }
 
-_http = Http("Mozilla/5.0 OracleEdge", per_second=2)
+# FRED normally answers in under a second. When it is having trouble it can hang for minutes per request, so the
+# timeout is short and the whole refresh gives up after a few failures in a row (existing data is kept).
+_http = Http("Mozilla/5.0 OracleEdge", per_second=2, timeout=20)
+GIVE_UP_AFTER = 3
 
 
 def fetch_series(series_id: str, start: str = "1990-01-01") -> pd.DataFrame:
-    r = _http.get(URL, params={"id": series_id, "cosd": start})
+    r = _http.get(URL, params={"id": series_id, "cosd": start}, retries=2)
     r.raise_for_status()
     df = pd.read_csv(io.StringIO(r.text))
     df.columns = ["date", "value"]
@@ -42,24 +45,112 @@ def fetch_series(series_id: str, start: str = "1990-01-01") -> pd.DataFrame:
     return df.dropna()
 
 
+def yahoo_fx_series(currency: str) -> str:
+    """Macro series name for a currency FRED doesn't publish (stored as foreign units per 1 USD)."""
+    return f"YFX_{currency.upper()}"
+
+
+def fx_from_yahoo(currency: str, start: str = "2000-01-01") -> pd.DataFrame:
+    """Daily <currency> per 1 USD from Yahoo (e.g. CLP=X)."""
+    import yfinance as yf
+
+    d = yf.download(f"{currency.upper()}=X", start=start, auto_adjust=False, progress=False, threads=False)
+    if d is None or d.empty:
+        raise RuntimeError(f"Yahoo returned no {currency} rates")
+    close = d["Close"]
+    if isinstance(close, pd.DataFrame):
+        close = close.iloc[:, 0]
+    close = close.dropna()
+    close = close[close > 0]
+    return pd.DataFrame({"date": close.index.strftime("%Y-%m-%d"), "value": close.values.astype(float)})
+
+
+def foreign_currencies() -> list[str]:
+    return sorted({r["currency"] for r in db.rows("SELECT DISTINCT currency FROM securities WHERE is_foreign=1")
+                   if r["currency"] and r["currency"].upper() != "USD"})
+
+
 def needed_fx() -> list[str]:
     cur = {r["currency"] for r in db.rows("SELECT DISTINCT currency FROM securities WHERE is_foreign=1")}
     return [FX_SERIES[c][0] for c in sorted(cur) if c in FX_SERIES]
 
 
-def refresh_all() -> dict:
+def vix_from_yahoo(start: str = "1990-01-01") -> pd.DataFrame:
+    """VIX daily closes from Yahoo (^VIX), used when FRED is unavailable."""
+    import yfinance as yf
+
+    d = yf.download("^VIX", start=start, auto_adjust=False, progress=False, threads=False)
+    if d is None or d.empty:
+        raise RuntimeError("Yahoo returned no VIX data")
+    close = d["Close"]
+    if isinstance(close, pd.DataFrame):  # newer yfinance keeps a ticker level on the columns
+        close = close.iloc[:, 0]
+    close = close.dropna()
+    return pd.DataFrame({"date": close.index.strftime("%Y-%m-%d"), "value": close.values.astype(float)})
+
+
+def fetch_vix(start: str = "1990-01-01") -> tuple[pd.DataFrame, str]:
+    try:
+        return fetch_series("VIXCLS", start), "fred"
+    except Exception as e:
+        db.log("fred", "VIXCLS", False, f"{e} (trying Yahoo ^VIX)")
+    return vix_from_yahoo(start), "yahoo"
+
+
+def _store(series: str, df: pd.DataFrame) -> None:
+    with db.tx() as con:
+        con.executemany("INSERT OR REPLACE INTO macro(series,date,value) VALUES(?,?,?)",
+                        [(series, d, float(v)) for d, v in zip(df["date"], df["value"])])
+
+
+def refresh_all(progress=None) -> dict:
+    """Refresh every series. Gives up after GIVE_UP_AFTER failures in a row (FRED down or blocking): the data
+    already stored stays, and the next daily run tries again. VIX falls back to Yahoo."""
     out = {}
-    for s in SERIES + needed_fx():
+    todo = SERIES + needed_fx()
+    fails = 0
+    for k, s in enumerate(todo):
+        if progress:
+            progress(k / max(len(todo), 1))
+        if fails >= GIVE_UP_AFTER:
+            out[s] = 0
+            continue
         try:
             df = fetch_series(s)
-            with db.tx() as con:
-                con.executemany(
-                    "INSERT OR REPLACE INTO macro(series,date,value) VALUES(?,?,?)",
-                    [(s, d, float(v)) for d, v in zip(df["date"], df["value"])],
-                )
+            _store(s, df)
             out[s] = len(df)
+            fails = 0
             db.log("fred", s, True, f"{len(df)} rows")
         except Exception as e:
             out[s] = 0
+            fails += 1
             db.log("fred", s, False, str(e))
+    if fails >= GIVE_UP_AFTER:
+        skipped = [s for s in todo if out.get(s) == 0]
+        db.log("fred", "refresh", False, f"FRED is not responding; skipped {len(skipped)} series and kept the "
+                                         "data already stored. The next daily update tries again.")
+    # currencies FRED doesn't publish (CLP, PEN, ...) and FX series FRED couldn't deliver: Yahoo
+    have = {r["series"] for r in db.rows("SELECT DISTINCT series FROM macro")}
+    for cur in foreign_currencies():
+        spec = FX_SERIES.get(cur.upper())
+        if spec and (out.get(spec[0]) or spec[0] in have):
+            continue
+        name = yahoo_fx_series(cur)
+        try:
+            df = fx_from_yahoo(cur)
+            _store(name, df)
+            out[name] = len(df)
+            db.log("yahoo", f"{cur}=X", True, f"{len(df)} rows")
+        except Exception as e:
+            db.log("yahoo", f"{cur}=X", False, str(e))
+    if not out.get("VIXCLS"):
+        try:
+            df = vix_from_yahoo()
+            _store("VIXCLS", df)
+            out["VIXCLS"] = len(df)
+            db.log("yahoo", "^VIX", True, f"{len(df)} rows (FRED unavailable)")
+        except Exception as e:
+            db.log("yahoo", "^VIX", False, str(e))
+    if progress:
+        progress(1.0)
     return out

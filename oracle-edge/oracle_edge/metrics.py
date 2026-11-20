@@ -109,8 +109,16 @@ def build_statement(state: dict[tuple[str, str], float], lookback: int) -> dict:
     for i in range(n):
         if s["gross_profit"][i] is None and s["revenue"][i] is not None and s["cogs"][i] is not None:
             s["gross_profit"][i] = s["revenue"][i] - s["cogs"][i]
-        if s["sga"][i] is None and s["selling_marketing"][i] is not None:
-            s["sga"][i] = s["selling_marketing"][i]
+        if s["sga"][i] is None and (s["selling_marketing"][i] is not None or s["gna"][i] is not None):
+            s["sga"][i] = (s["selling_marketing"][i] or 0.0) + (s["gna"][i] or 0.0)
+        if s["da"][i] is None and s["depreciation"][i] is not None:
+            s["da"][i] = abs(s["depreciation"][i]) + abs(s["amortization"][i] or 0.0)
+        if s["operating_income"][i] is None:
+            # no operating-income line: revenue - total costs and expenses, else pre-tax income + interest (EBIT)
+            if s["revenue"][i] is not None and s["costs_and_expenses"][i] is not None:
+                s["operating_income"][i] = s["revenue"][i] - s["costs_and_expenses"][i]
+            elif s["pretax_income"][i] is not None:
+                s["operating_income"][i] = s["pretax_income"][i] + abs(s["interest"][i] or 0.0)
         if s["total_liabilities"][i] is None and s["liabilities_and_equity"][i] is not None and s["equity"][i] is not None:
             s["total_liabilities"][i] = s["liabilities_and_equity"][i] - s["equity"][i]
         for k in ("capex", "dividends_paid", "buybacks", "treasury_stock", "interest", "net_charge_offs",
@@ -291,15 +299,22 @@ def compute(s: dict, fy_prices: dict[str, float] | None = None) -> dict[str, Met
 
     # $1 test needs prices at fiscal year ends
     dt = None
+    dt_note = ""
     if fy_prices:
         idx = [i for i in range(n) if y[i] in fy_prices and sh[i]]
         if len(idx) >= 3:
             i0, i1 = idx[0], idx[-1]
             mc0, mc1 = fy_prices[y[i0]] * sh[i0], fy_prices[y[i1]] * sh[i1]
+            earned = sum((NI[i] or 0) for i in range(i0 + 1, i1 + 1))
             retained = sum((NI[i] or 0) - (s["dividends_paid"][i] or 0) for i in range(i0 + 1, i1 + 1))
             if retained > 0:
                 dt = (mc1 - mc0) / retained
-    out["dollar_test"] = MetricResult(dt, [], y, detail="" if dt is not None else "needs price history")
+            elif earned <= 0:
+                dt = 0.0 if mc1 <= mc0 else None  # lost money over the period: no retained dollar to grow
+                dt_note = "lost money over the period"
+            else:
+                dt_note = "paid out everything it earned: nothing retained to test"
+    out["dollar_test"] = MetricResult(dt, [], y, detail="" if dt is not None else (dt_note or "needs price history"))
 
     pr = [v for v in (r2_loglinear(R), r2_loglinear(eps)) if v is not None]
     out["predictability"] = MetricResult(_avg(pr), R, y)

@@ -430,7 +430,9 @@ def data_page():
                         "oe-small mt-2")
             with ui.card().classes("oe-card flex-1"):
                 ui.label("Coverage gaps").classes("oe-h2")
-                ui.label("Companies missing 3+ line items (improve concept_map.yaml to fix).").classes("oe-small")
+                ui.label("Companies missing 3+ checks the data should support (improve concept_map.yaml to fix). "
+                         "Not counted: gross-margin checks for companies with no cost-of-sales line, and the $1 test "
+                         "for companies off the shortlist (no prices downloaded).").classes("oe-small")
                 gaps = data.coverage_gaps(25)
                 for g in gaps:
                     ui.label(f"{g['ticker']} · {g['missing']}").classes("oe-small")
@@ -456,7 +458,17 @@ def data_page():
                     ui.label((r["adr_source"] or "not checked")[:110]).classes("oe-small flex-1")
         with ui.card().classes("oe-card w-full"):
             ui.label("Maintenance").classes("oe-h2")
+            from ..pipeline import resumable_initial_load
+
+            stopped = None if jobs.running() else resumable_initial_load()
+            if stopped:
+                ui.label(f"First-time load #{stopped['id']} stopped after the SEC statements were read in. "
+                         "Continue picks up from there (scoring, prices, history replay) and skips the long "
+                         "download and read.").classes("oe-small text-amber-800")
             with ui.row():
+                if stopped:
+                    ui.button("Continue first-time load", icon="play_arrow",
+                              on_click=lambda: _launch("initial_load", {"resume": True})).props("unelevated")
                 ui.button("Re-run first-time load", on_click=lambda: _launch("initial_load")).props("outline")
                 ui.button("Run daily update now", on_click=lambda: _launch("daily", {"force": True})).props("outline")
             jl = db.rows("SELECT * FROM jobs ORDER BY id DESC LIMIT 8")
