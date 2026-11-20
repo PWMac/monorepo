@@ -1,0 +1,307 @@
+# Oracle Edge concept map: which XBRL tags feed each normalized line item.
+# Tags are tried in order PER FISCAL YEAR, so a company that switched tags over time
+# (e.g. SalesRevenueNet -> RevenueFromContractWithCustomer...) still has a continuous history.
+# kind: duration = flow over the fiscal year; instant = balance at fiscal year end.
+# Improve coverage over time by adding tags here; the Data Doctor screen shows gaps.
+
+revenue:
+  kind: duration
+  tags:
+    - us-gaap:Revenues
+    - us-gaap:RevenueFromContractWithCustomerExcludingAssessedTax
+    - us-gaap:RevenueFromContractWithCustomerIncludingAssessedTax
+    - us-gaap:SalesRevenueNet
+    - us-gaap:SalesRevenueGoodsNet
+    - us-gaap:SalesRevenueServicesNet
+    - us-gaap:RevenuesNetOfInterestExpense
+    - us-gaap:TotalRevenuesAndOtherIncome
+    - ifrs-full:Revenue
+    - ifrs-full:RevenueFromContractsWithCustomers
+cogs:
+  kind: duration
+  tags:
+    - us-gaap:CostOfRevenue
+    - us-gaap:CostOfGoodsAndServicesSold
+    - us-gaap:CostOfGoodsSold
+    - us-gaap:CostOfServices
+    - us-gaap:CostOfGoodsAndServiceExcludingDepreciationDepletionAndAmortization
+    - ifrs-full:CostOfSales
+gross_profit:
+  kind: duration
+  tags:
+    - us-gaap:GrossProfit
+    - ifrs-full:GrossProfit
+sga:
+  kind: duration
+  tags:
+    - us-gaap:SellingGeneralAndAdministrativeExpense
+    - us-gaap:GeneralAndAdministrativeExpense
+    - ifrs-full:SellingGeneralAndAdministrativeExpense
+    - ifrs-full:AdministrativeExpense
+selling_marketing:
+  kind: duration
+  tags:
+    - us-gaap:SellingAndMarketingExpense
+    - us-gaap:SellingExpense
+    - ifrs-full:SellingExpense
+    - ifrs-full:DistributionCosts
+rnd:
+  kind: duration
+  tags:
+    - us-gaap:ResearchAndDevelopmentExpense
+    - us-gaap:ResearchAndDevelopmentExpenseExcludingAcquiredInProcessCost
+    - ifrs-full:ResearchAndDevelopmentExpense
+da:
+  kind: duration
+  tags:
+    - us-gaap:DepreciationDepletionAndAmortization
+    - us-gaap:DepreciationAndAmortization
+    - us-gaap:DepreciationAmortizationAndAccretionNet
+    - us-gaap:Depreciation
+    - ifrs-full:AdjustmentsForDepreciationAndAmortisationExpense
+    - ifrs-full:DepreciationAndAmortisationExpense
+interest:
+  kind: duration
+  tags:
+    - us-gaap:InterestExpense
+    - us-gaap:InterestExpenseNonoperating
+    - us-gaap:InterestExpenseDebt
+    - us-gaap:InterestAndDebtExpense
+    - us-gaap:InterestPaidNet
+    - ifrs-full:FinanceCosts
+    - ifrs-full:InterestExpense
+operating_income:
+  kind: duration
+  tags:
+    - us-gaap:OperatingIncomeLoss
+    - ifrs-full:ProfitLossFromOperatingActivities
+pretax_income:
+  kind: duration
+  tags:
+    - us-gaap:IncomeLossFromContinuingOperationsBeforeIncomeTaxesExtraordinaryItemsNoncontrollingInterest
+    - us-gaap:IncomeLossFromContinuingOperationsBeforeIncomeTaxesMinorityInterestAndIncomeLossFromEquityMethodInvestments
+    - us-gaap:IncomeLossFromContinuingOperationsBeforeIncomeTaxesDomestic
+    - ifrs-full:ProfitLossBeforeTax
+income_tax:
+  kind: duration
+  tags:
+    - us-gaap:IncomeTaxExpenseBenefit
+    - ifrs-full:IncomeTaxExpenseContinuingOperations
+net_income:
+  kind: duration
+  tags:
+    - us-gaap:NetIncomeLoss
+    - us-gaap:NetIncomeLossAvailableToCommonStockholdersBasic
+    - us-gaap:ProfitLoss
+    - ifrs-full:ProfitLossAttributableToOwnersOfParent
+    - ifrs-full:ProfitLoss
+eps_diluted:
+  kind: duration
+  unit: per_share
+  tags:
+    - us-gaap:EarningsPerShareDiluted
+    - us-gaap:EarningsPerShareBasicAndDiluted
+    - us-gaap:EarningsPerShareBasic
+    - ifrs-full:DilutedEarningsLossPerShare
+    - ifrs-full:BasicEarningsLossPerShare
+shares_diluted:
+  kind: duration
+  unit: shares
+  tags:
+    - us-gaap:WeightedAverageNumberOfDilutedSharesOutstanding
+    - us-gaap:WeightedAverageNumberOfShareOutstandingBasicAndDiluted
+    - us-gaap:WeightedAverageNumberOfSharesOutstandingBasic
+    - ifrs-full:WeightedAverageShares
+ocf:
+  kind: duration
+  tags:
+    - us-gaap:NetCashProvidedByUsedInOperatingActivities
+    - us-gaap:NetCashProvidedByUsedInOperatingActivitiesContinuingOperations
+    - ifrs-full:CashFlowsFromUsedInOperatingActivities
+capex:
+  kind: duration
+  tags:
+    - us-gaap:PaymentsToAcquirePropertyPlantAndEquipment
+    - us-gaap:PaymentsToAcquireProductiveAssets
+    - us-gaap:PaymentsForCapitalImprovements
+    - ifrs-full:PurchaseOfPropertyPlantAndEquipmentClassifiedAsInvestingActivities
+    - ifrs-full:PurchaseOfPropertyPlantAndEquipment
+dividends_paid:
+  kind: duration
+  tags:
+    - us-gaap:PaymentsOfDividends
+    - us-gaap:PaymentsOfDividendsCommonStock
+    - ifrs-full:DividendsPaidClassifiedAsFinancingActivities
+    - ifrs-full:DividendsPaid
+buybacks:
+  kind: duration
+  tags:
+    - us-gaap:PaymentsForRepurchaseOfCommonStock
+    - ifrs-full:PaymentsToAcquireOrRedeemEntitysShares
+cash:
+  kind: instant
+  tags:
+    - us-gaap:CashAndCashEquivalentsAtCarryingValue
+    - us-gaap:CashCashEquivalentsRestrictedCashAndRestrictedCashEquivalents
+    - us-gaap:Cash
+    - ifrs-full:CashAndCashEquivalents
+st_investments:
+  kind: instant
+  tags:
+    - us-gaap:ShortTermInvestments
+    - us-gaap:MarketableSecuritiesCurrent
+    - us-gaap:AvailableForSaleSecuritiesDebtSecuritiesCurrent
+    - ifrs-full:CurrentInvestments
+lt_debt:
+  kind: instant
+  tags:
+    - us-gaap:LongTermDebtNoncurrent
+    - us-gaap:LongTermDebtAndCapitalLeaseObligations
+    - us-gaap:LongTermDebt
+    - us-gaap:SeniorLongTermNotes
+    - ifrs-full:NoncurrentPortionOfNoncurrentBorrowings
+    - ifrs-full:LongtermBorrowings
+st_debt:
+  kind: instant
+  tags:
+    - us-gaap:LongTermDebtCurrent
+    - us-gaap:DebtCurrent
+    - us-gaap:ShortTermBorrowings
+    - us-gaap:CommercialPaper
+    - ifrs-full:CurrentPortionOfNoncurrentBorrowings
+    - ifrs-full:ShorttermBorrowings
+total_assets:
+  kind: instant
+  tags:
+    - us-gaap:Assets
+    - ifrs-full:Assets
+total_liabilities:
+  kind: instant
+  tags:
+    - us-gaap:Liabilities
+    - ifrs-full:Liabilities
+current_assets:
+  kind: instant
+  tags:
+    - us-gaap:AssetsCurrent
+    - ifrs-full:CurrentAssets
+current_liabilities:
+  kind: instant
+  tags:
+    - us-gaap:LiabilitiesCurrent
+    - ifrs-full:CurrentLiabilities
+equity:
+  kind: instant
+  tags:
+    - us-gaap:StockholdersEquity
+    - us-gaap:StockholdersEquityIncludingPortionAttributableToNoncontrollingInterest
+    - ifrs-full:EquityAttributableToOwnersOfParent
+    - ifrs-full:Equity
+liabilities_and_equity:
+  kind: instant
+  tags:
+    - us-gaap:LiabilitiesAndStockholdersEquity
+    - ifrs-full:EquityAndLiabilities
+treasury_stock:
+  kind: instant
+  tags:
+    - us-gaap:TreasuryStockValue
+    - us-gaap:TreasuryStockCommonValue
+    - ifrs-full:TreasuryShares
+preferred_stock:
+  kind: instant
+  tags:
+    - us-gaap:PreferredStockValue
+    - us-gaap:PreferredStockValueOutstanding
+retained_earnings:
+  kind: instant
+  tags:
+    - us-gaap:RetainedEarningsAccumulatedDeficit
+    - ifrs-full:RetainedEarnings
+# ---- financials (bank / insurer rulebooks) ----
+deposits:
+  kind: instant
+  tags:
+    - us-gaap:Deposits
+loans:
+  kind: instant
+  tags:
+    - us-gaap:LoansAndLeasesReceivableNetReportedAmount
+    - us-gaap:FinancingReceivableExcludingAccruedInterestAfterAllowanceForCreditLoss
+premiums_earned:
+  kind: duration
+  tags:
+    - us-gaap:PremiumsEarnedNet
+    - us-gaap:PremiumsEarnedNetPropertyAndCasualty
+noninterest_expense:
+  kind: duration
+  tags:
+    - us-gaap:NoninterestExpense
+net_interest_income:
+  kind: duration
+  tags:
+    - us-gaap:InterestIncomeExpenseNet
+    - us-gaap:InterestIncomeExpenseAfterProvisionForLoanLoss
+noninterest_income:
+  kind: duration
+  tags:
+    - us-gaap:NoninterestIncome
+goodwill:
+  kind: instant
+  tags:
+    - us-gaap:Goodwill
+    - ifrs-full:Goodwill
+intangibles:
+  kind: instant
+  tags:
+    - us-gaap:IntangibleAssetsNetExcludingGoodwill
+    - us-gaap:FiniteLivedIntangibleAssetsNet
+    - ifrs-full:IntangibleAssetsOtherThanGoodwill
+net_charge_offs:
+  kind: duration
+  tags:
+    - us-gaap:FinancingReceivableAllowanceForCreditLossesWriteOffsNet
+    - us-gaap:AllowanceForLoanAndLeaseLossesWriteOffsNet
+provision:
+  kind: duration
+  tags:
+    - us-gaap:ProvisionForLoanLeaseAndOtherLosses
+    - us-gaap:ProvisionForLoanAndLeaseLosses
+    - us-gaap:ProvisionForCreditLosses
+    - us-gaap:CreditLossExpenseReversal
+losses_incurred:
+  kind: duration
+  tags:
+    - us-gaap:PolicyholderBenefitsAndClaimsIncurredNet
+    - us-gaap:IncurredClaimsPropertyCasualtyAndLiability
+total_benefits_expenses:
+  kind: duration
+  tags:
+    - us-gaap:BenefitsLossesAndExpenses
+dac_amort:
+  kind: duration
+  tags:
+    - us-gaap:DeferredPolicyAcquisitionCostAmortizationExpense
+    - us-gaap:AmortizationOfDeferredPolicyAcquisitionCosts
+other_uw_expense:
+  kind: duration
+  tags:
+    - us-gaap:OtherUnderwritingExpense
+    - us-gaap:UnderwritingExpenses
+net_investment_income:
+  kind: duration
+  tags:
+    - us-gaap:NetInvestmentIncome
+loss_reserves:
+  kind: instant
+  tags:
+    - us-gaap:LiabilityForClaimsAndClaimsAdjustmentExpense
+    - us-gaap:LiabilityForUnpaidClaimsAndClaimsAdjustmentExpenseNet
+unearned_premiums:
+  kind: instant
+  tags:
+    - us-gaap:UnearnedPremiums
+prior_year_development:
+  kind: duration
+  tags:
+    - us-gaap:LiabilityForUnpaidClaimsAndClaimsAdjustmentExpenseIncurredClaimsPriorYears

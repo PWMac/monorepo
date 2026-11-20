@@ -1,0 +1,828 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Oracle Edge · Guide</title>
+<style>
+:root { --brand:#1f6f4a; --brand-soft:#e3f1ea; --ink:#1d2321; --muted:#5d6763; --line:#e2e0d8; --bg:#f7f6f2;
+  --warn:#9a5b00; --warn-soft:#fbf0dc; --red:#a33a2b; --blue:#2c5d8f; --purple:#7a4f9e; }
+* { box-sizing:border-box; }
+html { scroll-behavior:smooth; }
+body { margin:0; font-family:"Segoe UI", system-ui, -apple-system, Roboto, Arial, sans-serif; color:var(--ink);
+  background:var(--bg); line-height:1.6; font-size:15.5px; }
+header.top { background:var(--brand); color:#fff; padding:28px 32px 26px; }
+header.top h1 { margin:0; font-size:30px; letter-spacing:-.3px; }
+header.top p { margin:6px 0 0; opacity:.9; max-width:860px; }
+.wrap { display:grid; grid-template-columns:250px minmax(0,1fr); gap:32px; max-width:1240px; margin:0 auto;
+  padding:24px 28px 80px; }
+nav.toc { position:sticky; top:16px; align-self:start; max-height:calc(100vh - 32px); overflow:auto;
+  font-size:13.5px; }
+nav.toc b { display:block; font-size:11.5px; text-transform:uppercase; letter-spacing:.08em; color:var(--muted);
+  margin:4px 0 8px; }
+nav.toc a { display:block; color:var(--ink); text-decoration:none; padding:3px 10px; border-left:2px solid var(--line); }
+nav.toc a:hover { border-left-color:var(--brand); color:var(--brand); background:#fff; }
+main { min-width:0; }
+h2 { font-size:23px; margin:44px 0 10px; padding-top:8px; border-top:1px solid var(--line); letter-spacing:-.2px; }
+h2:first-of-type { border-top:none; margin-top:6px; }
+h2 .n { color:var(--brand); margin-right:8px; }
+h3 { font-size:17px; margin:24px 0 6px; }
+h4 { font-size:15px; margin:18px 0 6px; }
+p, li { max-width:900px; }
+a { color:var(--brand); }
+code, .mono { font-family:Consolas, "Cascadia Mono", monospace; font-size:13.5px; background:#efede6;
+  padding:1px 5px; border-radius:4px; }
+table { border-collapse:collapse; width:100%; margin:10px 0 16px; background:#fff; font-size:14px;
+  border:1px solid var(--line); border-radius:8px; overflow:hidden; }
+th, td { text-align:left; padding:7px 10px; border-bottom:1px solid var(--line); vertical-align:top; }
+th { background:#f0eee7; font-weight:600; font-size:13px; }
+tr:last-child td { border-bottom:none; }
+.card { background:#fff; border:1px solid var(--line); border-radius:12px; padding:16px 18px; margin:14px 0; }
+.why { border-left:4px solid var(--blue); background:#eef3f8; border-radius:8px; padding:10px 14px; margin:12px 0; }
+.why b:first-child { color:var(--blue); }
+.note { border-left:4px solid var(--warn); background:var(--warn-soft); border-radius:8px; padding:10px 14px; margin:12px 0; }
+.good { border-left:4px solid var(--brand); background:var(--brand-soft); border-radius:8px; padding:10px 14px; margin:12px 0; }
+.grid2 { display:grid; grid-template-columns:1fr 1fr; gap:14px; }
+.grid3 { display:grid; grid-template-columns:repeat(3, 1fr); gap:12px; }
+.pill { display:inline-block; font-size:11.5px; font-weight:700; padding:2px 9px; border-radius:999px; white-space:nowrap;
+  border:1.5px solid transparent; }
+.formula { font-family:Consolas, monospace; background:#fff; border:1px dashed #cfcabd; border-radius:8px; padding:10px 14px;
+  margin:10px 0; font-size:14px; overflow-x:auto; }
+.flow { display:flex; flex-wrap:wrap; gap:8px; align-items:stretch; margin:12px 0; }
+.flow .step { background:#fff; border:1px solid var(--line); border-radius:10px; padding:10px 12px; flex:1 1 150px;
+  font-size:13.5px; }
+.flow .step b { display:block; color:var(--brand); font-size:12px; text-transform:uppercase; letter-spacing:.05em; }
+.flow .arrow { align-self:center; color:var(--muted); font-size:18px; }
+.small { font-size:13px; color:var(--muted); }
+.kbd { font-family:inherit; border:1px solid #cfcabd; border-bottom-width:2px; border-radius:4px; padding:0 5px;
+  background:#fff; font-size:12.5px; }
+footer { color:var(--muted); font-size:12.5px; margin-top:50px; border-top:1px solid var(--line); padding-top:14px; }
+@media (max-width: 900px) { .wrap { grid-template-columns:1fr; } nav.toc { position:static; max-height:none; }
+  .grid2, .grid3 { grid-template-columns:1fr; } }
+@media print { nav.toc { display:none; } .wrap { grid-template-columns:1fr; } header.top { color:#000; background:none; } }
+</style>
+</head>
+<body>
+<header class="top">
+  <h1>Oracle Edge</h1>
+  <p>A local stock screener that thinks like Warren Buffett. This guide explains <b>what</b> the app does,
+  <b>how</b> it decides, and <b>why</b> it was built this way. Version 0.8.1.</p>
+  <p style="font-size:14px">Two documents: this <b>guide</b> is the user manual, kept current with every release and opened from
+  "Guide" in the app. The <b>plan</b> (<code>docs/Value-Picker-Plan.html</code> with the source code) is the design record: the research, architecture,
+  database layout and the decision log behind the app.</p>
+</header>
+
+<div class="wrap">
+<nav class="toc">
+  <b>Contents</b>
+  <a href="#what">1. What it is</a>
+  <a href="#start">2. Quick start</a>
+  <a href="#day">3. What happens each day</a>
+  <a href="#data">4. Where the data comes from</a>
+  <a href="#universe">5. Which companies are screened</a>
+  <a href="#quality">6. Scoring the business (Quality)</a>
+  <a href="#rules">7. The rules, one by one</a>
+  <a href="#value">8. Judging the price (Value)</a>
+  <a href="#rank">9. Ranking and the lists</a>
+  <a href="#lists" style="padding-left:22px">Comparing stocks side by side</a>
+  <a href="#signals">10. Buy and sell signals</a>
+  <a href="#strength" style="padding-left:22px">How strong is a signal?</a>
+  <a href="#selling">11. When it sells</a>
+  <a href="#targets">12. Price targets and alerts</a>
+  <a href="#portfolio">13. Model portfolio: how many, new money</a>
+  <a href="#newmoney" style="padding-left:22px">Where new money goes</a>
+  <a href="#chosen" style="padding-left:22px">Why Buffettology 15% · best 7</a>
+  <a href="#market">14. Market temperature</a>
+  <a href="#backtest">15. Backtests and profiles</a>
+  <a href="#ops">16. Email, schedule, backups, security</a>
+  <a href="#trouble" style="padding-left:22px">Troubleshooting</a>
+  <a href="#screens">17. The screens</a>
+  <a href="#folders">18. Where things live</a>
+  <a href="#whys">19. Why it works this way</a>
+  <a href="#limits">20. Known limits</a>
+  <a href="#glossary">21. Glossary</a>
+</nav>
+
+<main>
+
+<!-- ================================================================ 1 -->
+<h2 id="what"><span class="n">1</span>What it is</h2>
+<p>Oracle Edge reads every U.S.-listed company's annual reports straight from the SEC, keeps only the businesses
+that pass Buffett-style tests, works out what each survivor is worth, and ranks the ones selling at a sensible
+price. After every market close it refreshes itself, logs a <b>buy</b> signal when a stock enters the Buy Zone and a
+<b>sell</b> signal when the business stops qualifying, and tracks how those signals would have performed.</p>
+<div class="grid3">
+  <div class="card"><b>One click, all local</b><br><span class="small">Runs on your PC in your browser. One folder
+  holds the code, the Python runtime and the SQLite database. Nothing is uploaded anywhere.</span></div>
+  <div class="card"><b>Explainable</b><br><span class="small">Every score, price and signal shows the numbers and the
+  rule behind it, in plain English: "Return on equity 14.9% (limit 15.0%)".</span></div>
+  <div class="card"><b>Testable</b><br><span class="small">The same engine replays history from 2019 using only the
+  data available on each day, so you can see whether a rule change actually helps.</span></div>
+</div>
+<div class="note"><b>What it isn't.</b> It isn't financial advice, a trading bot or a real-time quote screen. It works
+from end-of-day prices and published filings, and it suggests actions for the <b>next market open</b>. You place any
+trades yourself.</div>
+
+<!-- ================================================================ 2 -->
+<h2 id="start"><span class="n">2</span>Quick start</h2>
+<ol>
+  <li><b>Install:</b> run <code>Install-OracleEdge.bat</code>. It copies the app to <code>C:\OracleEdge</code> (keeping any
+  existing data), puts a desktop shortcut in place and starts the app. <b>To upgrade, run it again:</b> it first stops the
+  copy that's running in the background (so the new version is the one you see), keeps your data, and the database upgrades
+  itself. The version you're running is shown at the bottom of the app's left menu.</li>
+  <li><b>Start:</b> double-click <b>Oracle Edge</b> on the desktop, or <code>Start.bat</code>. The first start
+  downloads its private Python (about a minute). Your browser opens at <code>http://127.0.0.1:8765</code>.</li>
+  <li><b>Setup wizard:</b> enter a name and email for the SEC (they require it for downloads), choose the
+  history start (default 2019) and start the <b>first-time load</b>. It downloads all company filings once
+  (about 1.3 GB), scores every company, fetches prices for the shortlist and replays history. It's a long one-time
+  job; you can close the browser and come back.</li>
+  <li><b>Settings:</b> set up email (optional), the daily run time and the backup folder, then click
+  <b>Save &amp; (re)register task</b> so Windows runs the update after each close, even when the app isn't open.</li>
+  <li><b>Set your money:</b> in <b>Profiles → Portfolio</b>, enter your starting money and what you add each week.</li>
+  <li><b>Pick holdings and a new-money rule:</b> open <b>Backtest → Find the best number of holdings</b>, run it from 2019,
+  and save the winner to a profile (section 13). Then <b>Rebuild live signals</b> so daily signals use it.</li>
+  <li><b>Use it:</b> open <b>Today</b> each evening or read the email. Click any ticker for its full report card.</li>
+</ol>
+<p class="small">Press <span class="kbd">/</span> anywhere to search for a ticker or company name.</p>
+
+<!-- ================================================================ 3 -->
+<h2 id="day"><span class="n">3</span>What happens each day</h2>
+<p>By default the daily run waits until <b>6:00 PM New York time</b>, which leaves time for closing prices to settle.
+It skips weekends and market holidays. If your PC was off, the app catches up the next time it starts.</p>
+<div class="flow">
+  <div class="step"><b>1 · Filings</b>Reads the SEC's daily index; downloads new 10-K, 20-F and 40-F annual reports and,
+  for shortlisted and owned companies, new 10-Qs</div><div class="arrow">→</div>
+  <div class="step"><b>2 · Prices</b>Updates closing prices for the shortlist, your holdings and the S&amp;P 500</div><div class="arrow">→</div>
+  <div class="step"><b>3 · Rescore</b>Re-scores any company with a new filing; runs the 10-Q early-warning checks</div><div class="arrow">→</div>
+  <div class="step"><b>4 · Market</b>Treasury yields, exchange rates, market cap ÷ GDP from the Federal Reserve (FRED)</div>
+</div>
+<div class="flow">
+  <div class="step"><b>5 · Evaluate</b>Values every qualifying company at today's close; builds the ranked lists</div><div class="arrow">→</div>
+  <div class="step"><b>6 · Signals</b>Compares with yesterday: BUY, SELL, TRIM, ADD, SWAP, REVIEW</div><div class="arrow">→</div>
+  <div class="step"><b>7 · Targets</b>Checks buy, strong-buy, limit and trim prices plus your own alerts</div><div class="arrow">→</div>
+  <div class="step"><b>8 · Tell you</b>Email digest (only if something happened), Windows notification, backup to your backup folder</div>
+</div>
+<p>On Fridays you also get a weekly summary email. If a run fails, you get an email explaining the problem in plain words.</p>
+
+<!-- ================================================================ 4 -->
+<h2 id="data"><span class="n">4</span>Where the data comes from</h2>
+<table>
+<tr><th>What</th><th>Source (free)</th><th>Notes</th></tr>
+<tr><td>Financial statements</td><td>SEC EDGAR (XBRL "company facts")</td><td>The audited numbers companies file, keyed by
+<b>filing date</b>. A one-time bulk download, then only new filings each day. The SEC asks for a name and email in
+every request and allows 10 requests per second; the app stays under that.</td></tr>
+<tr><td>Industry, ADR ratio</td><td>SEC submissions and annual-report cover pages</td><td>The industry code (SIC) routes banks and insurers to their
+own rulebooks. The ADR ratio is read from foreign filers' cover pages.</td></tr>
+<tr><td>Daily prices</td><td>Stooq, then Yahoo Finance as a fallback</td><td>If one source fails, the next is tried automatically.
+Tiingo and EODHD (paid, more reliable) can be added and reordered under <b>Data → Price sources</b> with an API key. A Schwab connection is reserved for later.</td></tr>
+<tr><td>Rates, FX, GDP, market cap</td><td>FRED (Federal Reserve Bank of St. Louis)</td><td>30- and 10-year Treasury yields,
+exchange rates for foreign filers, and the Fed's Z.1 equity market value and GDP for the Buffett Indicator.</td></tr>
+</table>
+<div class="why"><b>Why filing dates matter.</b> A company's 2025 results aren't known until its 10-K is filed, often in
+February or March. Every calculation uses only facts filed <i>on or before</i> the day being evaluated. That's what keeps
+the backtests honest: no peeking at numbers nobody had yet ("look-ahead bias").</div>
+<div class="why"><b>Why free first.</b> SEC data is the original source that paid vendors repackage, so the fundamentals
+lose nothing. Prices are where free sources wobble, so every source is a plug-in with automatic fallback, and paying
+later is a settings change, not a rewrite.</div>
+
+<!-- ================================================================ 5 -->
+<h2 id="universe"><span class="n">5</span>Which companies are screened</h2>
+<ul>
+  <li><b>Size and tradability:</b> market cap of at least $100 million and at least $250,000 traded per day. The floors are
+  deliberately low because Buffett has said that with small sums he'd hunt among small, overlooked companies.
+  The volume floor only keeps a stock practical to buy.</li>
+  <li><b>Foreign companies</b> that file with the SEC (20-F / 40-F, many large ADRs) are included and valued in U.S.
+  dollars per traded share. Companies listed only abroad aren't in the free data.</li>
+  <li><b>Routing by industry:</b> banks (SIC 6021–6036) and insurers (6311–6411) get their own rulebooks. REITs, SPACs, blank-check
+  shells and closed-end funds are excluded because owner-earnings math doesn't describe them. Everything else uses the
+  standard rules.</li>
+  <li><b>Enough history:</b> at least 7 annual reports with the core line items. Ten are used when available.</li>
+</ul>
+
+<!-- ================================================================ 6 -->
+<h2 id="quality"><span class="n">6</span>Scoring the business (Quality, 0–100)</h2>
+<p>Quality answers one question: <i>is this a wonderful business?</i> The answer doesn't depend on the share price.</p>
+<h3>Gates: must pass</h3>
+<p>A few rules are pass/fail. A company that fails any gate can't be bought, however cheap it is. For standard companies
+the gates are:</p>
+<ul>
+  <li>profitable in 7 of 10 years at minimum (10 of 10 scores full marks);</li>
+  <li>long-term debt no more than about 4 years of earnings (8 is the floor);</li>
+  <li>10-year average return on equity of 15% or more, with no single year under 10%;</li>
+  <li>enough data.</li>
+</ul>
+<p>Two more gates apply only to <b>buying</b>: margin of safety and expected return (see section 8).</p>
+<h3>Scored rules: three anchor points</h3>
+<p>Every rule has a <b>floor</b> (scores 0), a <b>target</b> (scores 70) and an <b>excellent</b> level (scores 100), with straight
+lines in between. "Target" is Buffett's rule of thumb, so a company that just meets every rule of thumb scores about 70.</p>
+<p>Each rule's score blends <b>how good</b> the 10-year figure is with <b>how consistently</b> the company hit the target year
+by year:</p>
+<div class="formula">rule score = 0.6 × level score + 0.4 × (share of years at or better than target × 100)</div>
+<p>Rules are averaged within five categories, then the categories are combined:</p>
+<table>
+<tr><th>Category</th><th>Weight</th><th>Asks</th></tr>
+<tr><td>Profitability</td><td>35%</td><td>Fat, stable margins and steadily growing earnings: signs of a moat</td></tr>
+<tr><td>Returns</td><td>25%</td><td>High returns on equity and on invested capital</td></tr>
+<tr><td>Balance sheet</td><td>20%</td><td>Little debt, plenty of cash, growing retained earnings</td></tr>
+<tr><td>Cash</td><td>10%</td><td>Profits that turn into real cash without heavy spending on equipment</td></tr>
+<tr><td>Shareholder</td><td>10%</td><td>Buybacks rather than dilution, and each retained dollar creating at least a dollar of market value</td></tr>
+</table>
+<p><b>Quality ≥ 70</b> is needed for the Buy Zone; 80 or more can make a buy a STRONG BUY.</p>
+<p><b>Confidence (0.85–1.00)</b> trims the rank slightly when recent line items are missing, history is short, or reported
+profits don't convert well into cash. It never boosts a score.</p>
+<div class="why"><b>Why level and consistency.</b> Buffett looks for <i>durable</i> advantages. A company that averaged 20% ROE
+thanks to two spectacular years is very different from one that earned 18% every year. The consistency term rewards
+the second.</div>
+
+<!-- ================================================================ 7 -->
+<h2 id="rules"><span class="n">7</span>The rules, one by one</h2>
+<p>These are the defaults in the locked <b>Oracle Classic</b> profile (<code>rules/oracle_classic.yaml</code>). You can change any of
+them in a copy under <b>Profiles</b>. Each company's report card shows its value, its score, a 10-year sparkline, and the reason
+the rule matters.</p>
+<h3>Standard companies</h3>
+<table>
+<tr><th>Rule</th><th>Measure</th><th>Target (70 pts)</th><th>Why Buffett cares</th></tr>
+<tr><td>Earnings every year <span class="pill" style="background:#fbe2dd;color:#a33a2b">gate</span></td><td>Years with a profit</td><td>10 of 10</td><td>Wild swings are typical of commodity businesses</td></tr>
+<tr><td>Debt payback <span class="pill" style="background:#fbe2dd;color:#a33a2b">gate</span></td><td>Long-term debt ÷ net income (3-yr avg)</td><td>≤ 4 years</td><td>A durable company could pay off its debt quickly</td></tr>
+<tr><td>Return on equity <span class="pill" style="background:#fbe2dd;color:#a33a2b">gate</span></td><td>Net income ÷ average equity, 10-yr avg</td><td>≥ 15%, no year &lt; 10%</td><td>Berkshire's own stated criterion: good ROE with little debt</td></tr>
+<tr><td>Gross margin</td><td>Gross profit ÷ revenue</td><td>≥ 40%</td><td>Not competing on price</td></tr>
+<tr><td>SG&amp;A margin</td><td>SG&amp;A ÷ gross profit</td><td>≤ 30%</td><td>Doesn't spend heavily to keep customers</td></tr>
+<tr><td>R&amp;D margin</td><td>R&amp;D ÷ gross profit</td><td>≤ 30%</td><td>Heavy R&amp;D means the edge must be rebuilt again and again</td></tr>
+<tr><td>Depreciation margin</td><td>D&amp;A ÷ gross profit</td><td>≤ 10%</td><td>Capital-light businesses keep more of what they earn</td></tr>
+<tr><td>Interest margin</td><td>Interest ÷ operating income</td><td>≤ 15%</td><td>The company with the edge rarely needs to borrow</td></tr>
+<tr><td>Tax margin</td><td>Income tax ÷ pre-tax income</td><td>15–30%</td><td>Real earnings pay real taxes</td></tr>
+<tr><td>Net margin</td><td>Net income ÷ revenue</td><td>≥ 20%</td><td>Sustained high margins signal a durable advantage</td></tr>
+<tr><td>EPS growth</td><td>10-yr EPS growth rate</td><td>≥ 5% a year</td><td>Great companies grow profits year after year</td></tr>
+<tr><td>Predictability</td><td>How straight the 10-yr revenue and EPS trend is (R²)</td><td>≥ 0.80</td><td>Steady growers are easier to value</td></tr>
+<tr><td>Margin stability</td><td>Swing in operating margin</td><td>≤ 3 pts</td><td>A moat shows as margins that hold through recessions</td></tr>
+<tr><td>Cash vs debt</td><td>Cash ÷ total debt</td><td>≥ 1.0×</td><td>Doesn't need debt to fund itself</td></tr>
+<tr><td>Adjusted debt-to-equity</td><td>Liabilities ÷ (equity + treasury stock)</td><td>≤ 0.8×</td><td>Adding buybacks back stops buyback-heavy companies looking over-borrowed</td></tr>
+<tr><td>Retained earnings growth</td><td>Share of years retained earnings rose</td><td>≥ 70%</td><td>The company is compounding its own capital</td></tr>
+<tr><td>Buybacks / share count</td><td>Diluted share count growth</td><td>≤ 0%</td><td>Buybacks raise your share of the business; dilution lowers it</td></tr>
+<tr><td>No preferred stock</td><td>Preferred shares outstanding</td><td>none</td><td>Durable companies rarely need expensive funding</td></tr>
+<tr><td>The "$1 test"</td><td>Market value added ÷ earnings retained</td><td>≥ 1.0×</td><td>Each retained dollar should create at least a dollar of value</td></tr>
+<tr><td>Capex margin</td><td>Capex ÷ net income</td><td>≤ 50%</td><td>Doesn't need much equipment to grow</td></tr>
+<tr><td>Owner earnings growth</td><td>Growth of net income + D&amp;A − capex</td><td>≥ 5% a year</td><td>Buffett's own measure of cash an owner could take out</td></tr>
+<tr><td>Cash conversion</td><td>Free cash flow ÷ net income</td><td>≥ 90%</td><td>Reported profit is real cash</td></tr>
+<tr><td>Return on invested capital</td><td>After-tax operating profit ÷ (debt + equity − cash)</td><td>≥ 15%</td><td>Harder to inflate with borrowing than ROE</td></tr>
+<tr><td>Earnings yield vs bonds</td><td>Owner earnings ÷ market cap − 30-yr Treasury</td><td>≥ 0</td><td>A stock should beat a risk-free bond</td></tr>
+<tr><td>PEPG <span class="small">(info only)</span></td><td>P/E ÷ 5-yr EBITDA growth</td><td>≤ 1.5</td><td>GuruFocus's Buffett-Munger cross-check</td></tr>
+</table>
+
+<div class="grid2">
+<div>
+<h3>Banks</h3>
+<table>
+<tr><th>Rule</th><th>Target</th></tr>
+<tr><td>Return on assets <span class="pill" style="background:#fbe2dd;color:#a33a2b">gate</span></td><td>≥ 1.0% (10-yr avg)</td></tr>
+<tr><td>Profitable every year <span class="pill" style="background:#fbe2dd;color:#a33a2b">gate</span></td><td>10 of 10</td></tr>
+<tr><td>Return on equity</td><td>≥ 12%</td></tr>
+<tr><td>Efficiency ratio (costs ÷ revenue)</td><td>≤ 60%</td></tr>
+<tr><td>Equity ÷ assets</td><td>≥ 8%</td></tr>
+<tr><td>Loans ÷ deposits</td><td>≤ 90%</td></tr>
+<tr><td>Net charge-offs ÷ loans (incl. 2020)</td><td>≤ 0.5%</td></tr>
+<tr><td>Buybacks, "$1 test"</td><td>as standard</td></tr>
+</table>
+</div>
+<div>
+<h3>Insurers</h3>
+<table>
+<tr><th>Rule</th><th>Target</th></tr>
+<tr><td>Combined ratio under 100% <span class="pill" style="background:#fbe2dd;color:#a33a2b">gate</span></td><td>8 of 10 years</td></tr>
+<tr><td>Float growth</td><td>≥ 5% a year</td></tr>
+<tr><td>Return on equity</td><td>≥ 12%</td></tr>
+<tr><td>Book value per share growth</td><td>≥ 8% a year</td></tr>
+<tr><td>Premiums ÷ equity</td><td>≤ 2×</td></tr>
+<tr><td>Adverse reserve years</td><td>≤ 20% of years</td></tr>
+<tr><td>Profitable years</td><td>9 of 10</td></tr>
+<tr><td>Buybacks</td><td>as standard</td></tr>
+</table>
+</div>
+</div>
+<div class="why"><b>Why separate rulebooks.</b> A bank has no gross margin, and its "debt" (customer deposits) is its raw
+material. An insurer's "debt" is float, the premiums it holds before paying claims, which is the engine of Berkshire
+itself. Standard rules would fail every bank and insurer for the wrong reasons, yet Buffett owns many. Each company is
+judged only by rules that fit its business.</div>
+
+<!-- ================================================================ 8 -->
+<h2 id="value"><span class="n">8</span>Judging the price (Value, 0–100)</h2>
+<p>A wonderful business is only a good investment at the right price. Two deliberately conservative models estimate
+<b>intrinsic value</b> per share, and the app uses the <b>lower</b> value and the <b>lower</b> expected return.</p>
+<div class="grid2">
+<div class="card"><b>Model A: owner-earnings DCF</b><br>
+Starts from owner earnings (net income + depreciation − capex) per share. Grows them at the lowest of the
+sustainable growth rate, the 10-year EPS growth rate and 15%, fading to 3% by year 10. Discounts at the
+<b>30-year Treasury rate</b>, plus 2 points while that rate is under 5%. The terminal value is capped at 20×
+earnings.</div>
+<div class="card"><b>Model B: 10-year projection</b> (Buffettology)<br>
+Projects EPS 10 years out at the sustainable growth rate (ROE × retained share, capped at 20%). Multiplies by the
+company's own median P/E (capped at 20) and adds dividends. That gives the expected annual return from today's price,
+and the price that would earn exactly 10%.</div>
+</div>
+<p>If only one model can run (for example, owner earnings are negative), its value is cut by a further 15%.</p>
+<table>
+<tr><th>Output</th><th>How</th></tr>
+<tr><td><b>Margin of safety</b></td><td>1 − price ÷ intrinsic value. At least <b>25%</b> is needed to buy.</td></tr>
+<tr><td><b>Expected 10-yr return</b></td><td>Lower of the two models. At least <b>10% a year</b> is needed to buy (the "Buffettology 15%" profile asks for 15%).</td></tr>
+<tr><td><b>Buy below</b></td><td>Lower of value × 0.75 and the price that gives a 10% return</td></tr>
+<tr><td><b>Strong buy below</b></td><td>Value × 0.60 (an extra 15% margin)</td></tr>
+<tr><td><b>Value score</b> (0–100)</td><td>Scores margin of safety, expected return and earnings yield against bonds on the same floor / target / excellent scale</td></tr>
+</table>
+<p><b>Banks and insurers</b> are valued on book value instead. The price-to-book multiple that their return on equity justifies
+is (ROE − growth) ÷ (required return − growth), capped at 3×. Banks use tangible book. The lower of that and the
+10-year projection is used. <b>Foreign filers</b> are converted to dollars with Federal Reserve exchange rates and divided by the
+ADR ratio so the value matches the U.S.-traded share. If the implied P/E is implausible (under 3 or over 150), the stock
+stays <i>pending</i> rather than showing a wrong number.</p>
+<div class="why"><b>Why the Treasury rate.</b> Buffett has said he discounts at the long-term government rate and
+gets his safety from a large margin of safety rather than a high discount rate. The 2-point add-on keeps very low rates
+from inflating values. The 10% bar reflects his long-held expectation for a good equity investment.</div>
+<div class="why"><b>Why two models and the lower one.</b> Each model fails in different ways: a DCF is sensitive to the
+discount rate, a P/E projection to the exit multiple. Taking the lower answer is margin of safety built into the method.</div>
+
+<!-- ================================================================ 9 -->
+<h2 id="rank"><span class="n">9</span>Ranking and the lists</h2>
+<div class="formula">Buffett Rank = Quality<sup>0.65</sup> × Value<sup>0.35</sup> × Confidence</div>
+<p>Quality carries more weight than price, following Buffett's "a wonderful company at a fair price beats a fair
+company at a wonderful price". Multiplying rather than adding means a terrible score on either side can't be hidden by
+the other.</p>
+<table>
+<tr><th>List on Today</th><th>Meaning</th></tr>
+<tr><td><b>Buy Zone</b></td><td>Passes every gate, Quality ≥ 70, margin of safety ≥ 25% and expected return ≥ 10%. Ranked best first.</td></tr>
+<tr><td><b>Wonderful, but pricey</b></td><td>Passes the business gates and the Quality bar, but the price is too high. Sorted by how close it is to its buy-below price.</td></tr>
+<tr><td><b>Near misses</b></td><td>Fails exactly one gate, by less than 15%. Shows which one.</td></tr>
+<tr><td><b>Pending</b></td><td>Can't be valued yet: usually a foreign filer missing an ADR ratio or exchange rate, or no recent price.</td></tr>
+</table>
+<h3 id="lists">Comparing stocks side by side</h3>
+<p>Click the <b>In the Buy Zone</b>, <b>Wonderful, but pricey</b> or <b>Model holdings</b> card on Today to open that list as a sortable
+table (the other two cards open Market and Performance). Each list shows the same columns, so stocks can be compared the way Buffett would:</p>
+<ul>
+<li><b>The business first.</b> Sort by Quality or ROE. Look for 15%+ returns on equity with little debt (debt payback under 3–4 years),
+steady earnings (Predictability) and real cash (cash conversion near 100%). High, stable gross margin and ROIC with low capex hint at a moat.</li>
+<li><b>Management.</b> A shrinking share count (buybacks) and a $1 test above 1 mean retained earnings are used well.</li>
+<li><b>Then the price.</b> Sort by margin of safety or expected 10-year return. On the pricey list, "% above buy price" shows which great
+businesses are closest to buyable.</li>
+</ul>
+<p>The business columns are 10-year figures from the latest annual report. Banks and insurers use their own rulebooks, so some of those
+columns are blank for them. Hover any column header for a one-line explanation.</p>
+
+<!-- ================================================================ 10 -->
+<h2 id="signals"><span class="n">10</span>Buy and sell signals</h2>
+<p>Signals are made after the close and meant for the <b>next open</b>. The model portfolio records its fills at the next
+day's opening price.</p>
+<table>
+<tr><th>Badge</th><th>When</th></tr>
+<tr><td><span class="pill" style="background:#1f6f4a;color:#fff">▲▲ STRONG BUY</span></td><td>A BUY where Quality ≥ 80 and margin of safety ≥ 40%. Gets 1.5 slices instead of one.</td></tr>
+<tr><td><span class="pill" style="background:#e3f1ea;color:#1f6f4a">▲ BUY</span></td><td>In the Buy Zone for <b>2 closes in a row</b> (a one-day price blip doesn't trigger a buy), with no hard 10-Q warning open.</td></tr>
+<tr><td><span class="pill" style="background:#fff;color:#1f6f4a;border-color:#1f6f4a">＋ ADD</span></td><td>Put more money into a stock you own. In a focused portfolio this is where this week's new money (or cash from a sale) goes, with the dollar amount: only into holdings still in the Buy Zone, never while a REVIEW is open or Quality has slipped, and never above 25% of the portfolio (section 13). In the old variable style, ADD means buying more after a 10% dip, at most twice per stock.</td></tr>
+<tr><td><span class="pill" style="background:#eceae3;color:#4b524f">● HOLD</span></td><td>You own it and the business is intact. This is the normal state, and doing nothing is the usual right answer.</td></tr>
+<tr><td><span class="pill" style="background:#fbf0dc;color:#9a5b00">◎ WATCH</span></td><td>Not owned: wonderful but pricey, confirming a buy, or a buy held back by a 10-Q warning or the optional timing filter.</td></tr>
+<tr><td><span class="pill" style="background:#ffe7cc;color:#a24d00">⚠ REVIEW</span></td><td>You own it and something weakened. See section 11.</td></tr>
+<tr><td><span class="pill" style="background:#a33a2b;color:#fff">▼ SELL</span></td><td>The business no longer qualifies: a gate failed, Quality fell below 55, or a hard REVIEW was confirmed by the next filing.</td></tr>
+<tr><td><span class="pill" style="background:#2c5d8f;color:#fff">⇄ SWAP</span></td><td>When all N slots are full: sell the weakest holding to fund a much better idea (Rank 15+ points higher and expected return 4+ points higher). The holding must have been owned at least a year, so winners aren't churned.</td></tr>
+<tr><td><span class="pill" style="background:#7a4f9e;color:#fff">✂ TRIM</span></td><td>Sell a third at nosebleed prices (2× value and P/E 2× its 10-year norm for 10 days in a row), or trim a position that has grown too large.</td></tr>
+</table>
+<h3 id="strength">How strong is a signal?</h3>
+<p>Every signal shows a strength rating next to its badge: on Today, in the Signals log, on each stock's page and in the email.</p>
+<table>
+<tr><th>Signal</th><th>Rating</th><th>How it's set</th></tr>
+<tr><td>BUY, STRONG BUY, ADD</td><td>1 to 5 stars<br><span class="small">Marginal · Fair · Good · Strong · Very strong</span></td>
+<td>Every buy has passed all the gates (1 star). One more star each for: Buffett Rank score ≥ 65; Rank score ≥ 75;
+Quality ≥ 80; and a strong-buy price (margin of safety at least 15 points above the buy gate).</td></tr>
+<tr><td>SELL</td><td><b>Act: sell</b></td><td>The business no longer qualifies.</td></tr>
+<tr><td>REVIEW</td><td><b>High</b> or <b>Low</b></td><td>High: a hard warning that becomes a SELL if the next filing confirms it. Low: a watch item that never sells.</td></tr>
+<tr><td>TRIM / SWAP</td><td><b>Medium</b> / <b>Upgrade</b></td><td>Trim at nosebleed prices or when one holding is too big; swap for a much better idea.</td></tr>
+</table>
+<p>The numbers behind the rating are shown with it: Rank and score, Quality, Value, margin of safety and expected 10-year return.
+The Buy Zone list and the Signals log have sortable columns for them.</p>
+<p>Every signal stores its reason with the actual numbers, so the Signals page reads like a journal:
+<i>"SELL XYZ: thesis broken: Debt payback 4.6 yrs (limit 4.0 yrs)"</i>.</p>
+
+<!-- ================================================================ 11 -->
+<h2 id="selling"><span class="n">11</span>When it sells, and why so rarely</h2>
+<p>Buffett's favorite holding period is "forever". He sells for a few reasons: the business has deteriorated, he made a
+mistake, the price has become absurd, or he needs the money for something clearly better. Oracle Edge follows the
+same rules and <b>never sells because the price fell</b>. A lower price for an intact business is an ADD, not a SELL.</p>
+<h3>REVIEW: an early warning before a SELL</h3>
+<table>
+<tr><th></th><th>Triggers</th><th>What happens</th></tr>
+<tr><td><b>Hard</b></td><td>Quality down 10+ points since purchase · trailing-12-month loss · debt payback over its limit · ROE (ROA for banks) below its floor, on 10-Q numbers</td><td>REVIEW now. Becomes a <b>SELL if the next filing confirms it</b>. New buys are blocked while it's open.</td></tr>
+<tr><td><b>Soft</b></td><td>Profits far above operating cash flow (cash under 50% of profit) · share count up 5%+ in a year · a gate within 10% of its limit</td><td>REVIEW as a watch item only. <b>Never</b> causes a sale.</td></tr>
+</table>
+<p><b>Quarterly early warnings</b> use 10-Q filings to build trailing-12-month figures (this year's year-to-date + last full year −
+last year's year-to-date), so problems show up months before the next annual report.</p>
+<div class="why"><b>Why wait for confirmation.</b> One bad quarter is noise surprisingly often. Requiring the next filing to
+confirm a hard warning avoids selling a great business on a blip, while still acting within a quarter when the problem is
+real. Buffett has written that his costliest errors include being slow to correct mistakes, so the confirmation is one
+filing, not "wait and hope".</div>
+<h3>Trimming</h3>
+<ul>
+<li><b>Nosebleed:</b> price at 2× value <i>and</i> P/E at twice its 10-year median, for 10 straight days. Sell a third.</li>
+<li><b>Oversized:</b> a holding above 40% of the portfolio (or 1.5 ÷ number of holdings when you own few) is trimmed back to 30%
+(or an equal share). It only applies with 2 or more holdings.</li>
+</ul>
+
+<!-- ================================================================ 12 -->
+<h2 id="targets"><span class="n">12</span>Price targets and alerts</h2>
+<div class="good"><b>The house rule: value decides <i>what</i> price is good; the chart only helps with <i>when</i>.</b>
+Every buy, strong-buy and trim price comes from the valuation. Moving averages and Fibonacci levels never create a
+signal on their own. They only choose a smarter limit price inside the Buy Zone.</div>
+<h3>What the stock page shows</h3>
+<table>
+<tr><th>Level</th><th>How it's set</th></tr>
+<tr><td><b>Suggested buy limit</b></td><td>If the price is above the Buy Zone: the highest support level at or below the buy-below price (or the buy-below price itself). If already in the zone: a support within one average day's move below today's price, otherwise buy at the open.</td></tr>
+<tr><td><b>Support levels</b></td><td>50- and 200-day moving averages, Fibonacci retracements (38.2%, 50%, 61.8%) of the last 52 weeks' move, and the 52-week low</td></tr>
+<tr><td><b>Buying in thirds</b></td><td>While the price is below a falling 50-day average (a "falling knife"): ⅓ at the limit, ⅓ at the next support at least one daily range lower, ⅓ at the strong-buy price</td></tr>
+<tr><td><b>Trim above</b></td><td>2× intrinsic value (the nosebleed level)</td></tr>
+<tr><td><b>Trend</b></td><td>Uptrend (above a rising 200-day average), downtrend (below a falling 50-day average) or sideways</td></tr>
+</table>
+<p>The price chart overlays the 50- and 200-day averages, the Fibonacci levels (purple, over the last 52 weeks) and the
+suggested limit on top of the value and buy-below lines.</p>
+<h3>Alerts</h3>
+<ul>
+<li><b>Watched:</b> Buy Zone, pricey and near-miss stocks (limit, buy-below, strong-buy prices); stocks you own (strong-buy add
+zone and trim level); and <b>your own alerts</b>, any price "falls to" or "rises to", added on a stock's page.</li>
+<li><b>Approaching</b> = within 1.5× the stock's average daily range (ATR-14), never closer than 2% or farther than 8%.</li>
+<li><b>Reached</b> = the close is through the target, or the day's low or high touched it (when a resting limit order would have filled).</li>
+<li><b>No repeats:</b> each target alerts once when approaching and once when reached. It re-arms after the price moves back by twice the band.</li>
+<li>Alerts appear on <b>Today</b> and in the email digest. The very first check after setup or an upgrade only records where
+each stock stands, so you aren't flooded.</li>
+</ul>
+<div class="why"><b>Why not trade the chart?</b> The research is weak. Large long-run studies find moving-average timing
+rules show no reliable edge in recent decades and give many false signals. Fibonacci studies are few and small. The best-supported
+idea is that value and momentum work better together, which justifies one gentle tool: don't buy a cheap stock all at once
+while it's still sliding. Support levels are still useful as <i>places to rest an order</i>, because so many traders watch them.</div>
+<div class="why"><b>Why a volatility band?</b> A fixed "within 3%" is a week away for a utility and an hour away for a volatile
+stock. Measuring in average daily ranges warns about one to two typical days ahead for both.</div>
+<p>To test the timing idea on real history, the locked profile <b>Oracle Classic + timing</b> uses the same rules but holds new
+buys while the price is below a falling 50-day average (for up to 60 signal days). Backtest it against Oracle Classic before
+switching it on.</p>
+
+<!-- ================================================================ 13 -->
+<h2 id="portfolio"><span class="n">13</span>Model portfolio: how many stocks, and where new money goes</h2>
+<p>Several badges depend on whether you <i>own</i> a stock (HOLD vs WATCH, ADD, SELL, TRIM), so the app keeps a <b>model
+portfolio</b> that follows every signal. How it's built is set per profile under <b>Profiles → Portfolio</b>, so backtests can
+test it.</p>
+<h3>Focused (the default): your money, the best N stocks</h3>
+<ul>
+<li><b>Real dollars.</b> The portfolio starts with your <b>starting money</b> (default $10,000) and adds your <b>weekly amount</b>
+(default $250) every week. Set both to what you actually invest.</li>
+<li><b>At most N stocks.</b> Each profile holds at most N stocks (try 5–12). A new stock's first purchase is about 1/N of the portfolio
+(1.5× for a STRONG BUY).</li>
+<li><b>Weights aren't equal, and don't need to be.</b> Each holding grows with its price and with the new money it gets, so weights
+drift apart naturally. The only limits: new money never pushes one stock above <b>25%</b> of the portfolio, and a holding that
+grows past 40% is trimmed back to 30%.</li>
+<li><b>Upgrades, not churn.</b> When all slots are full, a new idea must rank much higher than the weakest holding to replace it
+(SWAP), and only holdings owned for a year or more can be swapped.</li>
+</ul>
+
+<h3 id="newmoney">New money each week: which stock gets it?</h3>
+<p>Every week the cash (new money, plus anything from sales or trims) goes through one of five rules. Under <b>every</b> rule it only
+buys stocks that are in the Buy Zone with the business intact (no open REVIEW, Quality not slipping), and it never buys an
+expensive stock just to stay invested. If nothing qualifies, the cash waits, the way Berkshire's does.</p>
+<table>
+<tr><th>Rule</th><th>Where the money goes</th><th>When it makes sense</th></tr>
+<tr><td><b>Best value</b> (default)</td><td>The stock, owned or new, with the highest expected 10-year return, i.e. the cheapest against its value.
+When that one reaches its cap, the next best.</td><td>Buffett's "buy the most value per dollar". Money is invested right away, but only at a margin of safety.</td></tr>
+<tr><td><b>Best Rank</b></td><td>The highest Buffett Rank first (quality weighted more than price).</td><td>When you'd rather add to the best business than the cheapest.</td></tr>
+<tr><td><b>Spread evenly</b></td><td>Split equally across every qualifying stock.</td><td>The smoothest; closest to classic dollar-cost averaging.</td></tr>
+<tr><td><b>Patient</b></td><td>Holds cash until a stock reaches a <b>strong-buy</b> price (an extra 15% margin of safety). After 26 weeks of waiting it falls back to best value.</td><td>"Stockpile for the fat pitch". The holdings test shows whether waiting paid off.</td></tr>
+<tr><td><b>Sliding reserve</b></td><td>Buys part now and saves the rest. How much of the week's money is spent slides with how good the
+price is: at an ordinary Buy Zone price, 50%; at a strong-buy price, 100%; in between, a sliding share. The unspent part builds a
+<b>reserve</b> (at most 20% of the portfolio), and the reserve itself is only spent on a <b>strong buy</b>, where better prices get a bigger
+share. If no strong buy comes within 26 weeks, the reserve goes into the best of what's available. All three numbers are on the
+profile.</td><td>A middle road between investing right away and waiting: most money works now, and there's dry powder when something
+gets really cheap.</td></tr>
+</table>
+<div class="why"><b>Chosen setup:</b> Buffettology 15%, at most 7 holdings, new money by the sliding reserve, strong-buy funding off.
+The tests behind that choice are in <a href="#chosen">Why "Buffettology 15% · best 7"</a>.</div>
+<h3 id="fundstrong">When every slot is full and a strong buy appears</h3>
+<p>Turn on <b>"trim or sell clearly weaker holdings to buy a strong buy"</b> in the profile (it works with any rule). When a stock you
+don't own reaches a strong-buy price and all N slots are taken, the app funds it from holdings whose expected 10-year return is at least
+4 points lower (the same gap swaps use). Holdings that aren't clearly worse are never touched.</p>
+<ul>
+<li><b>First, an extra slot:</b> the strong buy can take one slot above N. It uses the reserve and spare cash first, then trims
+<b>slices of a few weaker holdings</b> (at most a third of any one), starting with the most expensive, until it has a full position.</li>
+<li><b>If the extra slot is already used,</b> it sells the single weakest holding outright, but only one held at least 180 days.</li>
+</ul>
+<p>Every trim and sale says which strong buy it pays for, for example <i>"trim 25% to fund strong buy XYZ: its exp. return 19% vs 11%
+here"</i>.</p>
+<div class="note"><b>Taxes:</b> the model ignores them. In a taxable account, trimming or selling a winner held less than a year is taxed at
+higher short-term rates, so check before acting on a funding trim there. In an IRA it doesn't matter.</div>
+<p>Each week's decision appears as a signal with a dollar amount, e.g. <i>"ADD XYZ: put $250 into it: best value you own (exp. 10-yr
+return 16.2%, MOS 31%)"</i>, on Today and in the email. That answers "where should this week's money go?".</p>
+<div class="why"><b>Why invest now rather than wait for a dip?</b> Schwab's long-running study of $2,000 a year over many 20-year
+periods found the cost of waiting for the perfect moment usually exceeds the benefit of even perfect timing. Investing
+immediately came a close second to an imaginary perfect timer, and staying in cash came last. Vanguard found that investing a
+lump sum beat spreading it out about two-thirds (68%) of the time, because markets rise more often than they fall. So the
+defaults invest new money as soon as there's a good price. The app adds the Buffett twist: a good price is required, so cash waits
+when nothing in the Buy Zone qualifies. Use the holdings test to see whether "Patient" did better on your history.</div>
+
+<h3>How many, and which rule? Let your own history decide</h3>
+<p><b>Backtest → Find the best number of holdings</b> replays the profile once and runs a portfolio for every combination of
+<b>5, 6, 8, 10 and 12 stocks</b> × <b>the new-money rules</b> (the five above, plus spread evenly and sliding reserve each with
+"sell weaker holdings to fund strong buys" turned on), each starting with your starting money and adding your weekly amount,
+plus the old variable style for reference. Companies are scored once, so the whole test takes about as long as one backtest. For each
+it shows the yearly return, the result in dollars, what the <b>same money put into the S&amp;P 500 on the same days</b>
+would be worth, and the downside (worst drop and worst 12 months) next to the S&amp;P 500's. The recommended combination is the one that beat the S&amp;P 500 <b>most reliably</b>:</p>
+<ul>
+<li>The period is split into thirds and each combination is judged on the <i>middle</i> of its three results, so one lucky stretch can't win.</li>
+<li>Each size is averaged with its neighbors under the same rule, so a single spiky result can't win.</li>
+<li>A penalty applies for drawdowns deeper than the S&amp;P 500's own worst drop.</li>
+<li>On a tie, fewer holdings wins.</li>
+</ul>
+<p><b>Save to profile</b> stores the holdings and the new-money rule. A locked profile gets a copy, for example
+"Buffettology 20% · best 8". Then use <b>Recalculate</b> on a backtest, or <b>Rebuild live signals</b>, to apply it.</p>
+<div class="why"><b>Why concentrate?</b> Buffett wrote in his 1993 letter that an investor who understands business economics
+and can find five to ten sensibly priced companies with durable advantages doesn't need conventional diversification. Research on
+fund managers' "best ideas" (Cohen, Polk and Silli) finds that their highest-conviction picks beat the market and the rest of their
+own portfolios. On your own data (2019–2026), 5–12 holdings beat 20–30 under both Buffettology and Classic.</div>
+<div class="note"><b>Neighboring sizes can differ a lot</b> (in one test 12 stocks earned 20% a year and 20 stocks 7%). That mostly reflects
+which particular stocks happened to fill the slots, so treat the recommendation as a range rather than an exact number. Fewer holdings
+also means bumpier results.</div>
+<h3 id="chosen">Why "Buffettology 15% · best 7" was chosen</h3>
+<p>The profile that runs the app was chosen in November 2026 from holdings tests on real data. Every test replayed
+<b>2019-01-01 to 2026-11-19</b> with point-in-time data, starting with <b>$10,000</b> and adding <b>$250 a week</b> ($112,750 put in).
+Over the same dates the S&amp;P 500 returned about <b>16% a year</b>, the same money in it ended near <b>$215,000–$219,000</b>
+(price data was refreshed between tests), its <b>worst drop was −34%</b> and its <b>worst 12 months −20%</b>.</p>
+
+<h4>1. The bar: 15% beat 17% and 20%</h4>
+<table>
+<tr><th>Profile (expected 10-yr return ≥)</th><th>Best setup in its test</th><th>Yearly return</th><th>Worst drop</th><th>What happened</th></tr>
+<tr><td><b>15%</b></td><td>6–7 holdings, spread evenly or sliding reserve</td><td>27–28%</td><td>−28% to −30%</td><td>Enough qualifying companies to fill the slots. Several setups fell <i>less</i> than the S&amp;P.</td></tr>
+<tr><td>17%</td><td>8, spread evenly</td><td>26.3%</td><td>−36.8%</td><td>Every portfolio fell further than the S&amp;P (−32% to −46%).</td></tr>
+<tr><td>20%</td><td>6, spread evenly</td><td>16.9%</td><td>−44.2%</td><td>Too few qualifiers: about 4–7 stocks held, 15–28% idle cash, worst 12 months −39%.</td></tr>
+</table>
+<p>A stricter bar sounds safer, but it left fewer stocks, so the portfolio leaned harder on a few names and fell further when they fell.</p>
+
+<h4>2. The number of holdings: 7, within a 4–8 range</h4>
+<table>
+<tr><th>Sliding reserve, holdings</th><th>Yearly return</th><th>Ends with</th><th>Worst drop</th><th>Worst 12 months</th><th>vs S&amp;P in each third (pts)</th></tr>
+<tr><td>4</td><td>16.8%</td><td>$234,484</td><td>−30.5%</td><td>−25.7%</td><td>+2.3 / −5.1 / +6.3</td></tr>
+<tr><td>5</td><td>23.0%</td><td>$337,555</td><td>−27.7%</td><td>−21.6%</td><td>−2.4 / +0.0 / +25.0</td></tr>
+<tr><td>6</td><td>27.3%</td><td>$398,574</td><td>−29.6%</td><td>−24.6%</td><td>+8.9 / +6.7 / +19.0</td></tr>
+<tr><td><b>7</b></td><td><b>27.0%</b></td><td><b>$385,462</b></td><td><b>−27.8%</b></td><td><b>−22.9%</b></td><td><b>+10.5 / +5.2 / +18.0</b></td></tr>
+<tr><td>8</td><td>23.1%</td><td>$317,064</td><td>−32.3%</td><td>−20.1%</td><td>+6.9 / +4.1 / +10.6</td></tr>
+</table>
+<p>Six and 7 were close on return. Seven was picked because it had the <b>smallest worst drop</b> of the sizes that beat the S&amp;P in every
+third, and one more holding means one bad pick hurts a little less. Four was weak: with so few stocks, a single disappointment dominated.</p>
+
+<h4>3. Where new money goes: sliding reserve</h4>
+<table>
+<tr><th>7 holdings, new-money rule</th><th>Yearly return</th><th>Ends with</th><th>Worst drop</th><th>Worst 12 months</th><th>vs S&amp;P in each third (pts)</th></tr>
+<tr><td>Spread evenly (the app's pick)</td><td>28.1%</td><td>$411,086</td><td>−28.1%</td><td>−21.8%</td><td>+10.2 / +5.3 / +21.7</td></tr>
+<tr><td><b>Sliding reserve (chosen)</b></td><td><b>27.0%</b></td><td><b>$385,462</b></td><td><b>−27.8%</b></td><td><b>−22.9%</b></td><td><b>+10.5 / +5.2 / +18.0</b></td></tr>
+<tr><td>Best value</td><td>27.9%</td><td>$398,449</td><td>−33.1%</td><td>−13.2%</td><td>+8.4 / +6.4 / +21.5</td></tr>
+<tr><td>Patient</td><td>20.2%</td><td>$281,045</td><td>−42.1%</td><td>−26.7%</td><td>+1.0 / +10.5 / +0.8</td></tr>
+<tr><td>Best Rank</td><td>15.9%</td><td>$192,885</td><td>−27.4%</td><td>−16.2%</td><td>+7.7 / +4.0 / −10.6</td></tr>
+</table>
+<p>Spread evenly, sliding reserve and best value finished within about one point of each other, so on this history the rule mattered less
+than the bar and the number of holdings. The <b>sliding reserve</b> was chosen for <b>caution while starting in a falling market</b>: at ordinary
+Buy Zone prices only half of each week's money goes in, and the rest waits for strong-buy prices, which come more often when prices fall.
+It gave up about one point a year and about $26,000 against spread evenly in the test, and had the smaller worst drop. Patient was
+rejected: it was the worst rule at 17% and 20% too, which suggests its good 15% result at 8 holdings was luck.</p>
+
+<h4>4. Selling to fund strong buys: off</h4>
+<p>With 7 holdings, turning on "sell weaker holdings to fund strong buys" cut the return from 28.1% to 22.1% (spread evenly) and from 27.0%
+to 21.4% (sliding reserve). It trimmed stocks whose prices had risen, which were mostly the winners, and they kept rising. That matches Buffett's
+habit of rarely selling a wonderful business to chase a cheaper one. The model also ignores taxes, which would make it worse.</p>
+
+<h4>What the test can't tell you</h4>
+<ul>
+<li><b>One period.</b> 2019–2026 is about 7 years with one sharp crash (2020) and one bear market (2022). Gaps of 1–3 points a year
+between setups are within luck.</li>
+<li><b>Survivorship bias.</b> Free price sources leave out delisted stocks, so results are probably optimistic. A paid source removes this.</li>
+<li><b>No taxes, fees or slippage.</b> Real returns will be somewhat lower.</li>
+<li><b>Re-check yearly.</b> Run the holdings test again each year (or after a big market move) and keep the setup if it still holds up.</li>
+</ul>
+
+<h3>Variable (the old style)</h3>
+<p>Every BUY adds a new position with new money and every SELL takes it out, so the count can grow large: your 2019–2026 backtest
+held 64 stocks on average. It's kept for comparison, and ADD-on-a-dip still applies there (at most 2 per stock).</p>
+<h3>Performance views</h3>
+<ul>
+<li><b>Your money</b> (focused portfolios): what you put in, what it would be worth following every signal, and the same money in the
+S&amp;P 500 on the same days, with a chart. Under the sliding-reserve rule it also shows how much cash is the reserve.</li>
+<li><b>Downside</b>: the worst drop from a peak (max drawdown) and the worst 12 months, each shown next to the S&amp;P 500's
+over the same dates. They're also on every backtest row and in the holdings test table. A model figure worse than the S&amp;P's
+shows in red.</li>
+<li><b>Growth of $1</b>: time-weighted returns (new money doesn't count as growth) against the S&amp;P 500 (SPY, dividends
+included), plus the number of stocks held. Cash earns nothing in the model, so idle cash shows up honestly as a drag.</li>
+<li><b>Episodes:</b> each buy-to-sell round trip. <b>Stints:</b> how stocks did while in the Buy Zone, bought or not.</li>
+<li><b>My holdings:</b> enter your real positions to get badges for them alongside the model's.</li>
+</ul>
+
+<!-- ================================================================ 14 -->
+<h2 id="market"><span class="n">14</span>Market temperature (the Buffett Indicator)</h2>
+<p>Total U.S. stock market value divided by GDP, which Buffett once called "probably the best single measure of where
+valuations stand." It's built from the Fed's quarterly Z.1 market value and GDP, then carried forward daily using the
+total-market ETF (VTI).</p>
+<table>
+<tr><th>Ratio</th><th>Zone</th><th>Margin of safety, if "raise MOS when market is expensive" is on</th></tr>
+<tr><td>under 90%</td><td>Undervalued</td><td>20%</td></tr>
+<tr><td>90–120%</td><td>Fair</td><td>25%</td></tr>
+<tr><td>120–150%</td><td>Modestly overvalued</td><td>30%</td></tr>
+<tr><td>150–200%</td><td>Significantly overvalued</td><td>35%</td></tr>
+<tr><td>over 200%</td><td>Extreme</td><td>40%</td></tr>
+</table>
+<p>The modifier is <b>off</b> by default (the gate stays at 25%), because Buffett values businesses one at a time rather than
+timing the market. The temperature is shown for context.</p>
+
+<!-- ================================================================ 15 -->
+<h2 id="backtest"><span class="n">15</span>Backtests and profiles</h2>
+<ul>
+<li><b>Backtest</b> replays any date range (default 2019 → today) day by day or week by week with any profile. It uses only the
+filings and prices known on each date, fills at the next open, and reports return vs the S&amp;P 500, drawdowns, episodes and
+how each rank bucket performed afterwards.</li>
+<li><b>Recalculate</b> (on each backtest, or "Recalculate all") re-runs it over the same dates with the profile's
+<i>current</i> rules and portfolio settings and replaces the old results. Use it after changing the number of holdings.</li>
+<li><b>Find the best number of holdings</b> is explained in section 13.</li>
+<li><b>Profiles</b> hold every rule, threshold and setting. Shipped profiles are locked:
+<ul>
+  <li><i>Oracle Classic</i> (the default);</li>
+  <li><i>Buffettology 15%</i>;</li>
+  <li><i>Relaxed backfill (5y)</i>, with shorter lookbacks so tests can start earlier;</li>
+  <li><i>Oracle Classic + timing</i>.</li>
+</ul>
+Use <b>Save as</b> to make an editable copy. The editor previews live how many companies would pass. Profiles that differ only
+in portfolio, signal or alert settings share company scores, so trying another portfolio size never rescores everything.</li>
+<li>Several profiles can be <b>active</b> at once; each gets its own live signals and model portfolio.</li>
+</ul>
+<div class="note"><b>Survivorship bias.</b> The free SEC ticker list covers companies listed today, so companies that went bankrupt
+or were acquired since 2019 may be missing from backtests. Treat backtest returns as somewhat optimistic.</div>
+
+<!-- ================================================================ 16 -->
+<h2 id="ops"><span class="n">16</span>Email, schedule, backups, security</h2>
+<table>
+<tr><th>Feature</th><th>How it works</th></tr>
+<tr><td><b>Email</b></td><td>Sent from your own account over SMTP. There are presets for Google (Gmail/Workspace), Outlook and iCloud,
+plus custom servers. Google needs a 16-character <b>app password</b>, which requires 2-Step Verification (Workspace admins must
+allow app passwords). Choose which emails you get: actions, price-target alerts, Friday weekly summary, run failures.
+Use <b>Send test email</b> in Settings to check it works.</td></tr>
+<tr><td><b>Schedule</b></td><td>Windows Task Scheduler runs <code>Run-Daily.bat</code> on weekdays, silently, at your chosen time.
+The run waits until 6:00 PM New York if started earlier. Start the app any time to catch up.
+The task is named <b>Oracle Edge Daily</b> and sits at the top level of <b>Task Scheduler → Task Scheduler Library</b>
+(not in a subfolder). Settings shows whether Windows really has it and when it runs next, and has an
+<b>Open Task Scheduler</b> button.</td></tr>
+<tr><td><b>Backups</b></td><td>After each daily run, a consistent snapshot of the database is zipped to the backup folder set in Settings (a new install
+defaults to <code>Documents\Oracle Edge backups</code>; a cloud-synced folder is best).
+It's written as <code>.part</code> and renamed when complete, so a cloud drive never syncs half a file. Keeps 14 daily, 8 weekly and 12 monthly copies. Restore one from <b>Settings → Restore a backup</b>.</td></tr>
+<tr><td><b>Secrets</b></td><td>Email passwords and API keys are stored in <b>Windows Credential Manager</b>, never in the app folder. Copying
+the folder to someone else or pushing it to GitHub doesn't leak them; the new person enters their own.</td></tr>
+<tr><td><b>Privacy</b></td><td>The app listens only on <code>127.0.0.1</code> (your own PC). It contacts the SEC, the price sources, FRED and your
+mail server, and nothing else.</td></tr>
+</table>
+
+<h3 id="trouble">Troubleshooting</h3>
+<table>
+<tr><th>What you see</th><th>What to do</th></tr>
+<tr><td>A button or screen from this guide is missing</td><td>An older copy is probably still running. Check the version at the bottom
+of the left menu. Run <code>Install-OracleEdge.bat</code> again, which stops the old copy first. If the old version still shows,
+restart the PC and open the desktop shortcut.</td></tr>
+<tr><td>The scheduled task isn't in Task Scheduler</td><td>Settings → Daily schedule shows a red line with Windows' reason. Fix that,
+click <b>Save &amp; (re)register task</b>, then <b>Open Task Scheduler</b> and look under <b>Task Scheduler Library</b>.</td></tr>
+<tr><td>The test email fails</td><td>The message says why. For Google, use a 16-character app password, not your normal password.</td></tr>
+<tr><td>"Another job is already running"</td><td>Only one long job (daily update, backtest, holdings test, rebuild) runs at a time.
+Progress shows in the top bar; start the next one when it finishes.</td></tr>
+<tr><td>A stock shows "pending"</td><td>It can't be valued yet: usually a missing price, exchange rate or ADR ratio. The stock page says
+which; you can correct an ADR ratio there.</td></tr>
+<tr><td>The app stops responding or pages never finish loading</td><td>If it stays busy for more than 20 seconds, the app writes what it
+was doing to <code>C:\OracleEdge\logs\hang.log</code>, and pages slower than 2 seconds are noted in <code>oracle_edge.log</code>.
+Running <code>Install-OracleEdge.bat</code> again restarts it. Keep those logs: they show which step to fix.</td></tr>
+</table>
+
+<!-- ================================================================ 17 -->
+<h2 id="screens"><span class="n">17</span>The screens</h2>
+<table>
+<tr><th>Screen</th><th>What it's for</th></tr>
+<tr><td><b>Today</b></td><td>Market temperature, actions for the next open with strength ratings (and "mark done"), price alerts, the Buy Zone, pricey and
+near-miss lists, holdings. The summary cards are clickable: each opens its full list (below).</td></tr>
+<tr><td><b>Stock lists</b></td><td>Opened from the Today cards (Buy Zone, Wonderful but pricey, Model holdings), with tabs for near misses and
+all wonderful companies. One sortable table per list: rank, strength, Rank score, Quality, Value; price, intrinsic value, buy and strong-buy
+prices, margin of safety, % above the buy price, expected 10-year return, earnings yield, P/E vs its 10-year median, market cap; and the
+10-year business record Buffett checks (ROE, ROIC, gross and net margin, EPS and owner-earnings growth, cash conversion, capex, debt
+payback, debt-to-equity, buybacks, the $1 test, predictability). Shift-click to sort by a second column, hover a header for its meaning,
+filter by text, export to CSV, click a row to open the stock.</td></tr>
+<tr><td><b>Stock report card</b></td><td>Quality, value, rank, the price ladder, price targets and your own alerts, the price-vs-value chart,
+early warnings, every rule with its 10-year history, your judgment checklist (circle of competence, management, moat) and signal history</td></tr>
+<tr><td><b>My holdings</b></td><td>Your real positions with badges</td></tr>
+<tr><td><b>Signals</b></td><td>The full signal journal with strength ratings, scores, filters and CSV export</td></tr>
+<tr><td><b>Performance</b></td><td>Your money vs the same money in the S&amp;P 500, growth of $1, drawdowns, episodes, rank-bucket results, Buy Zone stints</td></tr>
+<tr><td><b>Market</b></td><td>Buffett Indicator history and its valuation zones</td></tr>
+<tr><td><b>Profiles</b></td><td>Edit rules (standard, bank and insurer tabs) and the portfolio: starting money, weekly amount, how many to hold, where new money goes, swap limits</td></tr>
+<tr><td><b>Backtest</b></td><td>Find the best number of holdings and new-money rule; run and recalculate historical replays</td></tr>
+<tr><td><b>Data</b></td><td>Price sources (order, API keys, test), recent data problems, coverage gaps, foreign filers' ADR ratios, re-run first-time load, run the daily update now</td></tr>
+<tr><td><b>Settings</b></td><td>SEC identity, email, daily schedule, backup folder and restore</td></tr>
+</table>
+<p>Checking "Outside my circle of competence" on a stock's report card hides it from your lists. Buffett's first filter is
+whether he understands the business, and no formula can make that call for you.</p>
+
+<!-- ================================================================ 18 -->
+<h2 id="folders"><span class="n">18</span>Where things live</h2>
+<div class="formula" style="white-space:pre">C:\OracleEdge\
+  Start.bat              start the app (one click)
+  Run-Daily.bat          what the scheduled task runs
+  README.html            this guide (also under Guide in the app's menu)
+  oracle_edge\           the Python code
+  rules\                 default rulebook (oracle_classic.yaml)
+  data\oracle_edge.db    your database: filings, prices, scores, signals
+  data\cache\            downloaded SEC bulk files
+  runtime\               private Python and packages (created on first start)
+  logs\                  app and daily-run logs
+  exports\               CSV exports
+  tests\                 automated tests
+
+Install folder (any folder; a cloud-synced one is handy)
+  Install-OracleEdge.bat, OracleEdge-app.zip
+  Backups\               daily database backups (if you point Settings here)
+
+Source code (the oracle-edge folder of the git repository)
+  oracle_edge\, rules\, tests\, tools\   the app (same as C:\OracleEdge, minus data and uv.exe)
+  dist\Install-OracleEdge.bat           the installer
+  docs\Value-Picker-Plan.html           the design plan
+  tools\build_zip.py                    builds OracleEdge-app.zip from the code</div>
+
+<!-- ================================================================ 19 -->
+<h2 id="whys"><span class="n">19</span>Why it works this way</h2>
+<div class="card"><b>Why rules of thumb instead of machine learning?</b><br>Every decision can be traced to a number and a rule
+you can read and change. A model that "likes" a stock for unexplainable reasons would be the opposite of Buffett's "invest
+in what you understand".</div>
+<div class="card"><b>Why 10 years of history?</b><br>A full business cycle shows whether margins and returns survive a recession.
+Buffett looks for long, consistent records. The 5-year profile exists only to let backtests start earlier.</div>
+<div class="card"><b>Why wait two closes before buying?</b><br>A single day's price drop can push a stock into the zone and right
+back out. Two closes in a row filters that noise at little cost for a long-term holder.</div>
+<div class="card"><b>Why act at the next open, not the close?</b><br>Signals are computed after the close, so the earliest realistic
+trade is the next open. Backtests fill there too, so the results are achievable.</div>
+<div class="card"><b>Why a model portfolio if I have my own account?</b><br>It gives every stock a complete answer from day one, measures
+whether the signals beat the market, and makes size-based rules (trim, swap) work. Your real holdings can sit alongside it.</div>
+<div class="card"><b>Why only the best N stocks?</b><br>The old style bought everything that qualified and averaged 64 holdings,
+which made it a broad value fund that lagged the S&amp;P 500. Buffett concentrates on his best ideas, and fund research finds the
+top-conviction picks do the work. A fixed number of slots forces each new idea to beat what you already own.</div>
+<div class="card"><b>Why must a holding be owned a year before it can be swapped?</b><br>Without it the portfolio rotates out of winners as soon as
+they get pricier and something cheaper appears: lots of trading, taxes and missed compounding. Buffett's "sell something cheap
+to buy something cheaper" is for clearly better ideas, not small rank differences.</div>
+<div class="card"><b>Why is new money only added to stocks still in the Buy Zone?</b><br>"Keep investing in the best" means adding where the
+price still offers a margin of safety. Money isn't pushed into expensive stocks just to stay fully invested; it waits, as
+Berkshire's cash does.</div>
+<div class="card"><b>Why not hold all new money for a crash?</b><br>Large studies (Schwab, Vanguard) find that waiting for a better moment usually
+costs more than it saves, because markets rise more often than they fall. The "Patient" rule lets you test that on your own picks
+instead of taking it on faith.</div>
+<div class="card"><b>Why local and SQLite?</b><br>No server to run, no subscription, no data leaving your PC. One file is easy to back
+up, copy and inspect. SQLite handles this volume easily.</div>
+<div class="card"><b>Why all Python with NiceGUI?</b><br>One language for data, rules and screens makes it easier to maintain and share.
+NiceGUI provides polished tables and charts without a separate web front end.</div>
+
+<!-- ================================================================ 20 -->
+<h2 id="limits"><span class="n">20</span>Known limits</h2>
+<ul>
+<li><b>End of day only.</b> Prices and alerts use daily closes; intraday alerts need a real-time feed (planned with Schwab).</li>
+<li><b>Free price data can have gaps.</b> The Data page lists missing tickers; adding a Tiingo or EODHD key fixes most.</li>
+<li><b>Company-tagging quirks.</b> Companies tag XBRL differently. The concept map covers common variations, but a few line items
+will be missing for some companies. Confidence drops a little when they are.</li>
+<li><b>Insurer combined ratio</b> is approximated from pre-tax and investment income when a company doesn't tag claims and expenses separately; the report card says "(approximated)".</li>
+<li><b>Auditor changes</b> aren't checked: the free data doesn't reliably include auditor names.</li>
+<li><b>Foreign filers</b> file annually, so they get no quarterly early warnings.</li>
+<li><b>10-Qs</b> are pulled only for shortlisted and owned companies, to keep the daily run fast.</li>
+<li><b>Backtests</b> may suffer some survivorship bias (see section 15).</li>
+<li><b>Cash earns nothing</b> in the model portfolio, so periods with idle cash (more likely with the Patient rule or a strict profile like
+Buffettology 20%) slightly understate returns compared with real T-bills.</li>
+<li><b>Fractional shares</b> are assumed, so small weekly amounts buy exactly the dollar amount shown. At your broker, round to whole
+shares or use fractional-share buying where it's offered.</li>
+<li><b>The holdings test</b> has about eight years of history, which includes one major crash (2020) and a growth-led market. A
+different decade could favor a different number, so treat its answer as a range.</li>
+<li><b>Judgment still matters.</b> Moat durability, management integrity and whether you understand the business are your call;
+use the checklist on each report card.</li>
+</ul>
+
+<!-- ================================================================ 21 -->
+<h2 id="glossary"><span class="n">21</span>Glossary</h2>
+<table>
+<tr><td><b>ADR ratio</b></td><td>How many foreign ordinary shares one U.S.-traded share represents</td></tr>
+<tr><td><b>ATR-14</b></td><td>Average true range: the average size of a day's price move over 14 days</td></tr>
+<tr><td><b>CAGR</b></td><td>Compound annual growth rate: the steady yearly return that would produce the same end result</td></tr>
+<tr><td><b>Combined ratio</b></td><td>An insurer's claims plus expenses ÷ premiums; under 100% means an underwriting profit</td></tr>
+<tr><td><b>Dollar-cost averaging</b></td><td>Investing a fixed amount on a regular schedule (e.g. every week), whatever the price</td></tr>
+<tr><td><b>Drawdown</b></td><td>The fall from a previous peak; "max drawdown" (worst drop) is the worst such fall over the period. "Worst 12 months" is the worst return over any one-year window.</td></tr>
+<tr><td><b>Fibonacci retracement</b></td><td>Levels at 38.2%, 50% and 61.8% of a recent price move, where many traders expect pauses</td></tr>
+<tr><td><b>Float</b></td><td>Money an insurer holds between collecting premiums and paying claims</td></tr>
+<tr><td><b>Holdings test</b></td><td>Backtest → "Find the best number of holdings": runs many portfolio sizes over the same history in one pass</td></tr>
+<tr><td><b>Intrinsic value</b></td><td>The cash a business will produce over its life, in today's dollars</td></tr>
+<tr><td><b>Margin of safety</b></td><td>How far the price is below intrinsic value</td></tr>
+<tr><td><b>Moving average</b></td><td>The average closing price over the last 50 or 200 trading days</td></tr>
+<tr><td><b>New-money rule</b></td><td>Which stock gets each week's money: best value, best Rank, spread evenly or patient (section 13)</td></tr>
+<tr><td><b>Owner earnings</b></td><td>Net income + depreciation − capital spending: cash an owner could take out</td></tr>
+<tr><td><b>Point-in-time</b></td><td>Using only information published on or before the date being evaluated</td></tr>
+<tr><td><b>Recalculate</b></td><td>Re-run a backtest with the profile's current settings, replacing the old results</td></tr>
+<tr><td><b>ROE / ROA / ROIC</b></td><td>Profit as a share of equity / of total assets / of all capital invested</td></tr>
+<tr><td><b>Sharpe ratio</b></td><td>Return per unit of volatility; higher means a smoother ride for the same return</td></tr>
+<tr><td><b>Signal strength</b></td><td>1–5 stars for buys and a severity label for sells, reviews and trims (section 10)</td></tr>
+<tr><td><b>Slice</b></td><td>A new holding's first purchase in a focused portfolio: about 1/N of the portfolio (e.g. 1/8 = 12.5%)</td></tr>
+<tr><td><b>TTM</b></td><td>Trailing twelve months: the most recent four quarters combined</td></tr>
+<tr><td><b>XBRL</b></td><td>The tagged data format companies use to file financial statements with the SEC</td></tr>
+</table>
+
+<footer>Oracle Edge v0.8.1 · research tool, not financial advice · MIT license. The full design plan, with research sources,
+is in <code>docs/Value-Picker-Plan.html</code> with the source code.</footer>
+</main>
+</div>
+</body>
+</html>

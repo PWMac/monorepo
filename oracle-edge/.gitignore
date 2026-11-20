@@ -1,0 +1,21 @@
+# local state - never commit
+data/
+runtime/
+logs/
+exports/
+profiles/*.json
+secrets.json
+*.db
+*.db-wal
+*.db-shm
+.venv/
+__pycache__/
+*.pyc
+.pytest_cache/
+.ruff_cache/
+
+# Windows launcher binary: download uv.exe (see README)
+uv.exe
+
+# built installer package (tools/build_zip.py)
+dist/OracleEdge-app.zip
