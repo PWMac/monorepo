@@ -27,6 +27,10 @@ Edit the code here, then double-click `Install-OracleEdge.bat` again. It stops t
 to `C:\OracleEdge` and restarts it. Your database, settings, logs and private Python in `C:\OracleEdge` are never
 overwritten, and the database upgrades itself. Nothing is downloaded from GitHub; commit and push when you're ready.
 
+`Start.bat` in this folder never starts a second copy or overwrites anything. If Oracle Edge is already installed it
+says so and does nothing, unless you type `FRESH` and then `YES` to delete `C:\OracleEdge` and reinstall from scratch
+(backups are kept). Start the app with the desktop shortcut.
+
 `uv.exe` (the 32 MB launcher) isn't stored in git. The installer keeps the copy already in `C:\OracleEdge`, or downloads
 it from [uv releases](https://github.com/astral-sh/uv/releases) the first time.
 
@@ -81,7 +85,7 @@ lets you backtest whether waiting out a falling 50-day average helps.
 | `runtime/` | Private Python + libraries (**not** in git) |
 | Windows Credential Manager | Email password and API keys (**never** in the folder) |
 
-Daily backups (consistent SQLite copy, zipped) go to the folder set in Settings (default: `Documents\Oracle Edge backups`; a cloud-synced folder is best).
+Daily backups (consistent SQLite copy, zipped, stored once per day) go to the folder set in Settings (default: `Documents\Oracle Edge backups`; a cloud-synced folder is best). Standard rotation: last 7 days, one per week for 4 weeks, one per month for 12 months, one per year kept for good.
 
 ## Development
 

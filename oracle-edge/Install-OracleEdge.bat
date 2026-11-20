@@ -6,6 +6,8 @@ rem  your local edits) to C:\OracleEdge, adds a desktop shortcut
 rem  and starts the app. Nothing is downloaded from GitHub.
 rem  Safe to run again: your data, settings, logs and the private
 rem  Python runtime in C:\OracleEdge are never touched.
+rem  Install-OracleEdge.bat /fresh deletes C:\OracleEdge first (used by
+rem  Start.bat after the user confirms twice).
 rem ============================================================
 setlocal
 set "SRC=%~dp0"
@@ -31,15 +33,33 @@ powershell -NoProfile -ExecutionPolicy Bypass -Command ^
   " if ($p -and $p.Path -like '*OracleEdge*') { Stop-Process -Id $p.Id -Force } }" >nul 2>&1
 timeout /t 2 /nobreak >nul
 
+if /i "%~1"=="/fresh" (
+  echo  Removing the current installation in %DEST% ...
+  powershell -NoProfile -ExecutionPolicy Bypass -Command ^
+    "Get-Process -ErrorAction SilentlyContinue | Where-Object { $_.Path -like '%DEST%\*' } | Stop-Process -Force" >nul 2>&1
+  timeout /t 2 /nobreak >nul
+  rmdir /s /q "%DEST%" 2>nul
+  if exist "%DEST%" (
+    echo  Couldn't delete all of %DEST% ^(a file is still in use^). Close Oracle Edge and any window open in
+    echo  that folder, then try again. Nothing new was installed.
+    pause
+    exit /b 1
+  )
+  echo  Removed. Installing fresh ...
+)
+
 rem  Copy the code. Local state and developer folders are skipped, so a repo used for
 rem  development never overwrites the installed app's data.
 robocopy "%SRC%" "%DEST%" /E /XD data runtime logs exports profiles .venv .git __pycache__ .pytest_cache .ruff_cache ^
-  /XF Install-OracleEdge.bat *.pyc /NFL /NDL /NJH /NJS /NP >nul
+  /XF Install-OracleEdge.bat .installed *.pyc /NFL /NDL /NJH /NJS /NP >nul
 if %ERRORLEVEL% GEQ 8 (
   echo  Copy failed ^(robocopy error %ERRORLEVEL%^).
   pause
   exit /b 1
 )
+
+rem  Marks C:\OracleEdge as the installed copy (Start.bat and Run-Daily.bat check for it).
+> "%DEST%\.installed" echo Oracle Edge %VER% installed %DATE% %TIME% from %SRC%
 
 rem  uv.exe (the 32 MB launcher) isn't in git. Keep the installed copy; download it only if there is none.
 if not exist "%DEST%\uv.exe" (

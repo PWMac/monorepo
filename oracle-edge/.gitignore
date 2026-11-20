@@ -17,3 +17,6 @@ __pycache__/
 # Windows launcher binary (32 MB): the installer keeps or downloads it
 uv.exe
 
+
+# diagnostics output
+tools/diagnostics/*.json
