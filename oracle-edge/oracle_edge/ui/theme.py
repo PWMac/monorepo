@@ -4,11 +4,17 @@ from __future__ import annotations
 
 import html
 
-BRAND = "#1f6f4a"
-INK = "#1d2321"
-MUTED = "#5d6763"
-LINE = "#e2e0d8"
-BG = "#f7f6f2"
+# Brand pack colors (brand/theme/tokens.json). Cherry red is reserved for the logo's glint: never use it in the UI.
+BRAND = "#1f6f4a"        # green-700: actions, links, positive
+HEADER = "#0D341A"       # green-900: header bar
+GOLD = "#D6A840"         # gold-500: header rule, accents
+CREAM = "#F7F2E3"        # text on dark green
+NEGATIVE = "#A8322D"
+INK = "#1C2420"
+MUTED = "#5B655F"
+LINE = "#E4E2DA"
+BG = "#F7F6F2"
+BTC_COL = {"bear": "#A8322D", "bull": "#1f6f4a", "normal": None, "warming": None}
 
 BADGES = {
     "STRONG_BUY": ("▲▲ STRONG BUY", "#1f6f4a", "#ffffff"),
@@ -24,14 +30,33 @@ BADGES = {
     "NEAR": ("◌ NEAR MISS", "#f0eee7", "#5d6763"),
 }
 
+HEAD = """
+<meta name="theme-color" content="#0D341A">
+<link rel="icon" href="/static/brand/favicon/favicon.svg" type="image/svg+xml">
+<link rel="apple-touch-icon" href="/static/brand/favicon/apple-touch-icon.png">
+<link rel="manifest" href="/static/brand/favicon/site.webmanifest">
+<meta property="og:title" content="Oracle Edge">
+<meta property="og:description" content="Screen · Rank · Signal: discover value.">
+<meta property="og:image" content="/static/brand/social/og-image.png">
+<link rel="stylesheet" href="/static/brand/theme/oracle-edge-theme.css">
+"""
+
 CSS = f"""
 <style>
 :root {{ --brand:{BRAND}; --ink:{INK}; --muted:{MUTED}; --line:{LINE}; --bg:{BG}; }}
 body {{ background: var(--bg); color: var(--ink);
   font-family: "Segoe UI Variable Text","Segoe UI",system-ui,-apple-system,"Helvetica Neue",Arial,sans-serif; }}
-.body--dark {{ --bg:#141816; --ink:#e7ece9; --muted:#9aa5a0; --line:#2a312e; }}
-.body--dark .oe-card {{ background:#1b201e; }}
-.oe-card {{ background:#fff; border:1px solid var(--line); border-radius:12px; padding:16px 18px; box-shadow:none; }}
+.body--dark {{ --oe-bg:#0A1710; --oe-surface:#10241A; --oe-text:#ECE8DC; --oe-text-muted:#A3B0A7; --oe-border:#1E3A2A;
+  --oe-accent:var(--oe-gold-300); --oe-header-bg:var(--oe-green-950); --oe-negative:#E0645C; --oe-warning:#E0A84A; }}
+.q-header.oe-topbar {{ height:74px; padding:0 16px; background:var(--oe-header-bg, {HEADER}) !important;
+  border-bottom:2px solid var(--oe-header-rule, {GOLD}); }}
+.oe-topbar .oe-brand img {{ height:52px; }}
+.oe-topbar .oe-page-label {{ color:{CREAM}; }}
+.oe-guide-hero {{ font-family: var(--oe-font-display); letter-spacing:.04em; }}
+.body--dark {{ --bg:#0A1710; --ink:#ECE8DC; --muted:#A3B0A7; --line:#1E3A2A; }}
+.body--dark .oe-card {{ background:#10241A; }}
+.oe-card {{ background:#fff; border:1px solid var(--line); border-radius:10px; padding:16px 18px;
+  box-shadow:0 1px 2px rgba(7,31,15,.06), 0 4px 14px rgba(7,31,15,.06); }}
 .oe-kpi {{ font-size:28px; font-weight:700; line-height:1.1; font-variant-numeric: tabular-nums; }}
 .oe-kpi-l {{ font-size:12.5px; color:var(--muted); }}
 .oe-kpi-link {{ transition:border-color .15s, box-shadow .15s; }}
@@ -44,10 +69,10 @@ body {{ background: var(--bg); color: var(--ink);
   white-space:nowrap; border:1.5px solid transparent; }}
 .oe-num {{ font-variant-numeric: tabular-nums; }}
 .oe-action {{ border:1px solid var(--line); border-radius:10px; padding:10px 12px; background:#fff; }}
-.body--dark .oe-action {{ background:#1b201e; }}
+.body--dark .oe-action {{ background:#10241A; }}
 .oe-nav a {{ text-decoration:none; }}
 .q-drawer {{ background:#fbfaf7 !important; }}
-.body--dark .q-drawer {{ background:#161a18 !important; }}
+.body--dark .q-drawer {{ background:#0D1F15 !important; }}
 .ag-theme-quartz {{ --ag-font-family: inherit; --ag-font-size: 13.5px; --ag-header-background-color:#f0eee7;
   --ag-row-hover-color:#eef6f1; --ag-selected-row-background-color:#e3f1ea; }}
 .ag-cell {{ display:flex; align-items:center; }}

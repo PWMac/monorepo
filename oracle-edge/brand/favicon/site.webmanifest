@@ -1,0 +1,26 @@
+{
+  "name": "Oracle Edge",
+  "short_name": "Oracle Edge",
+  "description": "Screen \u00b7 Rank \u00b7 Signal \u2014 discover value.",
+  "icons": [
+    {
+      "src": "/static/brand/favicon/icon-192.png",
+      "sizes": "192x192",
+      "type": "image/png"
+    },
+    {
+      "src": "/static/brand/favicon/icon-512.png",
+      "sizes": "512x512",
+      "type": "image/png"
+    },
+    {
+      "src": "/static/brand/favicon/icon-maskable-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "maskable"
+    }
+  ],
+  "theme_color": "#0D341A",
+  "background_color": "#0D341A",
+  "display": "standalone"
+}

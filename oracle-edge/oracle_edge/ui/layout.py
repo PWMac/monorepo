@@ -8,7 +8,7 @@ from nicegui import app, ui
 
 from .. import APP_NAME, __version__, jobs
 from . import data
-from .theme import BRAND, CSS
+from .theme import BRAND, CSS, HEAD, NEGATIVE
 
 NAV = [
     ("Today", "/", "today"),
@@ -57,15 +57,21 @@ def _job_bar():
 
 @contextmanager
 def frame(title: str):
-    ui.add_head_html(CSS)
-    ui.colors(primary=BRAND, secondary="#2c5d8f", accent="#7a4f9e", positive="#1f6f4a", negative="#a33a2b",
-              warning="#9a5b00")
+    ui.add_head_html(HEAD + CSS)
+    ui.colors(primary=BRAND, secondary="#2c5d8f", accent="#7a4f9e", positive="#1f6f4a", negative=NEGATIVE,
+              warning="#8A5A12")
     dark = ui.dark_mode(value=app.storage.user.get("dark", False))
-    with ui.header(elevated=False).classes("items-center justify-between px-4").style(f"background:{BRAND}"):
-        with ui.row().classes("items-center gap-3"):
+    with ui.header(elevated=False).classes("oe-topbar items-center justify-between"):
+        with ui.row().classes("items-center gap-3 no-wrap"):
             ui.button(icon="menu", on_click=lambda: drawer.toggle()).props("flat round color=white dense")
-            ui.label(APP_NAME).classes("text-lg font-bold text-white")
-            ui.label(title).classes("text-sm text-green-100")
+            ui.html('<a class="oe-brand" href="/" title="Today">'
+                    '<img class="oe-brand-full" src="/static/brand/logo/oracle-edge-header-tagline.png" '
+                    'srcset="/static/brand/logo/oracle-edge-header-tagline@2x.png 2x" '
+                    f'alt="{APP_NAME}: Screen, Rank, Signal">'
+                    '<img class="oe-brand-mark" src="/static/brand/logo/oracle-edge-mark.svg" '
+                    f'alt="{APP_NAME}"></a>', sanitize=False)
+            ui.element("span").classes("oe-topbar-divider")
+            ui.label(title).classes("oe-page-label")
         with ui.row().classes("items-center gap-3"):
             _job_bar()
             search = ui.input(placeholder="Search ticker or name  ( / )").props(

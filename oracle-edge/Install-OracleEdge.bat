@@ -78,7 +78,7 @@ if not exist "%DEST%\uv.exe" (
 powershell -NoProfile -ExecutionPolicy Bypass -Command ^
   "$s=(New-Object -ComObject WScript.Shell).CreateShortcut([Environment]::GetFolderPath('Desktop')+'\Oracle Edge.lnk');" ^
   "$s.TargetPath='%DEST%\Start.bat';$s.WorkingDirectory='%DEST%';$s.IconLocation='%DEST%\tools\oracle_edge.ico';" ^
-  "$s.Description='Oracle Edge - Buffett-style stock screener';$s.Save()" >nul 2>&1
+  "$s.Description='Oracle Edge - Oracle-style stock screener';$s.Save()" >nul 2>&1
 echo  Done. Desktop shortcut "Oracle Edge" is in place.
 echo  Starting Oracle Edge %VER% ...
 echo.

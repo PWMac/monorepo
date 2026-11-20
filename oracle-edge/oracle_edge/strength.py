@@ -1,8 +1,8 @@
 """How strong is a signal? A simple, explainable rating shown next to every BUY / ADD / SELL / TRIM / REVIEW.
 
 Buy side (BUY, STRONG BUY, ADD): 1 to 5 stars. Every buy already passed all gates (1 star), then one more star each for:
-  * Buffett Rank score >= 65
-  * Buffett Rank score >= 75
+  * Oracle Rank score >= 65
+  * Oracle Rank score >= 75
   * Quality >= 80
   * a strong-buy price (margin of safety >= the buy gate + 15%)
 Sell side: SELL = act (high), TRIM = medium, REVIEW = high if it can become a SELL, else low (watch only), SWAP = upgrade.

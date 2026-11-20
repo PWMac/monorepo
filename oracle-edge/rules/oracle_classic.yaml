@@ -1,14 +1,14 @@
-# Oracle Classic: the default, locked Buffett profile. Edit a COPY in the app (Profiles -> Save as).
+# Oracle Classic: the default, locked Oracle profile. Edit a COPY in the app (Profiles -> Save as).
 # mode: gate (must pass, also scored) | scored | buy_gate (must pass for BUY) | info | off
 # direction: higher | lower | range.  Scores: floor = 0 pts, target = 70 pts, excellent = 100 pts.
 name: Oracle Classic
-description: Buffett's rules of thumb, 10-year consistency, Treasury-rate valuation, 10% return bar.
+description: The Oracle's rules of thumb, 10-year consistency, Treasury-rate valuation, 10% return bar.
 
 settings:
   lookback_years: 10
   min_years: 7
   quality_min: 70            # Buy Zone needs Quality >= this
-  hurdle: 0.10               # expected 10-yr return bar (Buffett's informal ~10%)
+  hurdle: 0.10               # expected 10-yr return bar (the Oracle's informal ~10%)
   mos_gate: 0.25             # margin of safety needed for BUY
   regime_modifier: false     # true = raise MOS gate when the Buffett Indicator is high
   terminal_growth: 0.03
@@ -48,7 +48,7 @@ settings:
   # portfolio construction (see oracle_edge/signals.py and the Guide, section 13)
   portfolio_mode: focused      # focused = fixed number of holdings funded from one pot of money | variable = old style
   max_holdings: 15             # focused mode: hold only the best N; run Backtest -> "Find the best number" to tune
-  sizing: equal                # equal = 1/N each | conviction = higher Buffett Rank gets a bigger slice
+  sizing: equal                # equal = 1/N each | conviction = higher Oracle Rank gets a bigger slice
   max_adds: 2                  # most ADDs per position (stops averaging down into a falling stock)
   add_requires_quality: true   # no ADD while a REVIEW is open or Quality has slipped since purchase
   swap_min_hold_days: 365      # a holding must be owned this long before it can be swapped for a better idea
@@ -58,7 +58,7 @@ settings:
   max_buy_weight: 0.25         # new money never pushes one holding above this share of the portfolio
   patient_extra_mos: 0.15      # patient: wait for a margin of safety this much above the buy gate...
   patient_max_weeks: 26        # ...but never hold the cash longer than this
-  min_rank_score: 0            # optional floor: only buy stocks with at least this Buffett Rank
+  min_rank_score: 0            # optional floor: only buy stocks with at least this Oracle Rank
   reserve_min_deploy: 0.5      # "reserve" rule: share of cash spent at an ordinary Buy Zone price (all at a strong buy)
   reserve_max: 0.20             # ...the reserve never grows above this share of the portfolio
   reserve_max_weeks: 26         # ...and is spent anyway after this long without a strong buy
@@ -172,7 +172,7 @@ rules:
      formula: Capex / Net income, why: Doesn't need much equipment to grow profits.}
   - {id: r17, name: Owner earnings growth, category: cash, mode: scored, metric: owner_earnings_growth, direction: higher,
      floor: -0.05, target: 0.05, excellent: 0.15, weight: 1.0, fmt: pct,
-     formula: Growth of NI + D&A - capex (consistency = years positive), why: Buffett's own measure of cash an owner could take out.}
+     formula: Growth of NI + D&A - capex (consistency = years positive), why: The Oracle's own measure of cash an owner could take out.}
   - {id: r18, name: Cash conversion, category: cash, mode: scored, metric: cash_conversion, direction: higher,
      floor: 0.5, target: 0.9, excellent: 1.1, weight: 1.0, fmt: pct,
      formula: Free cash flow / Net income, why: Confirms reported profit is real cash.}
@@ -193,7 +193,7 @@ rules:
   # ---------------- F. Valuation (computed daily from price)
   - {id: r24, name: Margin of safety, category: valuation, mode: buy_gate, metric: mos, direction: higher,
      floor: 0.0, target: 0.25, excellent: 0.50, weight: 1.0, fmt: pct,
-     formula: 1 - Price / Intrinsic value (lower of 2 models), why: Graham's core principle, which Buffett kept.}
+     formula: 1 - Price / Intrinsic value (lower of 2 models), why: Graham's core principle, which the Oracle kept.}
   - {id: r25, name: Expected 10-yr return, category: valuation, mode: buy_gate, metric: exp_return, direction: higher,
      floor: 0.05, target: 0.10, excellent: 0.20, weight: 1.0, fmt: pct,
      formula: Lower of the two models' 10-yr returns, why: Turns price into what you will earn from here.}
@@ -202,7 +202,7 @@ rules:
      formula: Owner earnings / Market cap - 30-yr Treasury, why: A stock is compared with an equity bond vs risk-free bonds.}
   - {id: r27, name: PEPG, category: valuation, mode: info, metric: pepg, direction: lower,
      floor: 3.0, target: 1.5, excellent: 0.8, weight: 0.0, fmt: x,
-     formula: P/E / 5-yr EBITDA growth %, why: GuruFocus's Buffett-Munger valuation check, for cross-reference.}
+     formula: P/E / 5-yr EBITDA growth %, why: GuruFocus's PEPG valuation check, for cross-reference.}
   # ---------------- Universe
   - {id: u1, name: Data sufficiency, category: universe, mode: gate, metric: data_years, direction: higher,
      floor: 3, target: 7, excellent: 10, weight: 0.0, fmt: years,
@@ -256,7 +256,7 @@ insurer_rules:
      formula: Net income / Avg equity (10-yr avg), why: Good returns without excess leverage.}
   - {id: i4, name: Book value per share growth, category: returns, mode: scored, metric: bvps_growth, direction: higher,
      floor: 0.02, target: 0.08, excellent: 0.15, weight: 1.0, fmt: pct,
-     formula: CAGR of equity per diluted share, why: Buffett's own yardstick for Berkshire for decades.}
+     formula: CAGR of equity per diluted share, why: The Oracle's own yardstick for Berkshire for decades.}
   - {id: i5, name: Premiums / equity, category: balance, mode: scored, metric: premiums_to_equity, direction: lower,
      floor: 3.0, target: 2.0, excellent: 1.0, weight: 1.0, fmt: x,
      formula: Premiums earned / Equity (median), why: Not over-writing relative to capital.}

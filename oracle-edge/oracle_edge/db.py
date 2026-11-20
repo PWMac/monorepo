@@ -202,6 +202,15 @@ MIGRATIONS: list[str] = [
     ALTER TABLE equity_curve ADD COLUMN traded REAL;
     ALTER TABLE sweeps ADD COLUMN kind TEXT DEFAULT 'holdings';
     """,
+    # ---- v10: Bitcoin early-warning call log and market alerts ----
+    """
+    CREATE TABLE IF NOT EXISTS btc_calls (
+        date TEXT PRIMARY KEY, lookback INTEGER, horizon INTEGER, btc_ret REAL, bear_cut REAL, bull_cut REAL,
+        zone TEXT, qqq_px REAL, qqq_fwd REAL, resolved_on TEXT, logged_at TEXT);
+    CREATE TABLE IF NOT EXISTS market_alerts (
+        id INTEGER PRIMARY KEY AUTOINCREMENT, date TEXT, kind TEXT, state TEXT, message TEXT,
+        emailed INTEGER DEFAULT 0, created_at TEXT);
+    """,
 ]
 
 

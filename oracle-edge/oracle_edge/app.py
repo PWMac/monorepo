@@ -14,6 +14,10 @@ from .ui import pages_admin, pages_main  # noqa: F401  (registers pages)
 
 if (paths.APP_DIR / "README.html").exists():  # the user guide, opened from "Guide" in the menu
     app.add_static_file(local_file=paths.APP_DIR / "README.html", url_path="/guide")
+BRAND_DIR = paths.APP_DIR / "brand"
+if BRAND_DIR.exists():  # logo, icons, fonts and theme (brand/README.md); /brand also serves the guide's relative links
+    app.add_static_files("/static/brand", str(BRAND_DIR))
+    app.add_static_files("/brand", str(BRAND_DIR))
 
 PORT = int(os.environ.get("ORACLE_EDGE_PORT", "8765"))
 
@@ -169,7 +173,8 @@ def main() -> None:
         _stop_running()
     app.on_startup(startup)
     ui.run(title=APP_NAME, host="127.0.0.1", port=PORT, show=os.environ.get("ORACLE_EDGE_NO_BROWSER") != "1",
-           reload=False, storage_secret=db.cfg("storage_secret") or "oracle-edge", favicon="📈",
+           reload=False, storage_secret=db.cfg("storage_secret") or "oracle-edge",
+           favicon=(BRAND_DIR / "favicon" / "favicon.ico") if BRAND_DIR.exists() else "📈",
            show_welcome_message=False)
 
 

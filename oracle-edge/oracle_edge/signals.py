@@ -422,7 +422,7 @@ class PortfolioSim:
         """Decide where available cash goes. Options are new stocks for free slots (best first) and more of the
         holdings still in the Buy Zone with the thesis intact, never above max_buy_weight of the portfolio.
           best_value - the option with the highest expected 10-yr return (cheapest vs its value) first
-          best_rank  - the highest Buffett Rank first
+          best_rank  - the highest Oracle Rank first
           spread     - split evenly across every option
           patient    - only buy at strong-buy prices (extra margin of safety); after patient_max_weeks of
                        waiting, fall back to best_value.
@@ -561,7 +561,7 @@ class PortfolioSim:
                 res.badges[e.cik] = (typ, why)
             else:
                 why = (f"put {_money(amt)} into it: "
-                       + {"best_rank": f"highest Buffett Rank you own in the Buy Zone (#{e.rank})",
+                       + {"best_rank": f"highest Oracle Rank you own in the Buy Zone (#{e.rank})",
                           "spread": "new money split across the Buy Zone",
                           "reserve": (f"strong-buy price, reserve put to work (MOS {(e.mos or 0):.0%})"
                                       if self.buy_strength(e) >= 1 else

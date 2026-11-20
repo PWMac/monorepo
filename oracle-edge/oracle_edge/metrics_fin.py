@@ -1,7 +1,7 @@
 """Bank and insurer metrics (their own rulebooks: §3H of the plan).
 
 Standard rules don't fit financials: a bank has no gross margin and its debt (deposits) is its raw
-material; an insurer's "debt" is float. These metrics judge them the way Buffett judges them.
+material; an insurer's "debt" is float. These metrics judge them the way the Oracle judges them.
 """
 
 from __future__ import annotations

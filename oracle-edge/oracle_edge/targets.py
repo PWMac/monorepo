@@ -10,7 +10,7 @@ The rule of the house: VALUE decides WHAT price is good; the chart only helps wi
   because the buy-below price still stands.
 * In a downtrend (price under a falling 50-day average: the "falling knife"), the plan splits the buy into
   thirds at successive support levels instead of guessing the bottom.
-* Sells stay Buffett-style and business-driven: SELL / REVIEW fill at the next open whatever the chart says;
+* Sells stay Oracle-style and business-driven: SELL / REVIEW fill at the next open whatever the chart says;
   TRIM only at the nosebleed level (2x value). Charts never trigger a sale.
 * "Approaching" uses a volatility band (ATR-14 = the average daily range), so a calm stock and a jumpy one
   both alert roughly the same number of typical days' moves before the target.

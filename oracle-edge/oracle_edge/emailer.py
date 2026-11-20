@@ -153,6 +153,27 @@ def alerts_html(alerts) -> str:
             "</div>" + "".join(items))
 
 
+def _pending_market():
+    try:
+        return db.rows("SELECT * FROM market_alerts WHERE emailed=0 AND date >= date('now','-5 days') ORDER BY id")
+    except Exception:
+        return []
+
+
+def market_html(rows) -> str:
+    if not rows:
+        return ""
+    items = "".join(f"<div style='border-left:4px solid #8A5A12;padding:6px 10px;margin:6px 0'>"
+                    f"<span style='color:#8A5A12;font-size:11px;font-weight:700'>MARKET</span> "
+                    f"{html.escape(r['message'] or '')}</div>" for r in rows)
+    return ("<h3 style='margin:18px 0 4px;font-size:15px'>Market temperature</h3><div style='font-size:12px;"
+            "color:#666'>Warnings, not hard stops: Oracle Edge keeps following its rules.</div>" + items)
+
+
+def _mark_market(rows) -> None:
+    db.get().executemany("UPDATE market_alerts SET emailed=1 WHERE id=?", [(r["id"],) for r in rows])
+
+
 def _pending_alerts():
     return db.rows("""SELECT a.*, s.ticker FROM price_alerts a JOIN securities s ON s.cik=a.cik
                       WHERE a.emailed=0 AND a.date >= date('now','-5 days') ORDER BY a.state DESC, s.ticker""")
@@ -163,8 +184,9 @@ def send_digest() -> int:
     if not s["enabled"]:
         return 0
     alerts = _pending_alerts() if s.get("send_price_alerts", True) else []
+    market = _pending_market()
     if not s["send_actions"]:
-        return _send_alerts_only(alerts)
+        return _send_alerts_only(alerts, market)
     rows = db.rows(
         """SELECT g.id, g.type, g.reason, g.date, g.price, s.ticker, s.name, e.buy_below, e.strong_buy_below, e.iv,
                   e.rank, e.rank_score, e.quality, e.value AS value_score, e.mos, e.exp_return
@@ -173,7 +195,7 @@ def send_digest() -> int:
            LEFT JOIN evaluations e ON e.run_id=g.run_id AND e.date=g.date AND e.cik=g.cik
            WHERE g.emailed=0 AND g.date >= date('now','-5 days') ORDER BY g.type, s.ticker""")
     if not rows:
-        return _send_alerts_only(alerts)
+        return _send_alerts_only(alerts, market)
     order = ["STRONG_BUY", "BUY", "ADD", "SELL", "SWAP", "TRIM"]
     rows = sorted(rows, key=lambda r: order.index(r["type"]) if r["type"] in order else 9)
     subject = "Oracle Edge · " + " · ".join(f"{BADGE_LABEL.get(r['type'], r['type'])} {r['ticker']}" for r in rows[:4])
@@ -181,26 +203,35 @@ def send_digest() -> int:
         subject += f" +{len(rows) - 4} more"
     if alerts:
         subject += f" · {len(alerts)} price alert{'s' if len(alerts) > 1 else ''}"
-    send(subject, digest_html(rows, alerts_html(alerts)))
+    if market:
+        subject += " · market warning"
+    send(subject, digest_html(rows, market_html(market) + alerts_html(alerts)))
     db.get().executemany("UPDATE signals SET emailed=1 WHERE id=?", [(r["id"],) for r in rows])
     _mark_alerts(alerts)
-    return len(rows) + len(alerts)
+    _mark_market(market)
+    return len(rows) + len(alerts) + len(market)
 
 
 def _mark_alerts(alerts) -> None:
     db.get().executemany("UPDATE price_alerts SET emailed=1 WHERE id=?", [(a["id"],) for a in alerts])
 
 
-def _send_alerts_only(alerts) -> int:
-    if not alerts:
+def _send_alerts_only(alerts, market=()) -> int:
+    if not alerts and not market:
         return 0
-    reached = [a for a in alerts if a["state"] == "reached"]
-    lead = reached or alerts
-    subject = ("Oracle Edge · " + ("Target reached: " if reached else "Approaching target: ") +
-               ", ".join(dict.fromkeys(a["ticker"] for a in lead[:4])))
-    send(subject, _wrap(alerts_html(alerts)))
+    if alerts:
+        reached = [a for a in alerts if a["state"] == "reached"]
+        lead = reached or alerts
+        subject = ("Oracle Edge · " + ("Target reached: " if reached else "Approaching target: ") +
+                   ", ".join(dict.fromkeys(a["ticker"] for a in lead[:4])))
+        if market:
+            subject += " · market warning"
+    else:
+        subject = "Oracle Edge · Market warning: " + (market[0]["message"] or "")[:80]
+    send(subject, _wrap(market_html(market) + alerts_html(alerts)))
     _mark_alerts(alerts)
-    return len(alerts)
+    _mark_market(market)
+    return len(alerts) + len(market)
 
 
 def send_failure(text: str) -> None:

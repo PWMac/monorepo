@@ -208,6 +208,39 @@ def stock_badge(run_id, cik):
                      WHERE b.run_id=? AND b.cik=? ORDER BY b.date DESC LIMIT 1""", (run_id, cik))
 
 
+def quiet_day_reasons(run_id, d, alerts: list[dict]) -> list[dict]:
+    """For a day with no actions: where each recently alerted stock stands and why it isn't a trade."""
+    out, seen = [], set()
+    pid = db.scalar("SELECT id FROM portfolios WHERE run_id=? AND kind='model'", (run_id,))
+    held = {r["cik"] for r in db.rows("SELECT cik FROM positions WHERE portfolio_id=?", (pid,))} if pid else set()
+    for a in alerts:
+        if a["cik"] in seen:
+            continue
+        seen.add(a["cik"])
+        b = db.one("SELECT badge, reason FROM badges WHERE run_id=? AND cik=? AND date=?", (run_id, a["cik"], d))
+        e = db.one("SELECT list, buy_below FROM evaluations WHERE run_id=? AND cik=? AND date=?", (run_id, a["cik"], d))
+        if a["kind"] == "trim":
+            why = "a trim level is informational; the model trims only when a holding grows past its size cap"
+        elif str(a["kind"]).startswith("custom"):
+            why = "your own alert price: it isn't part of the model's rules"
+        elif a["state"] != "reached":
+            why = "approaching the target, not there yet"
+        elif b and a["cik"] in held:
+            why = f"already in the model portfolio ({b['badge'].replace('_', ' ').lower()}: {b['reason'] or ''})"
+        elif b:
+            why = (b["reason"] or b["badge"]).replace("_", " ")
+        elif e and e["list"] == "pricey":
+            why = "touched the level during the day but closed above the buy price"
+        elif e and e["list"] == "near":
+            why = "no longer passes every quality check (near miss)"
+        elif e and e["list"] == "pending":
+            why = "can't be valued today (missing price, exchange rate or share ratio)"
+        else:
+            why = "not on today's Buy Zone list"
+        out.append({"ticker": a["ticker"], "why": why, "date": a["date"]})
+    return out
+
+
 def stock_prices(ticker, since="2016-01-01") -> list[dict]:
     return [dict(r) for r in db.rows("SELECT date, close FROM prices WHERE ticker=? AND date>=? ORDER BY date",
                                      (ticker, since))]
@@ -241,20 +274,9 @@ def save_notes(n: dict) -> None:
 
 
 def market_now() -> dict:
-    m = Macro()
-    vti = {r["date"]: r["adj_close"] for r in db.rows(
-        "SELECT date, adj_close FROM prices WHERE ticker='VTI' ORDER BY date")}
-    dates = sorted(vti)
+    from ..market import regime_now
 
-    def vti_adj(d):
-        import bisect
-
-        i = bisect.bisect_right(dates, d) - 1
-        return vti[dates[i]] if i >= 0 else None
-
-    today = date.today().isoformat()
-    p = rules.default_profile()
-    reg = m.regime(today, p.settings["mos_gate"], p.settings.get("regime_modifier", False), vti_adj)
+    reg, m, _adj = regime_now()
     hist = []
     for d, _ in zip(*m.s.get("GDP", ([], []))):
         r, _q = m.buffett_indicator(d)
@@ -350,25 +372,25 @@ def _coverage_gaps(limit=50) -> list[dict]:
     return sorted(out, key=lambda x: -x["n"])[:limit]
 
 
-# ---- stock lists behind the Today cards: valuation + the business metrics Buffett looks at -------------------------
+# ---- stock lists behind the Today cards: valuation + the business metrics the Oracle looks at -------------------------
 # (key, column header, rule ids by rulebook, format, tooltip)
 BUFFETT_METRICS = [
     ("roe", "ROE", ["r19", "b2", "i3"], "pct",
-     "Return on equity, 10-year average. Buffett looks for 15%+ earned without heavy debt."),
+     "Return on equity, 10-year average. The Oracle looks for 15%+ earned without heavy debt."),
     ("roic", "ROIC", ["r20"], "pct", "Return on invested capital (debt + equity). High and steady = a moat."),
     ("gm", "Gross margin", ["r1"], "pct", "40%+ often signals pricing power; under 20% a commodity business."),
     ("nm", "Net margin", ["r7"], "pct", "Profit kept from each $ of sales. 20%+ is excellent."),
     ("epsg", "EPS growth", ["r8"], "pct", "Earnings per share growth per year over the lookback."),
     ("oeg", "Owner earnings growth", ["r17"], "pct",
-     "Growth of owner earnings (net income + depreciation - maintenance capex): Buffett's true cash profit."),
+     "Growth of owner earnings (net income + depreciation - maintenance capex): the Oracle's true cash profit."),
     ("cashconv", "Cash conversion", ["r18"], "pct", "Operating cash flow ÷ net income. Near or above 100% = real profits."),
     ("capex", "Capex ÷ net income", ["r16"], "pct", "Lower is better: under 25% means growth doesn't eat the profits."),
-    ("debt", "Debt payback (yrs)", ["r10"], "years", "Years of earnings to pay off long-term debt. Buffett: under 3–4."),
+    ("debt", "Debt payback (yrs)", ["r10"], "years", "Years of earnings to pay off long-term debt. The Oracle: under 3–4."),
     ("de", "Adj. debt ÷ equity", ["r12"], "x", "Debt vs equity with buybacks added back. Under 0.8 is conservative."),
     ("shares", "Share count / yr", ["r14", "b8", "i8"], "pct", "Yearly change in shares. Negative = buybacks (good)."),
     ("dollar", "$1 test", ["r21", "b9"], "x",
      "Market value added per $1 of earnings kept. Above 1 = management reinvests well."),
-    ("pred", "Predictability", ["r22"], "ratio", "How steady earnings have been (0–100%). Buffett wants predictable."),
+    ("pred", "Predictability", ["r22"], "ratio", "How steady earnings have been (0–100%). The Oracle wants predictable."),
 ]
 
 
