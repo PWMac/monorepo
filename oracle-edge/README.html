@@ -66,7 +66,7 @@ footer { color:var(--muted); font-size:12.5px; margin-top:50px; border-top:1px s
 <header class="top">
   <h1>Oracle Edge</h1>
   <p>A local stock screener that thinks like Warren Buffett. This guide explains <b>what</b> the app does,
-  <b>how</b> it decides, and <b>why</b> it was built this way. Version 0.10.2.</p>
+  <b>how</b> it decides, and <b>why</b> it was built this way. Version 0.10.3.</p>
   <p style="font-size:14px">Two documents: this <b>guide</b> is the user manual, kept current with every release and opened from
   "Guide" in the app. The <b>plan</b> (<code>docs/Value-Picker-Plan.html</code> with the source code) is the design record: the research, architecture,
   database layout and the decision log behind the app.</p>
@@ -881,7 +881,9 @@ NiceGUI provides polished tables and charts without a separate web front end.</d
 <li><b>Company-tagging quirks.</b> Companies tag XBRL differently. The concept map covers common variations, and a few line items
 are built from their parts when a company doesn't report the total: SG&amp;A from selling/marketing plus general and
 administrative; D&amp;A from depreciation plus amortization; operating income from revenue minus total costs and expenses, or
-pre-tax income plus interest when there is no operating-income line. Some gaps are real and stay empty: railroads, card networks,
+pre-tax income plus interest when there is no operating-income line; SG&amp;A from gross profit minus operating income minus R&amp;D
+when a company tags SG&amp;A only with its own custom tag (this errs on the high side). Banks that stopped tagging total loans use
+their latest tagged year for loans-to-deposits. Some gaps are real and stay empty: railroads, card networks,
 airlines and asset managers report no cost of sales, so they have no gross margin (and no margins measured against gross profit).
 Companies with several share classes (Hershey, Visa) don't tag a company-wide EPS, so their EPS growth stays blank. Life insurers
 don't report reserve development. Missing checks are left out of the score rather than counted as failures, and confidence drops a
@@ -928,7 +930,7 @@ use the checklist on each report card.</li>
 <tr><td><b>XBRL</b></td><td>The tagged data format companies use to file financial statements with the SEC</td></tr>
 </table>
 
-<footer>Oracle Edge v0.10.2 · research tool, not financial advice · MIT license. The full design plan, with research sources,
+<footer>Oracle Edge v0.10.3 · research tool, not financial advice · MIT license. The full design plan, with research sources,
 is in <code>docs/Value-Picker-Plan.html</code> with the source code.</footer>
 </main>
 </div>

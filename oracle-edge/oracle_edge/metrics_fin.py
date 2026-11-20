@@ -45,7 +45,9 @@ def compute_bank(s: dict) -> dict[str, MetricResult]:
     out["equity_to_assets"] = MetricResult(ea[-1] if ea else None, ea, y)
 
     ld = [_div(s["loans"][i], s["deposits"][i]) for i in range(n)]
-    out["loans_to_deposits"] = MetricResult(ld[-1] if ld else None, ld, y)
+    # many banks stopped tagging total loans without a segment breakdown after 2023: use the latest year that has it
+    recent = [v for v in ld[-3:] if v is not None]
+    out["loans_to_deposits"] = MetricResult(recent[-1] if recent else None, ld, y)
 
     def _nco(i):
         loans = s["loans"][i]

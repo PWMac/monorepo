@@ -74,3 +74,22 @@ def test_gap_list_skips_not_applicable_checks():
     miss = ["Gross margin", "SG&A margin", "R&D margin", "Depreciation margin", 'The "$1 test"', "Tax margin"]
     assert _real_gaps(miss, priced=False) == ["Tax margin"]
     assert _real_gaps(["SG&A margin", 'The "$1 test"'], priced=True) == ["SG&A margin", 'The "$1 test"']
+
+
+def test_sga_from_gross_profit_when_only_a_company_tag_is_used():
+    s = build_statement(_state({"revenue": [100] * 4, "net_income": [10] * 4, "gross_profit": [40] * 4,
+                                "operating_income": [15] * 4, "rnd": [5] * 4}), 10)
+    assert s["sga"] == [20] * 4
+    s = build_statement(_state({"revenue": [100] * 4, "net_income": [10] * 4, "gross_profit": [40] * 4,
+                                "operating_income": [15] * 4, "sga": [12] * 4}), 10)
+    assert s["sga"] == [12] * 4  # a reported SG&A always wins
+
+
+def test_loans_to_deposits_uses_latest_tagged_year():
+    from oracle_edge.metrics_fin import compute_bank
+
+    s = build_statement(_state({"revenue": [100] * 4, "net_income": [10] * 4, "equity": [80] * 4,
+                                "total_assets": [1000] * 4, "deposits": [800] * 4,
+                                "loans": [600, 640, None, None]}), 10)
+    m = compute_bank(s)
+    assert m["loans_to_deposits"].value == 0.8
