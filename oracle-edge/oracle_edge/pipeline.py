@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 import logging
 from datetime import date, datetime, timedelta
+from pathlib import Path
 
 from . import backup, db, emailer, notify, quarterly, rules, targets
 from .engine import PriceBook, SnapshotBook, build_snapshots, evaluate
@@ -60,6 +61,24 @@ def route_sic(ciks: list[int], progress=None) -> None:
             progress(i / max(len(todo), 1))
 
 
+def apply_known_adr() -> int:
+    """Fill ratios the automatic reader couldn't find from adr_ratios.yaml (never replaces a manual ratio)."""
+    import yaml
+
+    f = Path(__file__).resolve().parent / "adr_ratios.yaml"
+    if not f.exists():
+        return 0
+    known = yaml.safe_load(f.read_text(encoding="utf-8")) or {}
+    n = 0
+    for r in db.rows("SELECT cik, ticker FROM securities WHERE is_foreign=1 AND adr_ratio IS NULL "
+                     "AND (adr_source IS NULL OR adr_source NOT LIKE 'manual%')"):
+        k = known.get(r["ticker"])
+        if k and k.get("ratio"):
+            sec.set_adr_ratio(r["cik"], float(k["ratio"]), f"known: {k.get('note', '')}")
+            n += 1
+    return n
+
+
 def detect_adr(ciks: list[int], progress=None) -> int:
     """Find the ADR share ratio for foreign candidates (manual overrides are never replaced)."""
     if not ciks:
@@ -75,6 +94,7 @@ def detect_adr(ciks: list[int], progress=None) -> int:
             db.log("sec", "adr_ratio", False, f"{cik}: {e}")
         if progress and i % 5 == 0:
             progress(i / max(len(todo), 1))
+    apply_known_adr()
     return len(todo)
 
 

@@ -45,6 +45,31 @@ def fetch_series(series_id: str, start: str = "1990-01-01") -> pd.DataFrame:
     return df.dropna()
 
 
+def yahoo_fx_series(currency: str) -> str:
+    """Macro series name for a currency FRED doesn't publish (stored as foreign units per 1 USD)."""
+    return f"YFX_{currency.upper()}"
+
+
+def fx_from_yahoo(currency: str, start: str = "2000-01-01") -> pd.DataFrame:
+    """Daily <currency> per 1 USD from Yahoo (e.g. CLP=X)."""
+    import yfinance as yf
+
+    d = yf.download(f"{currency.upper()}=X", start=start, auto_adjust=False, progress=False, threads=False)
+    if d is None or d.empty:
+        raise RuntimeError(f"Yahoo returned no {currency} rates")
+    close = d["Close"]
+    if isinstance(close, pd.DataFrame):
+        close = close.iloc[:, 0]
+    close = close.dropna()
+    close = close[close > 0]
+    return pd.DataFrame({"date": close.index.strftime("%Y-%m-%d"), "value": close.values.astype(float)})
+
+
+def foreign_currencies() -> list[str]:
+    return sorted({r["currency"] for r in db.rows("SELECT DISTINCT currency FROM securities WHERE is_foreign=1")
+                   if r["currency"] and r["currency"].upper() != "USD"})
+
+
 def needed_fx() -> list[str]:
     cur = {r["currency"] for r in db.rows("SELECT DISTINCT currency FROM securities WHERE is_foreign=1")}
     return [FX_SERIES[c][0] for c in sorted(cur) if c in FX_SERIES]
@@ -104,6 +129,20 @@ def refresh_all(progress=None) -> dict:
         skipped = [s for s in todo if out.get(s) == 0]
         db.log("fred", "refresh", False, f"FRED is not responding; skipped {len(skipped)} series and kept the "
                                          "data already stored. The next daily update tries again.")
+    # currencies FRED doesn't publish (CLP, PEN, ...) and FX series FRED couldn't deliver: Yahoo
+    have = {r["series"] for r in db.rows("SELECT DISTINCT series FROM macro")}
+    for cur in foreign_currencies():
+        spec = FX_SERIES.get(cur.upper())
+        if spec and (out.get(spec[0]) or spec[0] in have):
+            continue
+        name = yahoo_fx_series(cur)
+        try:
+            df = fx_from_yahoo(cur)
+            _store(name, df)
+            out[name] = len(df)
+            db.log("yahoo", f"{cur}=X", True, f"{len(df)} rows")
+        except Exception as e:
+            db.log("yahoo", f"{cur}=X", False, str(e))
     if not out.get("VIXCLS"):
         try:
             df = vix_from_yahoo()

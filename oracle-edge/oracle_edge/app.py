@@ -78,6 +78,12 @@ def startup() -> None:
     rules.seed_profiles()
     if not db.cfg("storage_secret"):
         db.set_cfg("storage_secret", pysecrets.token_hex(16))
+    try:  # ratios added to adr_ratios.yaml in an update apply right away
+        from .pipeline import apply_known_adr
+
+        apply_known_adr()
+    except Exception as e:
+        logging.getLogger("oracle_edge").warning("known ADR ratios not applied: %s", e)
     # catch up automatically if the PC was off at the scheduled time
     try:
         from .tradecal import completed_session

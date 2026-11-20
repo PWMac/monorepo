@@ -312,6 +312,20 @@ def _data_health() -> dict:
     }
 
 
+GP_BASED = {"SG&A margin", "R&D margin", "Depreciation margin"}
+
+
+def _real_gaps(missing: list[str], priced: bool) -> list[str]:
+    """Leave out what isn't a data gap: margins measured against gross profit for companies that report no
+    cost of sales (railroads, card networks, asset managers...), and the $1 test for companies the app doesn't
+    download prices for (only the shortlist gets prices)."""
+    out = [m for m in missing if not (m in GP_BASED and "Gross margin" in missing)]
+    out = [m for m in out if m != "Gross margin"]
+    if not priced:
+        out = [m for m in out if m != 'The "$1 test"']
+    return out
+
+
 def coverage_gaps(limit=50) -> list[dict]:
     """Companies whose latest snapshot is missing core line items (helps improve the concept map)."""
     return _cached(("gaps", limit), lambda: _coverage_gaps(limit))
@@ -319,12 +333,18 @@ def coverage_gaps(limit=50) -> list[dict]:
 
 def _coverage_gaps(limit=50) -> list[dict]:
     out = []
-    rows = db.rows("""SELECT s.ticker, s.name, sn.rules_json FROM snapshots sn JOIN securities s ON s.cik=sn.cik
+    seen = set()
+    rows = db.rows("""SELECT s.cik, s.ticker, s.name, sn.rules_json FROM snapshots sn JOIN securities s ON s.cik=sn.cik
                       JOIN (SELECT cik, MAX(filed) m FROM snapshots GROUP BY cik) x ON x.cik=sn.cik AND x.m=sn.filed
-                      WHERE sn.quality IS NOT NULL LIMIT 3000""")
+                      WHERE sn.quality IS NOT NULL AND COALESCE(s.category,'standard')='standard' LIMIT 20000""")
+    priced = {r["ticker"] for r in db.rows("SELECT DISTINCT ticker FROM prices")}
     for r in rows:
+        if r["cik"] in seen:  # snapshots repeat once per profile
+            continue
+        seen.add(r["cik"])
         rs = json.loads(r["rules_json"] or "[]")
         missing = [x["name"] for x in rs if x.get("value") is None and x["mode"] in ("gate", "scored")]
+        missing = _real_gaps(missing, r["ticker"] in priced)
         if len(missing) >= 3:
             out.append({"ticker": r["ticker"], "name": r["name"], "missing": ", ".join(missing[:6]), "n": len(missing)})
     return sorted(out, key=lambda x: -x["n"])[:limit]

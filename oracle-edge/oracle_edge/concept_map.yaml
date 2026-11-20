@@ -35,9 +35,14 @@ sga:
   kind: duration
   tags:
     - us-gaap:SellingGeneralAndAdministrativeExpense
-    - us-gaap:GeneralAndAdministrativeExpense
     - ifrs-full:SellingGeneralAndAdministrativeExpense
+# G&A and selling/marketing reported separately: SG&A = the two added together (metrics.py)
+gna:
+  kind: duration
+  tags:
+    - us-gaap:GeneralAndAdministrativeExpense
     - ifrs-full:AdministrativeExpense
+    - ifrs-full:GeneralAndAdministrativeExpense
 selling_marketing:
   kind: duration
   tags:
@@ -45,11 +50,13 @@ selling_marketing:
     - us-gaap:SellingExpense
     - ifrs-full:SellingExpense
     - ifrs-full:DistributionCosts
+    - ifrs-full:SalesAndMarketingExpense
 rnd:
   kind: duration
   tags:
     - us-gaap:ResearchAndDevelopmentExpense
     - us-gaap:ResearchAndDevelopmentExpenseExcludingAcquiredInProcessCost
+    - us-gaap:ResearchAndDevelopmentExpenseSoftwareExcludingAcquiredInProcessCost
     - ifrs-full:ResearchAndDevelopmentExpense
 da:
   kind: duration
@@ -60,6 +67,23 @@ da:
     - us-gaap:Depreciation
     - ifrs-full:AdjustmentsForDepreciationAndAmortisationExpense
     - ifrs-full:DepreciationAndAmortisationExpense
+    - ifrs-full:DepreciationAmortisationAndImpairmentLossReversalOfImpairmentLossRecognisedInProfitOrLoss
+    - ifrs-full:AdjustmentsForDepreciationAndAmortisationExpenseAndImpairmentLossReversalOfImpairmentLossRecognisedInProfitOrLoss
+# depreciation and amortization reported separately: D&A = the two added together (metrics.py)
+depreciation:
+  kind: duration
+  tags:
+    - ifrs-full:DepreciationExpense
+    - ifrs-full:AdjustmentsForDepreciationExpense
+    - ifrs-full:DepreciationPropertyPlantAndEquipment
+    - us-gaap:DepreciationNonproduction
+amortization:
+  kind: duration
+  tags:
+    - us-gaap:AmortizationOfIntangibleAssets
+    - ifrs-full:AmortisationExpense
+    - ifrs-full:AdjustmentsForAmortisationExpense
+    - ifrs-full:AmortisationIntangibleAssetsOtherThanGoodwill
 interest:
   kind: duration
   tags:
@@ -67,7 +91,9 @@ interest:
     - us-gaap:InterestExpenseNonoperating
     - us-gaap:InterestExpenseDebt
     - us-gaap:InterestAndDebtExpense
+    - us-gaap:InterestExpenseOperating
     - us-gaap:InterestPaidNet
+    - us-gaap:InterestPaid
     - ifrs-full:FinanceCosts
     - ifrs-full:InterestExpense
 operating_income:
@@ -75,6 +101,11 @@ operating_income:
   tags:
     - us-gaap:OperatingIncomeLoss
     - ifrs-full:ProfitLossFromOperatingActivities
+# companies without an operating-income line: operating income = revenue - total costs and expenses (metrics.py)
+costs_and_expenses:
+  kind: duration
+  tags:
+    - us-gaap:CostsAndExpenses
 pretax_income:
   kind: duration
   tags:
@@ -104,6 +135,8 @@ eps_diluted:
     - us-gaap:EarningsPerShareBasic
     - ifrs-full:DilutedEarningsLossPerShare
     - ifrs-full:BasicEarningsLossPerShare
+    - ifrs-full:DilutedEarningsLossPerShareFromContinuingOperations
+    - ifrs-full:BasicEarningsLossPerShareFromContinuingOperations
 shares_diluted:
   kind: duration
   unit: shares
@@ -131,12 +164,19 @@ dividends_paid:
   tags:
     - us-gaap:PaymentsOfDividends
     - us-gaap:PaymentsOfDividendsCommonStock
+    - us-gaap:PaymentsOfOrdinaryDividends
     - ifrs-full:DividendsPaidClassifiedAsFinancingActivities
     - ifrs-full:DividendsPaid
+    - us-gaap:DividendsCommonStockCash
+    - us-gaap:DividendsCommonStock
 buybacks:
   kind: duration
   tags:
     - us-gaap:PaymentsForRepurchaseOfCommonStock
+    - us-gaap:PaymentsForRepurchaseOfEquity
+    - us-gaap:TreasuryStockValueAcquiredCostMethod
+    - us-gaap:StockRepurchasedAndRetiredDuringPeriodValue
+    - us-gaap:StockRepurchasedDuringPeriodValue
     - ifrs-full:PaymentsToAcquireOrRedeemEntitysShares
 cash:
   kind: instant
@@ -228,6 +268,9 @@ loans:
   tags:
     - us-gaap:LoansAndLeasesReceivableNetReportedAmount
     - us-gaap:FinancingReceivableExcludingAccruedInterestAfterAllowanceForCreditLoss
+    - us-gaap:FinancingReceivableExcludingAccruedInterestBeforeAllowanceForCreditLoss
+    - us-gaap:LoansAndLeasesReceivableNetOfDeferredIncome
+    - us-gaap:LoansAndLeasesReceivableGrossCarryingAmount
 premiums_earned:
   kind: duration
   tags:
@@ -262,6 +305,10 @@ net_charge_offs:
   tags:
     - us-gaap:FinancingReceivableAllowanceForCreditLossesWriteOffsNet
     - us-gaap:AllowanceForLoanAndLeaseLossesWriteOffsNet
+    # gross write-offs when net isn't tagged (slightly conservative)
+    - us-gaap:FinancingReceivableExcludingAccruedInterestAllowanceForCreditLossWriteoff
+    - us-gaap:FinancingReceivableAllowanceForCreditLossesWriteOffs
+    - us-gaap:AllowanceForLoanAndLeaseLossesWriteOffs
 provision:
   kind: duration
   tags:
@@ -274,6 +321,8 @@ losses_incurred:
   tags:
     - us-gaap:PolicyholderBenefitsAndClaimsIncurredNet
     - us-gaap:IncurredClaimsPropertyCasualtyAndLiability
+    - us-gaap:ShortdurationInsuranceContractsIncurredClaimsAndAllocatedClaimAdjustmentExpenseNet
+    - us-gaap:LiabilityForUnpaidClaimsAndClaimsAdjustmentExpenseIncurredClaims1
 total_benefits_expenses:
   kind: duration
   tags:
@@ -305,6 +354,8 @@ prior_year_development:
   kind: duration
   tags:
     - us-gaap:LiabilityForUnpaidClaimsAndClaimsAdjustmentExpenseIncurredClaimsPriorYears
+    - us-gaap:SupplementalInformationForPropertyCasualtyInsuranceUnderwritersPriorYearClaimsAndClaimsAdjustmentExpense
+    - us-gaap:SecSchedule1218SupplementalInformationPropertyCasualtyInsuranceUnderwritersPriorYearClaimAndClaimAdjustmentExpense
 # ---- added in 0.10: enhanced valuation and early warnings ----
 sbc:
   kind: duration

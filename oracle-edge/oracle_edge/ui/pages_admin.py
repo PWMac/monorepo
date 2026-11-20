@@ -430,7 +430,9 @@ def data_page():
                         "oe-small mt-2")
             with ui.card().classes("oe-card flex-1"):
                 ui.label("Coverage gaps").classes("oe-h2")
-                ui.label("Companies missing 3+ line items (improve concept_map.yaml to fix).").classes("oe-small")
+                ui.label("Companies missing 3+ checks the data should support (improve concept_map.yaml to fix). "
+                         "Not counted: gross-margin checks for companies with no cost-of-sales line, and the $1 test "
+                         "for companies off the shortlist (no prices downloaded).").classes("oe-small")
                 gaps = data.coverage_gaps(25)
                 for g in gaps:
                     ui.label(f"{g['ticker']} · {g['missing']}").classes("oe-small")
