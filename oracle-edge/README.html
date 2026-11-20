@@ -74,7 +74,7 @@ footer { color:var(--muted); font-size:12.5px; margin-top:50px; border-top:1px s
   <h1><img src="brand/logo/oracle-edge-header-tagline.png" srcset="brand/logo/oracle-edge-header-tagline@2x.png 2x"
      alt="Oracle Edge: Screen, Rank, Signal"></h1>
   <p>A local stock screener that thinks like the Oracle. This guide explains <b>what</b> the app does,
-  <b>how</b> it decides, and <b>why</b> it was built this way. Version 0.11.1.</p>
+  <b>how</b> it decides, and <b>why</b> it was built this way. Version 0.11.2.</p>
   <p style="font-size:14px">Two documents: this <b>guide</b> is the user manual, kept current with every release and opened from
   "Guide" in the app. The <b>plan</b> (<code>docs/Value-Picker-Plan.html</code> with the source code) is the design record: the research, architecture,
   database layout and the decision log behind the app.</p>
@@ -720,6 +720,13 @@ would have said at the time. Bitcoin is read at each stock-market close, so "20 
 an episode overlap, so a handful of episodes is thin evidence, however many days they span.</li>
 <li><b>Live record.</b> Every daily update logs that day's call. Once 20 trading days have passed, QQQ's result is filled in, so
 the rule builds a record on data it has never seen. Check it on the Market page before leaning on it.</li>
+<li><b>Was it right?</b> The Market page scores every past call. A <b>warning</b> (▼) was right if QQQ fell over the next 20
+trading days; a <b>tailwind</b> (▲) was right if QQQ rose. On the chart each call is a triangle at the day it began: green when it was
+right, red when it was wrong, grey while the 20 days are still running; the shaded bands show how long each reading lasted (red for
+warnings, green for tailwinds), with QQQ underneath so you can see what followed. Above the chart, two scores compare each kind of call
+with the <b>base rate</b>, how often QQQ fell (or rose) in any 20-day window. A call adds information only when it beats that base rate;
+a warning that is "right" 48% of the time when QQQ falls in 45% of all windows is barely better than a coin with QQQ's usual lean.
+The table under the chart lists every call, newest first.</li>
 <li><b>Both at once.</b> An expensive market and a Bitcoin selloff together is the most cautious setting: keep new purchases small
 until at least one eases.</li>
 <li><b>Data.</b> Bitcoin (BTC-USD) and QQQ come from the price sources (Stooq, then Yahoo) with every daily update.</li>
@@ -743,7 +750,10 @@ how each rank bucket performed afterwards.</li>
   <li><i>Oracle Classic + timing</i>;</li>
   <li><i>Oracle Edge 15% · Risk Optimized</i> (editable), with the risk controls above.</li>
 </ul>
-Use <b>Save as</b> to make an editable copy. The editor previews live how many companies would pass. Profiles that differ only
+Use <b>Save as</b> to make an editable copy. Each profile card shows three things: what the profile is <b>for</b> (a description you
+can write in the editor; the built-in ones come with one), for a copy <b>what differs</b> from the profile it was copied from
+(for example "expected-return bar 20% (was 15%)"), and a summary of <b>what it does</b>, written from its settings, so it is
+always accurate after an edit. The editor previews live how many companies would pass. Profiles that differ only
 in portfolio, signal or alert settings share company scores, so trying another portfolio size never rescores everything.</li>
 <li>Several profiles can be <b>active</b> at once; each gets its own live signals and model portfolio.</li>
 </ul>
@@ -788,7 +798,8 @@ or were acquired since 2019 may be missing from backtests. Treat backtest return
 <tr><td><b>Email</b></td><td>Sent from your own account over SMTP. There are presets for Google (Gmail/Workspace), Outlook and iCloud,
 plus custom servers. Google needs a 16-character <b>app password</b>, which requires 2-Step Verification (Workspace admins must
 allow app passwords). Choose which emails you get: actions, price-target alerts, Friday weekly summary, run failures.
-Use <b>Send test email</b> in Settings to check it works.</td></tr>
+Use <b>Send test email</b> in Settings to check it works. Port 465 always uses SSL and 587 STARTTLS; if the server hangs up on one,
+Oracle Edge tries the other and keeps the one that works. Failures are written to <code>logs/oracle_edge.log</code>.</td></tr>
 <tr><td><b>Schedule</b></td><td>Windows Task Scheduler runs <code>Run-Daily.bat</code> on weekdays, silently, at your chosen time.
 The run waits until 6:00 PM New York if started earlier. Start the app any time to catch up.
 The task is named <b>Oracle Edge Daily</b> and sits at the top level of <b>Task Scheduler → Task Scheduler Library</b>
@@ -811,7 +822,14 @@ of the left menu. Run <code>Install-OracleEdge.bat</code> again, which stops the
 restart the PC and open the desktop shortcut.</td></tr>
 <tr><td>The scheduled task isn't in Task Scheduler</td><td>Settings → Daily schedule shows a red line with Windows' reason. Fix that,
 click <b>Save &amp; (re)register task</b>, then <b>Open Task Scheduler</b> and look under <b>Task Scheduler Library</b>.</td></tr>
-<tr><td>The test email fails</td><td>The message says why. For Google, use a 16-character app password, not your normal password.</td></tr>
+<tr><td>The test email fails</td><td>The message says which step failed and why. For Google, use a 16-character app password,
+not your normal password, and sign in with the full address it was created for. <b>Check connection step by step</b>
+(Settings → Email alerts) tests each step without sending: finding the server, opening ports 587 and 465, encryption and
+sign-in.</td></tr>
+<tr><td>"Connection unexpectedly closed"</td><td>The server hung up before signing in, so the password was never checked. Usual causes:
+the port and security don't match (465 = SSL, 587 = STARTTLS; now corrected automatically), or <b>antivirus "email protection"</b>
+(Avast, AVG, Norton, Kaspersky, ESET, Bitdefender) or a <b>VPN</b> intercepting outgoing mail. Turn off the antivirus's mail
+scanning or disconnect the VPN and test again; the step-by-step check shows which port gets through.</td></tr>
 <tr><td>"Another job is already running"</td><td>Only one long job (daily update, backtest, holdings test, rebuild) runs at a time.
 Progress shows in the top bar; start the next one when it finishes.</td></tr>
 <tr><td>A stock shows "pending"</td><td>It can't be valued yet: usually a missing price, exchange rate or ADR ratio. The stock page says
@@ -828,6 +846,21 @@ It picks up at the market data, scoring, prices and history replay and skips the
 
 <!-- ================================================================ 17 -->
 <h2 id="screens"><span class="n">17</span>The screens</h2>
+<h3 id="charts">Working with the charts</h3>
+<p>Every chart over time (stock price, price vs value, your money, growth of $1, the Buffett Indicator, the Bitcoin early warning,
+financials) works the same way:</p>
+<ul>
+<li><b>Timeframe buttons</b> above the chart: 1M, 3M, 6M, YTD, 1Y, 3Y, 5Y, 10Y and Max (only the ones the data covers).</li>
+<li><b>Zoom and pan:</b> scroll the mouse wheel over the chart to zoom, drag to move along in time, or drag either end of the slider
+underneath. The slider shows the whole history in miniature, so you always see where the window sits.</li>
+<li><b>Tools</b> at the top right: box zoom (drag a rectangle around the part you want), undo zoom, reset to the full view, and save the
+chart as a PNG image.</li>
+<li><b>Crosshair:</b> hover to read exact values; on charts with two panels (price and volume, Bitcoin and QQQ) the crosshair and zoom
+move together.</li>
+<li><b>Legend:</b> click a name to hide or show that line; when the legend is long, arrows page through it.</li>
+<li>On a stock's price chart, the <b>vs S&amp;P 500</b> switch shows both as % change from the start of whatever range you pick, so
+the comparison restarts at zero each time you change the timeframe.</li>
+</ul>
 <table>
 <tr><th>Screen</th><th>What it's for</th></tr>
 <tr><td><b>Today</b></td><td>The Buffett Indicator and the Bitcoin early warning, a Market temperature card when either is at an extreme,
@@ -840,14 +873,31 @@ prices, margin of safety, % above the buy price, expected 10-year return, earnin
 10-year business record the Oracle checks (ROE, ROIC, gross and net margin, EPS and owner-earnings growth, cash conversion, capex, debt
 payback, debt-to-equity, buybacks, the $1 test, predictability). Shift-click to sort by a second column, hover a header for its meaning,
 filter by text, export to CSV, click a row to open the stock.</td></tr>
-<tr><td><b>Stock report card</b></td><td>Quality, value, rank, the price ladder, price targets and your own alerts, the price-vs-value chart,
+<tr><td><b>Stock page: Report card tab</b></td><td>Quality, value, rank, the price ladder, price targets and your own alerts, the price-vs-value chart,
 early warnings, every rule with its 10-year history, your judgment checklist (circle of competence, management, moat) and signal history</td></tr>
+<tr><td><b>Stock page: Chart &amp; key stats tab</b></td><td>What a Yahoo or Google Finance quote page shows, from the app's own data:
+<ul style="margin:4px 0">
+<li><b>Chart:</b> the stock's whole history as candles or a line, with volume and the 50- and 200-day averages; timeframes from
+1M to Max plus zoom, pan and box zoom (see <a href="#charts">Working with the charts</a>); "vs S&amp;P 500" switches to % change from
+the start of the chosen range. Returns for 1D to 5Y under it.</li>
+<li><b>Key statistics:</b> previous close, open, day's and 52-week range, volume and 3-month average, market cap, shares outstanding,
+beta (5 years of monthly returns against the S&amp;P 500), P/E and EPS (trailing 12 months when the 10-Qs allow, otherwise the last
+fiscal year), dividend and yield, revenue, net margin, return on equity, 1-year change against the S&amp;P 500, the last quarterly
+report and an estimated date for the next one. Hover a label for how it's worked out.</li>
+<li><b>Financials:</b> income statement, balance sheet and cash flow, annual or quarterly, 6, 10 or all periods, with a revenue and
+net income chart and year-over-year change. 10-Qs report cash flow year-to-date and the fourth quarter only appears in the annual report, so quarters are
+rebuilt from the differences (Q4 = full year minus nine months).</li>
+</ul>
+Prices are end-of-day; there are no live quotes, analyst estimates or news. Foreign filers' statements are in their reporting
+currency, and their P/E uses the valuation's US-dollar conversion.</td></tr>
 <tr><td><b>My holdings</b></td><td>Your real positions with badges</td></tr>
 <tr><td><b>Signals</b></td><td>The full signal journal with strength ratings, scores, filters and CSV export</td></tr>
 <tr><td><b>Performance</b></td><td>Your money vs the same money in the S&amp;P 500, growth of $1, drawdowns, episodes, rank-bucket results, Buy Zone stints</td></tr>
 <tr><td><b>Market</b></td><td>Buffett Indicator history and its valuation zones; the Bitcoin early warning: today's reading, its
-history against the cut-offs, what QQQ did after each kind of reading, the live record and recent market alerts</td></tr>
-<tr><td><b>Profiles</b></td><td>Edit rules (standard, bank and insurer tabs) and the portfolio: starting money, weekly amount, how many to hold, where new money goes, swap limits</td></tr>
+history against the cut-offs with every past call marked right or wrong, scores against the base rate, a table of every call,
+what QQQ did after each kind of reading, the live record and recent market alerts</td></tr>
+<tr><td><b>Profiles</b></td><td>A card per profile: what it is for, what differs from the one it was copied from, and what it
+does. Edit the description, rules (standard, bank and insurer tabs) and the portfolio: starting money, weekly amount, how many to hold, where new money goes, swap limits</td></tr>
 <tr><td><b>Backtest</b></td><td>Find the best number of holdings and new-money rule; run and recalculate historical replays</td></tr>
 <tr><td><b>Data</b></td><td>Price sources (order, API keys, test), recent data problems, coverage gaps, foreign filers' ADR ratios, re-run first-time load, run the daily update now</td></tr>
 <tr><td><b>Settings</b></td><td>Market temperature (Bitcoin window, horizon, cut-offs, market alerts), SEC identity, email, daily schedule,
@@ -974,7 +1024,7 @@ use the checklist on each report card.</li>
 <tr><td><b>XBRL</b></td><td>The tagged data format companies use to file financial statements with the SEC</td></tr>
 </table>
 
-<footer>Oracle Edge v0.11.1 · research tool, not financial advice · MIT license. The full design plan, with research sources,
+<footer>Oracle Edge v0.11.2 · research tool, not financial advice · MIT license. The full design plan, with research sources,
 is in <code>docs/Value-Picker-Plan.html</code> with the source code.</footer>
 </main>
 </div>

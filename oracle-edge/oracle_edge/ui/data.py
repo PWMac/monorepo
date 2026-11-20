@@ -7,7 +7,6 @@ import math
 from datetime import date, timedelta
 
 from .. import db, rules
-from ..market import Macro
 
 
 def live_runs() -> list[dict]:

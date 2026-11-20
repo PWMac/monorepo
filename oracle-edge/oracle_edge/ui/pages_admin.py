@@ -179,6 +179,14 @@ def _email_form(compact=False):
         helptext.text = p["help"]
 
     preset.on_value_change(on_preset)
+
+    def on_port(e):
+        if e.value in (465, 465.0):
+            sec_.value = "ssl"
+        elif e.value in (25, 587, 2525):
+            sec_.value = "starttls"
+
+    port.on_value_change(on_port)
     with ui.row().classes("gap-3 items-end"):
         user = ui.input("Sign-in address (full email)", value=s["username"]).props("outlined dense").classes("w-80")
         pw = ui.input("App password", password=True, password_toggle_button=True,
@@ -205,18 +213,42 @@ def _email_form(compact=False):
         if show:
             ui.notify("Email settings saved", type="positive")
 
-    def test():
+    async def test():
+        from nicegui import run
+
         save(False)
+        msg.text = "Sending…"
         try:
-            msg.text = emailer.send_test()
+            msg.text = await run.io_bound(emailer.send_test)
             msg.classes(replace="oe-small text-green-800")
         except Exception as e:
             msg.text = str(e)
             msg.classes(replace="oe-small text-red-700")
 
+    diag = {}
+
+    async def check():
+        from nicegui import run
+
+        save(False)
+        box = diag["box"]
+        box.clear()
+        with box:
+            ui.label("Checking each step (up to a minute)…").classes("oe-small")
+        steps = await run.io_bound(emailer.diagnose)
+        box.clear()
+        with box:
+            for st_ in steps:
+                with ui.row().classes("items-start gap-2 no-wrap"):
+                    ui.icon("check_circle" if st_["ok"] else "cancel").classes(
+                        "text-green-700" if st_["ok"] else "text-red-700")
+                    ui.label(f"{st_['step']}: {st_['detail']}").classes("oe-small")
+
     with ui.row():
         ui.button("Save email settings", on_click=save).props("unelevated" if not compact else "outline")
         ui.button("Send test email", icon="send", on_click=test).props("outline")
+        ui.button("Check connection step by step", icon="troubleshoot", on_click=check).props("flat")
+    diag["box"] = ui.column().classes("gap-0 w-full")
     if secrets.uses_fallback():
         ui.label("⚠ No OS keychain found: the password is stored in data/secrets.json on this PC.").classes("oe-small")
 
@@ -517,18 +549,30 @@ def profiles_page(pid: int | None = None):
         profs = rules.list_profiles()
         cur = rules.get_profile(pid) if pid else rules.default_profile()
         ui.label("Filter profiles").classes("oe-h1")
-        ui.label("Oracle Classic is locked so the Oracle baseline always exists. Edit a copy with 'Save as'. "
-                 "Saving bumps the version; results are rebuilt for that profile.").classes("oe-muted")
-        with ui.row().classes("w-full gap-3"):
+        ui.label("A profile is a complete rule set: which businesses qualify, what price to pay, and how the "
+                 "portfolio is run. Built-in profiles (🔒) are locked so they always exist as references: edit a "
+                 "copy with 'Save as'. Active profiles are scored every day and have their own history on "
+                 "Performance. Click a card to open it.").classes("oe-muted")
+        with ui.element("div").classes("w-full grid gap-3").style(
+                "grid-template-columns: repeat(auto-fill, minmax(320px, 1fr))"):
             for p in profs:
-                with ui.card().classes("oe-card w-64 cursor-pointer").on(
+                par = rules.parent_of(p.id)
+                diffs = rules.differences(p.body, par.body) if par else []
+                sel = p.id == cur.id
+                with ui.card().classes("oe-card cursor-pointer gap-1").style(
+                        "outline: 2px solid #C9A227" if sel else "").on(
                         "click", lambda p=p: ui.navigate.to(f"/profiles?pid={p.id}")):
-                    with ui.row().classes("items-center gap-2"):
+                    with ui.row().classes("items-center gap-2 no-wrap"):
                         ui.label(p.name).classes("font-semibold")
                         if p.locked:
-                            ui.icon("lock").classes("text-gray-500")
-                    ui.label(p.notes or "").classes("oe-small")
-                    sw = ui.switch("Active (scored daily)", value=p.active)
+                            ui.icon("lock", size="xs").classes("text-gray-500").tooltip("Built-in, locked")
+                    if p.notes:
+                        ui.label(p.notes).classes("text-sm")
+                    if par:
+                        ui.label(f"Copied from {par.name}: " + ("; ".join(diffs) if diffs else "no changes yet")
+                                 + ".").classes("text-sm" + ("" if not p.notes else " oe-small"))
+                    ui.label(rules.describe(p.body)).classes("oe-small")
+                    sw = ui.switch("Active (scored daily)", value=p.active).on("click.stop", lambda: None)
                     sw.on_value_change(lambda e, p=p: _toggle_active(p, e.value))
         body = copy.deepcopy(cur.body)
         st = body["settings"]
@@ -536,6 +580,9 @@ def profiles_page(pid: int | None = None):
             with ui.row().classes("w-full items-center justify-between"):
                 ui.label(f"{cur.name} · v{cur.version}{' · locked' if cur.locked else ''}").classes("oe-h2")
                 prev = ui.label("").classes("text-sm font-semibold text-green-800")
+            desc = ui.input("Description: what this profile is for (blank = describe it from its settings)",
+                            value=cur.notes).props("outlined dense autogrow" + (" readonly" if cur.locked else "")
+                                                   ).classes("w-full")
             with ui.row().classes("gap-3 items-end"):
                 fields = {}
                 for k, label, fmt in [("hurdle", "Hurdle (exp. return)", "%"), ("mos_gate", "Margin of safety", "%"),
@@ -751,6 +798,7 @@ def profiles_page(pid: int | None = None):
                     return
                 rescore = rules.scoring_hash(b) != rules.scoring_hash(cur.body)
                 rules.update_profile(cur.id, b)
+                rules.set_notes(cur.id, desc.value)
                 with ui.dialog() as dlg, ui.card():
                     ui.label("Saved. Rebuild this profile's live history now?").classes("oe-h2")
                     ui.label("Scoring rules changed, so every company is rescored first (can take a while)." if rescore
@@ -772,6 +820,8 @@ def profiles_page(pid: int | None = None):
                             return
                         try:
                             new = rules.save_as(cur.id, nm.value.strip(), collect())
+                            if not cur.locked and (desc.value or "").strip() != (cur.notes or ""):
+                                rules.set_notes(new, desc.value)
                         except Exception as e:
                             ui.notify(str(e), type="warning")
                             return

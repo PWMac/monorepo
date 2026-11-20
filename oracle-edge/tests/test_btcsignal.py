@@ -123,3 +123,19 @@ def test_buffett_indicator_uses_nonfinancial_equities_and_quarter_end():
     seen = []
     r2, _ = m.buffett_indicator("2026-11-19", lambda d: seen.append(d) or 100.0)
     assert seen[0] == "2026-06-30"  # the level is as of the quarter's last day
+
+
+def test_episodes_and_scorecard():
+    rows = []
+    zones = ["normal", "bear", "bear", "normal", "bull", "bull", "normal", "bear"]
+    fwd = [0.01, -0.02, 0.03, 0.01, -0.01, 0.02, -0.01, None]
+    for i, (z, f) in enumerate(zip(zones, fwd)):
+        rows.append({"date": f"2026-01-{i + 1:02d}", "zone": z, "btc_ret": -0.2 if z == "bear" else 0.1,
+                     "qqq_fwd": f, "qqq": 100})
+    eps = btcsignal.episodes(rows)
+    assert [(e["zone"], e["start"], e["end"], e["correct"]) for e in eps] == [
+        ("bear", "2026-01-02", "2026-01-03", True), ("bull", "2026-01-05", "2026-01-06", False),
+        ("bear", "2026-01-08", "2026-01-08", None)]
+    sc = btcsignal.scorecard(rows)
+    assert sc["bear"] == {"episodes": 2, "judged": 1, "correct": 1, "rate": 1.0, "pending": 1}
+    assert sc["bull"]["rate"] == 0.0 and abs(sc["base_down"] - 3 / 7) < 1e-9

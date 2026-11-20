@@ -9,7 +9,8 @@ import json
 from nicegui import app, ui
 
 from .. import btcsignal, db, rules, strength, targets
-from . import data
+from . import data, quote
+from .charts import zoom_chart
 from .layout import empty, frame, kpi
 from .theme import BADGES, BRAND, BTC_COL, badge_html, fmt_value, ladder_html, money, num, pct, sparkline
 
@@ -471,116 +472,138 @@ def stock_page(ticker: str):
                     ui.label(bd["reason"]).classes("text-sm")
             ui.label(f"Profile: {prof.name} · latest annual report filed {snap['filed'] if snap else '—'}").classes(
                 "oe-small")
-        if not snap:
-            empty("No annual-report data for this company yet.")
-            return
-        if snap["routed"] in ("bank", "insurer"):
-            with ui.card().classes("oe-card w-full").style("border-left:4px solid #2c5d8f"):
-                ui.label(f"Scored with the {snap['routed']} rulebook.").classes("font-semibold")
-                ui.label("Standard rules don't fit financials (no gross margin; deposits or float are the raw "
-                         "material), so this company is judged on " +
-                         ("return on assets, efficiency, capital, funding and credit losses, and valued on an "
-                          "ROE-justified price-to-tangible-book." if snap["routed"] == "bank" else
-                          "underwriting profit (combined ratio), float growth, book value growth and reserving, and "
-                          "valued on an ROE-justified price-to-book.")).classes("oe-small")
-        if s["is_foreign"]:
-            _adr_card(s)
-        with ui.grid(columns=5).classes("w-full gap-3"):
-            kpi(num(snap["quality"], 0), "Quality", "business, 0–100")
-            kpi(num(ev["value"], 0) if ev and ev["value"] is not None else "—", "Value", "price, 0–100")
-            kpi(num(ev["rank_score"], 1) if ev and ev["rank_score"] else "—", "Rank score",
-                f"#{ev['rank']} in Buy Zone" if ev and ev["rank"] else (ev["list"] if ev else "not evaluated"))
-            kpi(pct(ev["mos"]) if ev and ev["mos"] is not None else "—", "Margin of safety",
-                f"needs ≥ {pct(prof.settings['mos_gate'])}")
-            kpi(pct(ev["exp_return"], 1) if ev and ev["exp_return"] is not None else "—", "Expected 10-yr return",
-                f"needs ≥ {pct(prof.settings['hurdle'])}")
-        tp, tech = targets.plan_for(run_id, s["cik"], prof.settings) if run_id else (None, None)
-        if ev:
-            det = ev["detail"]
-            with ui.card().classes("oe-card w-full"):
-                ui.label("Price ladder").classes("oe-h2")
-                ui.html(ladder_html(ev["price"], ev["strong_buy_below"], ev["buy_below"], ev["iv"],
-                                    det.get("expensive_above"), (tp or {}).get("limit")),
-                        sanitize=False).classes("w-full")
-                with ui.row().classes("gap-8 oe-small"):
-                    ui.label(f"Model A ({det.get('model_a') or 'owner-earnings DCF'}): value {money(det.get('iv_a'))}, return "
-                             f"{pct(det.get('er_a'), 1)}")
-                    ui.label(f"Model B (10-yr projection): value {money(det.get('iv_b'))}, return "
-                             f"{pct(det.get('er_b'), 1)}")
-                    ui.label(f"Discount rate {pct(det.get('r'), 1)} "
-                             f"({'the higher of the hurdle and the Treasury rule' if det.get('category') in ('bank', 'insurer') else '30-yr Treasury rule'})"
-                             f" · growth used "
-                             f"{pct(det.get('g'), 1)} · exit P/E {num(det.get('exit_pe'), 1)}")
-                    ui.label(f"P/E now {num(det.get('pe_now'), 1)} vs 10-yr median {num(det.get('pe_median'), 1)} · "
-                             f"owner-earnings yield {pct(det.get('ey'), 1)} · PEPG {num(det.get('pepg'), 2)}")
-            owned = bool(db.scalar("SELECT 1 FROM positions p JOIN portfolios f ON f.id=p.portfolio_id "
-                                   "WHERE f.run_id=? AND p.cik=?", (run_id, s["cik"])) or
-                         db.scalar("SELECT 1 FROM real_holdings WHERE cik=?", (s["cik"],)))
-            _targets_card(s, tp, tech, owned)
-            _price_chart(s["ticker"], run_id, s["cik"], tp, tech)
-        else:
-            _targets_card(s, tp, tech, False)
-        _warnings_card(s["cik"], snap, prof)
-        # ---- rules
+        with ui.tabs().props("dense no-caps align=left active-color=primary indicator-color=primary").classes(
+                "w-full border-b border-gray-200") as tabs:
+            t_rep = ui.tab("report", label="Report card", icon="fact_check")
+            t_q = ui.tab("quote", label="Chart & key stats", icon="candlestick_chart")
+        with ui.tab_panels(tabs, value=t_rep).props("animated=false").classes("w-full bg-transparent"):
+            with ui.tab_panel(t_rep).classes("p-0 gap-4"):
+                _report_card(s, r, prof, snap, ev, run_id)
+            with ui.tab_panel(t_q).classes("p-0 gap-4") as qpanel:
+                pass
+        drawn = {"q": False}
+
+        def lazy(e):
+            if e.value == "quote" and not drawn["q"]:  # build the chart once its tab is visible (correct sizing)
+                drawn["q"] = True
+                with qpanel:
+                    quote.render(s, ev)
+
+        tabs.on_value_change(lazy)
+
+
+def _report_card(s, r, prof, snap, ev, run_id):
+    """The Oracle report card: scores, price ladder, targets, early warnings, every rule and your notes."""
+    if not snap:
+        empty("No annual-report data for this company yet.")
+        return
+    if snap["routed"] in ("bank", "insurer"):
+        with ui.card().classes("oe-card w-full").style("border-left:4px solid #2c5d8f"):
+            ui.label(f"Scored with the {snap['routed']} rulebook.").classes("font-semibold")
+            ui.label("Standard rules don't fit financials (no gross margin; deposits or float are the raw "
+                     "material), so this company is judged on " +
+                     ("return on assets, efficiency, capital, funding and credit losses, and valued on an "
+                      "ROE-justified price-to-tangible-book." if snap["routed"] == "bank" else
+                      "underwriting profit (combined ratio), float growth, book value growth and reserving, and "
+                      "valued on an ROE-justified price-to-book.")).classes("oe-small")
+    if s["is_foreign"]:
+        _adr_card(s)
+    with ui.grid(columns=5).classes("w-full gap-3"):
+        kpi(num(snap["quality"], 0), "Quality", "business, 0–100")
+        kpi(num(ev["value"], 0) if ev and ev["value"] is not None else "—", "Value", "price, 0–100")
+        kpi(num(ev["rank_score"], 1) if ev and ev["rank_score"] else "—", "Rank score",
+            f"#{ev['rank']} in Buy Zone" if ev and ev["rank"] else (ev["list"] if ev else "not evaluated"))
+        kpi(pct(ev["mos"]) if ev and ev["mos"] is not None else "—", "Margin of safety",
+            f"needs ≥ {pct(prof.settings['mos_gate'])}")
+        kpi(pct(ev["exp_return"], 1) if ev and ev["exp_return"] is not None else "—", "Expected 10-yr return",
+            f"needs ≥ {pct(prof.settings['hurdle'])}")
+    tp, tech = targets.plan_for(run_id, s["cik"], prof.settings) if run_id else (None, None)
+    if ev:
+        det = ev["detail"]
         with ui.card().classes("oe-card w-full"):
-            with ui.row().classes("w-full justify-between items-center"):
-                ui.label("Oracle checklist").classes("oe-h2")
-                cats = snap["category_scores"]
-                ui.label(" · ".join(f"{k.title()} {v:.0f}" for k, v in cats.items())).classes("oe-small")
-            rules_by_id = {x["id"]: x for x in prof.all_rules()}
-            groups = [("Gates (must pass)", lambda x: x["mode"] == "gate"),
-                      ("Scored", lambda x: x["mode"] == "scored")]
-            for title, pred in groups:
-                ui.label(title).classes("text-sm font-semibold mt-2")
-                for rr in [x for x in snap["rules_json"] if pred(x)]:
-                    rd = rules_by_id.get(rr["id"], {})
-                    icon, cls = ("check_circle", "oe-rule-pass") if rr["passed"] else (
-                        ("cancel", "oe-rule-fail") if rr["passed"] is False else ("help", "oe-rule-na"))
-                    with ui.row().classes("w-full items-center no-wrap gap-3 py-1 border-b border-gray-100"):
-                        ui.icon(icon).classes(cls)
-                        with ui.column().classes("gap-0 w-64"):
-                            ui.label(rr["name"]).classes("font-medium")
-                            ui.label(rd.get("formula", "")).classes("oe-small")
-                        ui.label(fmt_value(rr["value"], rd.get("fmt", ""))).classes("w-28 oe-num font-semibold")
-                        ui.label(f"target {fmt_value(rd.get('target'), rd.get('fmt', ''))}").classes("w-32 oe-small")
-                        ui.html(sparkline(rr.get("series")), sanitize=False)
-                        ui.label(f"{rr['consistency'] * 100:.0f}% of yrs" if rr.get("consistency") is not None
-                                 else "").classes("w-24 oe-small")
-                        ui.label(f"{rr['score']:.0f} pts" if rr.get("score") is not None else "—").classes(
-                            "w-16 oe-num")
-                        ui.label(rd.get("why", "")).classes("oe-small flex-1")
-        # ---- judgment + signals
-        with ui.row().classes("w-full gap-4 no-wrap items-start"):
-            with ui.card().classes("oe-card flex-1"):
-                ui.label("Your judgment").classes("oe-h2")
-                ui.label("The Oracle's first filters can't be automated. Your answers are stored locally.").classes(
-                    "oe-small")
-                n = data.notes(s["cik"])
-                c1 = ui.checkbox("I understand how this business makes money", value=bool(n["understand"]))
-                c2 = ui.checkbox("I trust management to act like owners", value=bool(n["trust_mgmt"]))
-                c3 = ui.checkbox("The moat should last 20 years", value=bool(n["moat_20y"]))
-                c4 = ui.checkbox("Outside my circle of competence (hide from my lists)", value=bool(n["outside_circle"]))
-                note = ui.textarea("Notes", value=n.get("note") or "").classes("w-full")
+            ui.label("Price ladder").classes("oe-h2")
+            ui.html(ladder_html(ev["price"], ev["strong_buy_below"], ev["buy_below"], ev["iv"],
+                                det.get("expensive_above"), (tp or {}).get("limit")),
+                    sanitize=False).classes("w-full")
+            with ui.row().classes("gap-8 oe-small"):
+                ui.label(f"Model A ({det.get('model_a') or 'owner-earnings DCF'}): value {money(det.get('iv_a'))}, return "
+                         f"{pct(det.get('er_a'), 1)}")
+                ui.label(f"Model B (10-yr projection): value {money(det.get('iv_b'))}, return "
+                         f"{pct(det.get('er_b'), 1)}")
+                ui.label(f"Discount rate {pct(det.get('r'), 1)} "
+                         f"({'the higher of the hurdle and the Treasury rule' if det.get('category') in ('bank', 'insurer') else '30-yr Treasury rule'})"
+                         f" · growth used "
+                         f"{pct(det.get('g'), 1)} · exit P/E {num(det.get('exit_pe'), 1)}")
+                ui.label(f"P/E now {num(det.get('pe_now'), 1)} vs 10-yr median {num(det.get('pe_median'), 1)} · "
+                         f"owner-earnings yield {pct(det.get('ey'), 1)} · PEPG {num(det.get('pepg'), 2)}")
+        owned = bool(db.scalar("SELECT 1 FROM positions p JOIN portfolios f ON f.id=p.portfolio_id "
+                               "WHERE f.run_id=? AND p.cik=?", (run_id, s["cik"])) or
+                     db.scalar("SELECT 1 FROM real_holdings WHERE cik=?", (s["cik"],)))
+        _targets_card(s, tp, tech, owned)
+        _price_chart(s["ticker"], run_id, s["cik"], tp, tech)
+    else:
+        _targets_card(s, tp, tech, False)
+    _warnings_card(s["cik"], snap, prof)
+    # ---- rules
+    with ui.card().classes("oe-card w-full"):
+        with ui.row().classes("w-full justify-between items-center"):
+            ui.label("Oracle checklist").classes("oe-h2")
+            cats = snap["category_scores"]
+            ui.label(" · ".join(f"{k.title()} {v:.0f}" for k, v in cats.items())).classes("oe-small")
+        rules_by_id = {x["id"]: x for x in prof.all_rules()}
+        groups = [("Gates (must pass)", lambda x: x["mode"] == "gate"),
+                  ("Scored", lambda x: x["mode"] == "scored")]
+        for title, pred in groups:
+            ui.label(title).classes("text-sm font-semibold mt-2")
+            for rr in [x for x in snap["rules_json"] if pred(x)]:
+                rd = rules_by_id.get(rr["id"], {})
+                icon, cls = ("check_circle", "oe-rule-pass") if rr["passed"] else (
+                    ("cancel", "oe-rule-fail") if rr["passed"] is False else ("help", "oe-rule-na"))
+                with ui.row().classes("w-full items-center no-wrap gap-3 py-1 border-b border-gray-100"):
+                    ui.icon(icon).classes(cls)
+                    with ui.column().classes("gap-0 w-64"):
+                        ui.label(rr["name"]).classes("font-medium")
+                        ui.label(rd.get("formula", "")).classes("oe-small")
+                    ui.label(fmt_value(rr["value"], rd.get("fmt", ""))).classes("w-28 oe-num font-semibold")
+                    ui.label(f"target {fmt_value(rd.get('target'), rd.get('fmt', ''))}").classes("w-32 oe-small")
+                    ui.html(sparkline(rr.get("series")), sanitize=False)
+                    ui.label(f"{rr['consistency'] * 100:.0f}% of yrs" if rr.get("consistency") is not None
+                             else "").classes("w-24 oe-small")
+                    ui.label(f"{rr['score']:.0f} pts" if rr.get("score") is not None else "—").classes(
+                        "w-16 oe-num")
+                    ui.label(rd.get("why", "")).classes("oe-small flex-1")
+    # ---- judgment + signals
+    with ui.row().classes("w-full gap-4 no-wrap items-start"):
+        with ui.card().classes("oe-card flex-1"):
+            ui.label("Your judgment").classes("oe-h2")
+            ui.label("The Oracle's first filters can't be automated. Your answers are stored locally.").classes(
+                "oe-small")
+            n = data.notes(s["cik"])
+            c1 = ui.checkbox("I understand how this business makes money", value=bool(n["understand"]))
+            c2 = ui.checkbox("I trust management to act like owners", value=bool(n["trust_mgmt"]))
+            c3 = ui.checkbox("The moat should last 20 years", value=bool(n["moat_20y"]))
+            c4 = ui.checkbox("Outside my circle of competence (hide from my lists)", value=bool(n["outside_circle"]))
+            note = ui.textarea("Notes", value=n.get("note") or "").classes("w-full")
 
-                def save():
-                    data.save_notes({"cik": s["cik"], "understand": c1.value, "trust_mgmt": c2.value,
-                                     "moat_20y": c3.value, "outside_circle": c4.value, "note": note.value})
-                    ui.notify("Saved", type="positive")
+            def save():
+                data.save_notes({"cik": s["cik"], "understand": c1.value, "trust_mgmt": c2.value,
+                                 "moat_20y": c3.value, "outside_circle": c4.value, "note": note.value})
+                ui.notify("Saved", type="positive")
 
-                ui.button("Save", on_click=save).props("unelevated")
-            with ui.card().classes("oe-card flex-1"):
-                ui.label("Signal history").classes("oe-h2")
-                sigs = data.stock_signals(s["cik"])
-                if not sigs:
-                    ui.label("No signals for this stock yet.").classes("oe-muted")
-                for g in sigs[:15]:
-                    with ui.row().classes("w-full items-center gap-2 no-wrap"):
-                        ui.label(g["date"]).classes("oe-small w-24")
-                        ui.html(badge_html(g["type"], True), sanitize=False)
-                        ui.html(strength.strength_html(g["type"], g["rank_score"], g["quality"], g["mos"],
-                                                       g["reason"] or "", small=True), sanitize=False)
-                        ui.label(g["reason"] or "").classes("text-sm flex-1")
-                        ui.label("live" if g["kind"] == "live" else "backtest").classes("oe-small")
+            ui.button("Save", on_click=save).props("unelevated")
+        with ui.card().classes("oe-card flex-1"):
+            ui.label("Signal history").classes("oe-h2")
+            sigs = data.stock_signals(s["cik"])
+            if not sigs:
+                ui.label("No signals for this stock yet.").classes("oe-muted")
+            for g in sigs[:15]:
+                with ui.row().classes("w-full items-center gap-2 no-wrap"):
+                    ui.label(g["date"]).classes("oe-small w-24")
+                    ui.html(badge_html(g["type"], True), sanitize=False)
+                    ui.html(strength.strength_html(g["type"], g["rank_score"], g["quality"], g["mos"],
+                                                   g["reason"] or "", small=True), sanitize=False)
+                    ui.label(g["reason"] or "").classes("text-sm flex-1")
+                    ui.label("live" if g["kind"] == "live" else "backtest").classes("oe-small")
 
 
 def _warnings_card(cik, snap, prof):
@@ -787,14 +810,13 @@ def _price_chart(ticker, run_id, cik, tp=None, t=None):
         ui.label("Price vs value").classes("oe-h2")
         ui.label("Value lines decide what's cheap; the 50/200-day averages and Fibonacci levels (purple, last 52 "
                  "weeks) only refine the entry price.").classes("oe-small")
-        ui.echart({
+        zoom_chart({
             "tooltip": {"trigger": "axis"},
             "legend": {"data": ["Price", "Intrinsic value", "Buy below", "50-day avg", "200-day avg"], "top": 0,
                        "selected": {"50-day avg": True, "200-day avg": True}},
             "grid": {"left": 60, "right": 20, "top": 30, "bottom": 40},
             "xAxis": {"type": "time"},
             "yAxis": {"type": "value", "scale": True, "axisLabel": {"formatter": "${value}"}},
-            "dataZoom": [{"type": "inside"}, {"type": "slider", "height": 18, "bottom": 8}],
             "series": [
                 {"name": "Price", "type": "line", "showSymbol": False, "data": [[p["date"], p["close"]] for p in px],
                  "lineStyle": {"width": 1.6, "color": "#1d2321"}, "itemStyle": {"color": "#1d2321"},
@@ -811,7 +833,7 @@ def _price_chart(ticker, run_id, cik, tp=None, t=None):
                  "data": [[v["date"], v["buy_below"]] for v in vh], "lineStyle": {"color": BRAND},
                  "itemStyle": {"color": BRAND}, "areaStyle": {"color": "rgba(31,111,74,0.06)"}},
             ],
-        }).classes("w-full h-80")
+        }, height="h-96", default="5Y", name=f"{ticker}-price-vs-value")
 
 
 # ===================================================================== SIGNALS
@@ -935,11 +957,10 @@ def performance_page(run: int | None = None):
                         + (f' (of which ${res_amt:,.0f} is the reserve for strong buys)' if res_amt else "")
                         + '.</div>',
                         sanitize=False)
-                ui.echart({
+                zoom_chart({
                     "tooltip": {"trigger": "axis"}, "legend": {"top": 0},
                     "grid": {"left": 70, "right": 20, "top": 30, "bottom": 40}, "xAxis": {"type": "time"},
                     "yAxis": {"type": "value", "axisLabel": {"formatter": "${value}"}},
-                    "dataZoom": [{"type": "inside"}],
                     "series": [
                         {"name": "Following the signals", "type": "line", "showSymbol": False,
                          "data": [[c["date"], round(c["value"])] for c in money],
@@ -950,21 +971,20 @@ def performance_page(run: int | None = None):
                         {"name": "Money put in", "type": "line", "step": "end", "showSymbol": False,
                          "data": [[c["date"], round(c["contributed"] or 0)] for c in money],
                          "lineStyle": {"color": "#c9c5b9", "type": "dashed"}, "itemStyle": {"color": "#c9c5b9"}},
-                    ]}).classes("w-full h-80")
+                    ]}, height="h-80", name="your-money")
         with ui.card().classes("oe-card w-full"):
             ui.label("If you had followed every signal: growth of $1 vs the S&P 500").classes("oe-h2")
             ui.label("Green: the model portfolio, an imaginary account that bought and sold exactly as the signals said "
                      "(at the next day's open). Grey: an S&P 500 index fund with dividends reinvested. Both start at "
                      "$1, and new money doesn't count as growth. Beige (right axis): how many stocks were held.").classes(
                 "oe-small")
-            ui.echart({
+            zoom_chart({
                 "tooltip": {"trigger": "axis"}, "legend": {"top": 0},
                 "grid": {"left": 50, "right": 50, "top": 30, "bottom": 40},
                 "xAxis": {"type": "time"},
                 "yAxis": [{"type": "value", "scale": True, "name": "growth of $1"},
                           {"type": "value", "name": "stocks held", "position": "right",
                                                               "splitLine": {"show": False}}],
-                "dataZoom": [{"type": "inside"}, {"type": "slider", "height": 18, "bottom": 8}],
                 "series": [
                     {"name": "Followed every signal", "type": "line", "showSymbol": False,
                      "data": [[c["date"], round(c["nav"], 4)] for c in curve], "lineStyle": {"color": BRAND, "width": 2},
@@ -976,7 +996,7 @@ def performance_page(run: int | None = None):
                      "data": [[c["date"], c["holdings"]] for c in curve], "lineStyle": {"color": "#c9c5b9", "width": 1},
                      "itemStyle": {"color": "#c9c5b9"}},
                 ],
-            }).classes("w-full h-96")
+            }, height="h-96", name="growth-of-1")
         with ui.row().classes("w-full gap-4 no-wrap items-start"):
             with ui.card().classes("oe-card flex-1"):
                 ui.label("Is the ranking working?").classes("oe-h2")
@@ -1045,10 +1065,9 @@ def market_page():
             kpi(pct(reg.t10, 2) if reg.t10 else "—", "10-yr Treasury")
         with ui.card().classes("oe-card w-full"):
             ui.label("Buffett Indicator history").classes("oe-h2")
-            ui.echart({
-                "tooltip": {"trigger": "axis"}, "grid": {"left": 55, "right": 48, "top": 20, "bottom": 40},
+            zoom_chart({
+                "tooltip": {"trigger": "axis"}, "grid": {"left": 55, "right": 48, "top": 30, "bottom": 40},
                 "xAxis": {"type": "time"}, "yAxis": {"type": "value", "axisLabel": {"formatter": "{value}%"}},
-                "dataZoom": [{"type": "inside"}],
                 "visualMap": {"show": False, "dimension": 1, "pieces": [
                     {"lt": 90, "color": "#1f6f4a"}, {"gte": 90, "lt": 120, "color": "#6fb38f"},
                     {"gte": 120, "lt": 150, "color": "#c9a227"}, {"gte": 150, "lt": 200, "color": "#d9822b"},
@@ -1057,7 +1076,7 @@ def market_page():
                             "data": [[h["date"], round(h["ratio"] * 100, 1)] for h in mk["history"]],
                             "markLine": {"silent": True, "symbol": "none", "lineStyle": {"type": "dashed"},
                                          "data": [{"yAxis": 90}, {"yAxis": 120}, {"yAxis": 150}, {"yAxis": 200}]}}],
-            }).classes("w-full h-96")
+            }, height="h-96", name="buffett-indicator")
         ui.label("Zones: <90% undervalued · 90–120% fair · 120–150% modestly overvalued · 150–200% significantly "
                  "overvalued · >200% extreme. Different methods can differ by 20–40 points.").classes("oe-small")
         _btc_section(reg)
@@ -1095,24 +1114,14 @@ def _btc_section(reg):
         ui.label(f"{a['title']}: {a['text']}").classes("text-sm")
     rows = btcsignal.history(s)
     with ui.card().classes("oe-card w-full"):
-        ui.label(f"Bitcoin {L}-day change and the warning cut-off").classes("oe-h2")
-        ui.echart({
-            "tooltip": {"trigger": "axis"}, "legend": {"top": 0},
-            "grid": {"left": 55, "right": 30, "top": 34, "bottom": 40},
-            "xAxis": {"type": "time"}, "yAxis": {"type": "value", "axisLabel": {"formatter": "{value}%"}},
-            "dataZoom": [{"type": "inside"}],
-            "series": [
-                {"type": "line", "name": f"Bitcoin {L}-day change", "showSymbol": False, "lineStyle": {"width": 1},
-                 "itemStyle": {"color": "#6F582C"},
-                 "data": [[r["date"], round(r["btc_ret"] * 100, 1)] for r in rows]},
-                {"type": "line", "name": "Warning cut-off", "showSymbol": False, "itemStyle": {"color": "#A8322D"},
-                 "lineStyle": {"type": "dashed", "width": 1.5},
-                 "data": [[r["date"], round(r["bear_cut"] * 100, 1)] for r in rows if r["bear_cut"] is not None]},
-                {"type": "line", "name": "Tailwind cut-off", "showSymbol": False, "itemStyle": {"color": "#1f6f4a"},
-                 "lineStyle": {"type": "dashed", "width": 1.5},
-                 "data": [[r["date"], round(r["bull_cut"] * 100, 1)] for r in rows if r["bull_cut"] is not None]},
-            ],
-        }).classes("w-full h-80")
+        ui.label(f"Bitcoin {L}-day change, the cut-offs, and whether each call was right").classes("oe-h2")
+        _btc_scorecard(btcsignal.scorecard(rows), H)
+        zoom_chart(_btc_chart_options(rows, L, H), height="h-[560px]", default="5Y", name="bitcoin-early-warning")
+        ui.label("Top: Bitcoin's change with the cut-offs; shaded = a warning (red) or tailwind (green) was on. Each "
+                 "triangle marks the day a call was made: ▼ warning, ▲ tailwind; green = right, red = wrong, grey = "
+                 f"the {H} days haven't passed yet. Bottom: QQQ, so you can see what followed. Click a legend item to "
+                 "hide it.").classes("oe-small")
+    _btc_calls_table(rows, H)
     with ui.card().classes("oe-card w-full"):
         ui.label(f"What QQQ did over the next {H} trading days").classes("oe-h2")
         ui.label("Days overlap within an episode, so the number of separate episodes says more about how much "
@@ -1238,3 +1247,105 @@ def real_badge(cik, ev, prof) -> tuple[str, str]:
         return "ADD", "still in the Buy Zone"
     return "HOLD", "business intact" + (" · expensive: hold, don't add" if det.get("expensive_above") and
                                         ev["price"] and ev["price"] > det["expensive_above"] else "")
+
+
+def _btc_scorecard(sc: dict, H: int) -> None:
+    def line(z, verb, base):
+        x = sc[z]
+        if not x["judged"]:
+            return f"No {('warnings' if z == 'bear' else 'tailwinds')} judged yet."
+        return (f"{x['correct']} of {x['judged']} {('warnings' if z == 'bear' else 'tailwinds')} were right "
+                f"({x['rate']:.0%}): QQQ {verb} over the next {H} trading days"
+                + (f", against {base:.0%} of all {H}-day windows" if base is not None else "")
+                + (f"; {x['pending']} still pending" if x["pending"] else "") + ".")
+
+    with ui.row().classes("w-full gap-6"):
+        for z, verb, base, col in (("bear", "fell", sc["base_down"], "#A8322D"), ("bull", "rose", sc["base_up"], BRAND)):
+            with ui.column().classes("gap-0 flex-1"):
+                x = sc[z]
+                ui.label(f"{x['rate']:.0%}" if x["rate"] is not None else "—").classes("oe-kpi").style(f"color:{col}")
+                ui.label(line(z, verb, base)).classes("text-sm")
+    ui.label("A call only adds information if it is right more often than the base rate (how often QQQ fell, or rose, "
+             "in any window of the same length).").classes("oe-small")
+
+
+def _btc_chart_options(rows: list[dict], L: int, H: int) -> dict:
+    eps = btcsignal.episodes(rows)
+    areas_b = [[{"xAxis": e["start"], "itemStyle": {"color": "rgba(168,50,45,0.10)" if e["zone"] == "bear"
+                                                     else "rgba(31,111,74,0.10)"}}, {"xAxis": e["end"]}] for e in eps]
+
+    def marks(zone, verdict):
+        out = []
+        for e in eps:
+            if e["zone"] != zone or e["correct"] is not verdict:
+                continue
+            q = "pending" if e["qqq_fwd"] is None else f"QQQ next {H} days {e['qqq_fwd'] * 100:+.1f}%"
+            tag = {True: "✓ right", False: "✗ wrong", None: "… pending"}[verdict]
+            out.append({"value": [e["start"], round(e["btc_ret"] * 100, 1)],
+                        "tip": f"{'Warning' if zone == 'bear' else 'Tailwind'} {e['start']}: Bitcoin "
+                               f"{e['btc_ret'] * 100:+.1f}% · {q} · {tag}"})
+        return out
+
+    def scatter(name, zone, verdict, color):
+        # a path (not a rotated triangle) so the legend icon points the same way as the marker
+        return {"name": name, "type": "scatter", "z": 5, "symbolSize": 11,
+                "symbol": "path://M0,0L10,0L5,9Z" if zone == "bear" else "path://M5,0L10,9L0,9Z",
+                "itemStyle": {"color": color, "borderColor": "#fff", "borderWidth": 1},
+                "data": marks(zone, verdict)}
+
+    return {
+        "animation": False,
+        "tooltip": {"trigger": "axis", ":formatter": """params => {
+            const d = params.length ? (params[0].axisValueLabel || '') : '';
+            const lines = params.filter(p => p.value != null).map(p => p.data && p.data.tip ? p.marker + p.data.tip :
+                p.marker + p.seriesName + ': ' + (Array.isArray(p.value) ? p.value[1] : p.value) +
+                (p.seriesName === 'QQQ' ? '' : '%'));
+            return d + '<br>' + lines.join('<br>');
+        }"""},
+        "legend": {"top": 0, "left": 0, "type": "scroll", "right": 110},
+        "axisPointer": {"link": [{"xAxisIndex": "all"}]},
+        "grid": [{"left": 60, "right": 24, "top": 40, "height": "50%"}, {"left": 60, "right": 24, "top": "66%",
+                                                                          "height": "20%"}],
+        "xAxis": [{"type": "time", "axisLabel": {"show": False}}, {"type": "time", "gridIndex": 1}],
+        "yAxis": [{"type": "value", "axisLabel": {"formatter": "{value}%"}},
+                  {"type": "value", "gridIndex": 1, "name": "QQQ", "nameGap": 8, "axisLabel": {"formatter": "${value}"}}],
+        "series": [
+            {"type": "line", "name": f"Bitcoin {L}-day change", "showSymbol": False, "lineStyle": {"width": 1},
+             "itemStyle": {"color": "#6F582C"}, "data": [[r["date"], round(r["btc_ret"] * 100, 1)] for r in rows],
+             "markArea": {"silent": True, "data": areas_b}},
+            {"type": "line", "name": "Warning cut-off", "showSymbol": False, "itemStyle": {"color": "#A8322D"},
+             "lineStyle": {"type": "dashed", "width": 1.3},
+             "data": [[r["date"], round(r["bear_cut"] * 100, 1)] for r in rows if r["bear_cut"] is not None]},
+            {"type": "line", "name": "Tailwind cut-off", "showSymbol": False, "itemStyle": {"color": "#1f6f4a"},
+             "lineStyle": {"type": "dashed", "width": 1.3},
+             "data": [[r["date"], round(r["bull_cut"] * 100, 1)] for r in rows if r["bull_cut"] is not None]},
+            scatter("Warning ✓ right", "bear", True, "#1f6f4a"),
+            scatter("Warning ✗ wrong", "bear", False, "#A8322D"),
+            scatter("Tailwind ✓ right", "bull", True, "#1f6f4a"),
+            scatter("Tailwind ✗ wrong", "bull", False, "#A8322D"),
+            {**scatter("Pending", "bear", None, "#9aa5a0"), "data": marks("bear", None) + marks("bull", None)},
+            {"type": "line", "name": "QQQ", "xAxisIndex": 1, "yAxisIndex": 1, "showSymbol": False,
+             "lineStyle": {"width": 1.2, "color": "#1C2420"}, "itemStyle": {"color": "#1C2420"},
+             "data": [[r["date"], round(r["qqq"], 2)] for r in rows],
+             "markArea": {"silent": True, "data": areas_b}},
+        ],
+    }
+
+
+def _btc_calls_table(rows: list[dict], H: int) -> None:
+    eps = list(reversed(btcsignal.episodes(rows)))
+    if not eps:
+        return
+    with ui.expansion(f"Every call ({len(eps)} warnings and tailwinds), newest first", icon="list").classes(
+            "w-full oe-card"):
+        _grid([{"start": e["start"], "end": e["end"], "kind": "Warning ▼" if e["zone"] == "bear" else "Tailwind ▲",
+                "btc": round(e["btc_ret"] * 100, 1),
+                "qqq": round(e["qqq_fwd"] * 100, 1) if e["qqq_fwd"] is not None else None,
+                "verdict": {True: "✓ right", False: "✗ wrong", None: "pending"}[e["correct"]]} for e in eps],
+              [{"field": "start", "headerName": "Call made", "width": 120},
+               {"field": "end", "headerName": "Zone ended", "width": 120},
+               {"field": "kind", "headerName": "Call", "width": 120},
+               {"field": "btc", "headerName": "Bitcoin change %", "width": 150},
+               {"field": "qqq", "headerName": f"QQQ next {H} days %", "width": 170},
+               {"field": "verdict", "headerName": "Result", "flex": 1, "minWidth": 120}],
+              height=360, click_to_stock=False)
