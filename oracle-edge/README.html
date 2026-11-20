@@ -66,7 +66,7 @@ footer { color:var(--muted); font-size:12.5px; margin-top:50px; border-top:1px s
 <header class="top">
   <h1>Oracle Edge</h1>
   <p>A local stock screener that thinks like Warren Buffett. This guide explains <b>what</b> the app does,
-  <b>how</b> it decides, and <b>why</b> it was built this way. Version 0.10.0.</p>
+  <b>how</b> it decides, and <b>why</b> it was built this way. Version 0.10.1.</p>
   <p style="font-size:14px">Two documents: this <b>guide</b> is the user manual, kept current with every release and opened from
   "Guide" in the app. The <b>plan</b> (<code>docs/Value-Picker-Plan.html</code> with the source code) is the design record: the research, architecture,
   database layout and the decision log behind the app.</p>
@@ -180,7 +180,9 @@ own rulebooks. The ADR ratio is read from foreign filers' cover pages.</td></tr>
 <tr><td>Daily prices</td><td>Stooq, then Yahoo Finance as a fallback</td><td>If one source fails, the next is tried automatically.
 Tiingo and EODHD (paid, more reliable) can be added and reordered under <b>Data → Price sources</b> with an API key. A Schwab connection is reserved for later.</td></tr>
 <tr><td>Rates, FX, GDP, market cap</td><td>FRED (Federal Reserve Bank of St. Louis)</td><td>30- and 10-year Treasury yields,
-exchange rates for foreign filers, and the Fed's Z.1 equity market value and GDP for the Buffett Indicator.</td></tr>
+exchange rates for foreign filers, the Fed's Z.1 equity market value and GDP for the Buffett Indicator, and the VIX for the market overlay.
+If FRED stops answering, the app gives up after three failed series in a row, keeps the data it already has, and tries again at the next
+daily update. The VIX then comes from Yahoo (<code>^VIX</code>).</td></tr>
 </table>
 <div class="why"><b>Why filing dates matter.</b> A company's 2025 results aren't known until its 10-K is filed, often in
 February or March. Every calculation uses only facts filed <i>on or before</i> the day being evaluated. That's what keeps
@@ -776,6 +778,11 @@ which; you can correct an ADR ratio there.</td></tr>
 <tr><td>The app stops responding or pages never finish loading</td><td>If it stays busy for more than 20 seconds, the app writes what it
 was doing to <code>C:\OracleEdge\logs\hang.log</code>, and pages slower than 2 seconds are noted in <code>oracle_edge.log</code>.
 Running <code>Install-OracleEdge.bat</code> again restarts it. Keep those logs: they show which step to fix.</td></tr>
+<tr><td>A job shows "failed · stopped responding"</td><td>The job's process ended without finishing (PC restarted, app closed, crash).
+A running job checks in every 30 seconds, and a job is only called stopped once its process has really ended. A slow website no longer
+causes it, and a job wrongly marked this way goes back to running when it checks in again.
+If a <b>first-time load</b> stopped after the SEC statements were read in, <b>Data → Maintenance</b> shows <b>Continue first-time load</b>.
+It picks up at the market data, scoring, prices and history replay and skips the long download and read.</td></tr>
 </table>
 
 <!-- ================================================================ 17 -->
@@ -912,7 +919,7 @@ use the checklist on each report card.</li>
 <tr><td><b>XBRL</b></td><td>The tagged data format companies use to file financial statements with the SEC</td></tr>
 </table>
 
-<footer>Oracle Edge v0.10.0 · research tool, not financial advice · MIT license. The full design plan, with research sources,
+<footer>Oracle Edge v0.10.1 · research tool, not financial advice · MIT license. The full design plan, with research sources,
 is in <code>docs/Value-Picker-Plan.html</code> with the source code.</footer>
 </main>
 </div>

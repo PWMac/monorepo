@@ -6,6 +6,7 @@ import json
 import os
 import subprocess
 import sys
+import threading
 import traceback
 from datetime import datetime, timedelta
 
@@ -18,7 +19,9 @@ class Job:
         self._last = 0.0
 
     def update(self, progress: float | None = None, step: str | None = None, message: str | None = None):
-        sets, vals = ["heartbeat=?"], [db.now()]
+        # a job wrongly marked "stopped responding" that is in fact still working comes back to life
+        sets, vals = ["heartbeat=?", f"status=CASE WHEN status='failed' AND error={STALE_SQL} THEN 'running' ELSE status END",
+                      f"error=CASE WHEN status='failed' AND error={STALE_SQL} THEN NULL ELSE error END"], [db.now()]
         if progress is not None:
             sets.append("progress=?")
             vals.append(round(max(0.0, min(1.0, progress)), 4))
@@ -40,15 +43,70 @@ class Job:
         return cb
 
 
+STALE = "stopped responding"
+STALE_SQL = "'stopped responding'"
+HEARTBEAT_SECONDS = 30
+STALE_AFTER = timedelta(minutes=10)
+
+
+def pid_alive(pid: int | None) -> bool:
+    """True if a process with this id is still running. Never sends a signal (on Windows os.kill would end it)."""
+    if not pid:
+        return False
+    if os.name == "nt":
+        import ctypes
+
+        k32 = ctypes.windll.kernel32  # type: ignore[attr-defined]
+        h = k32.OpenProcess(0x1000, False, int(pid))  # PROCESS_QUERY_LIMITED_INFORMATION
+        if not h:
+            return False
+        try:
+            code = ctypes.c_ulong()
+            ok = k32.GetExitCodeProcess(h, ctypes.byref(code))
+            return bool(ok) and code.value == 259  # STILL_ACTIVE
+        finally:
+            k32.CloseHandle(h)
+    try:
+        os.kill(int(pid), 0)
+        return True
+    except ProcessLookupError:
+        return False
+    except PermissionError:
+        return True
+    except OSError:
+        return False
+
+
 def running() -> dict | None:
     r = db.one("SELECT * FROM jobs WHERE status='running' ORDER BY id DESC LIMIT 1")
     if not r:
         return None
     hb = datetime.fromisoformat(r["heartbeat"] or r["started_at"])
-    if datetime.now() - hb > timedelta(minutes=15):
-        db.get().execute("UPDATE jobs SET status='failed', error='stopped responding' WHERE id=?", (r["id"],))
+    if datetime.now() - hb > STALE_AFTER:
+        # The worker beats every 30 s from its own thread, so silence means the process is gone or frozen.
+        # Only give up on it when the process has really ended.
+        if pid_alive(r["pid"]) and r["pid"] != os.getpid():
+            return dict(r)
+        db.get().execute("UPDATE jobs SET status='failed', error=?, finished_at=? WHERE id=?",
+                         (STALE, db.now(), r["id"]))
         return None
     return dict(r)
+
+
+class _Heartbeat(threading.Thread):
+    """Keeps the job's heartbeat fresh while long steps (downloads, slow servers) give no progress."""
+
+    def __init__(self, job_id: int):
+        super().__init__(daemon=True, name=f"job-{job_id}-heartbeat")
+        self.job_id = job_id
+        self.stop = threading.Event()
+
+    def run(self):
+        while not self.stop.wait(HEARTBEAT_SECONDS):
+            try:
+                Job(self.job_id).update()
+            except Exception:  # a busy database just means we try again next beat
+                pass
 
 
 def create(kind: str, args: dict | None = None) -> int:
@@ -83,6 +141,8 @@ def execute(job_id: int) -> None:
     db.get().execute("UPDATE jobs SET status='running', heartbeat=?, started_at=? WHERE id=?",
                      (db.now(), db.now(), job_id))
     job = Job(job_id)
+    beat = _Heartbeat(job_id)
+    beat.start()
     try:
         fn = {"initial_load": pipeline.initial_load, "daily": pipeline.daily_run, "backtest": pipeline.run_backtest,
               "rebuild": pipeline.rebuild_profile, "backup": pipeline.backup_job,
@@ -95,3 +155,5 @@ def execute(job_id: int) -> None:
         db.get().execute("UPDATE jobs SET status='failed', finished_at=?, error=? WHERE id=?",
                          (db.now(), f"{e}\n{traceback.format_exc()[-3000:]}", job_id))
         raise
+    finally:
+        beat.stop.set()

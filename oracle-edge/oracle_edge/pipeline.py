@@ -209,19 +209,36 @@ def live_run(profile: rules.Profile) -> int:
 
 
 # ================================================================== first-time load
-def initial_load(job, skip_download: bool = False) -> str:
+INGEST_STEP_DONE = 0.50  # job progress once the SEC statements have been read
+
+
+def resumable_initial_load() -> dict | None:
+    """The last first-time load, if it stopped after the SEC statements were read in and nothing has replaced
+    them since. Continuing it skips the download and the hour-long read."""
+    r = db.one("SELECT * FROM jobs WHERE kind='initial_load' ORDER BY id DESC LIMIT 1")
+    if not r or r["status"] != "failed" or (r["progress"] or 0) < INGEST_STEP_DONE:
+        return None
+    later = db.scalar("SELECT COUNT(*) FROM jobs WHERE id>? AND kind IN ('initial_load','daily') AND status='done'",
+                      (r["id"],), 0)
+    return None if later else dict(r)
+
+
+def initial_load(job, skip_download: bool = False, resume: bool = False) -> str:
     sec.reset_http()
     rules.seed_profiles()
-    exchanges = db.cfg("exchanges", ["Nasdaq", "NYSE", "CBOE"])
-    job.update(0.01, "Downloading the SEC company list")
-    n = sec.load_ticker_map(exchanges)
-    zp = sec.bulk_zip_path()
-    fresh = zp.exists() and (datetime.now().timestamp() - zp.stat().st_mtime) < 3 * 86400
-    if not skip_download and not fresh:
-        sec.download_bulk(job.sub(0.02, 0.30, "Downloading SEC financial data (large file, one time)"))
-    loaded = sec.ingest_bulk(zp, job.sub(0.30, 0.50, f"Reading financial statements for {n:,} companies"))
-    job.update(0.50, "Market data (Buffett Indicator, Treasury yields)")
-    fred.refresh_all()
+    if resume:
+        job.update(INGEST_STEP_DONE, "Continuing: SEC statements already read in")
+        loaded = db.scalar("SELECT COUNT(DISTINCT cik) FROM facts", default=0)
+    else:
+        exchanges = db.cfg("exchanges", ["Nasdaq", "NYSE", "CBOE"])
+        job.update(0.01, "Downloading the SEC company list")
+        n = sec.load_ticker_map(exchanges)
+        zp = sec.bulk_zip_path()
+        fresh = zp.exists() and (datetime.now().timestamp() - zp.stat().st_mtime) < 3 * 86400
+        if not skip_download and not fresh:
+            sec.download_bulk(job.sub(0.02, 0.30, "Downloading SEC financial data (large file, one time)"))
+        loaded = sec.ingest_bulk(zp, job.sub(0.30, INGEST_STEP_DONE, f"Reading financial statements for {n:,} companies"))
+    fred.refresh_all(job.sub(INGEST_STEP_DONE, 0.51, "Market data (Buffett Indicator, Treasury yields, VIX)"))
     finish_setup(job, lo=0.51)
     db.set_cfg("initial_load_done", db.now())
     return f"Loaded {loaded:,} companies. Live history replayed from {backfill_start()}."
@@ -326,8 +343,7 @@ def daily_run(job, force: bool = False, send_email: bool = True, do_backup: bool
     if new_cands:  # companies that just joined the shortlist get their quarterly history
         quarterly.build(profs[0], new_cands, since=(date.today() - timedelta(days=400)).isoformat())
     detect_adr(cands)
-    job.update(0.56, "Market data")
-    fred.refresh_all()
+    fred.refresh_all(job.sub(0.56, 0.58, "Market data"))
     total_signals = 0
     for k, p in enumerate(profs):
         rid = live_run(p)
@@ -568,7 +584,7 @@ def run_experiments(job, profile_id: int | None, start: str, end: str, cadence: 
     try:
         if not db.scalar("SELECT COUNT(*) FROM macro WHERE series='VIXCLS'", default=0):
             job.update(0.01, "Downloading the VIX history (market overlay)")
-            df = fred.fetch_series("VIXCLS")
+            df, _src = fred.fetch_vix()
             with db.tx() as con_:
                 con_.executemany("INSERT OR REPLACE INTO macro(series,date,value) VALUES(?,?,?)",
                                  [("VIXCLS", d_, float(v)) for d_, v in zip(df["date"], df["value"])])
