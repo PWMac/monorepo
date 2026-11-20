@@ -25,6 +25,7 @@ def seed_profiles() -> None:
     if db.scalar("SELECT COUNT(*) FROM profiles", default=0):
         _seed_timing()
         _seed_risk_optimized()
+        refresh_notes()
         return
     classic = load_yaml_profile()
     _insert("Oracle Classic", classic, locked=True, active=True, notes=classic.get("description"))
@@ -39,6 +40,7 @@ def seed_profiles() -> None:
     _insert("Relaxed backfill (5y)", relaxed, locked=True, active=False, notes=relaxed["description"])
     _seed_timing()
     _seed_risk_optimized()
+    refresh_notes()
 
 
 TIMING_NAME = "Oracle Classic + timing"
@@ -88,7 +90,161 @@ def _insert(name, body, locked=False, active=False, parent_id=None, notes=None) 
 def save_as(source_id: int, new_name: str, body: dict | None = None) -> int:
     src = get_profile(source_id)
     body = body or src.body
-    return _insert(new_name, body, locked=False, active=False, parent_id=source_id, notes=f"Copy of {src.name}")
+    # no note: the card then says what differs from the profile it was copied from
+    return _insert(new_name, body, locked=False, active=False, parent_id=source_id, notes=None)
+
+
+def set_notes(pid: int, text: str | None) -> None:
+    """The profile's purpose line, written by the user. Blank = describe it automatically."""
+    db.get().execute("UPDATE profiles SET notes=?, updated_at=? WHERE id=?", ((text or "").strip() or None, db.now(), pid))
+
+
+# ------------------------------------------------------------------ descriptions
+# Purpose lines for the built-in profiles. A user-written note is never overwritten: only these names, and
+# only when the note is still empty or one of the app's own older defaults.
+PURPOSE = {
+    "Oracle Classic":
+        "The baseline: the Oracle's rules of thumb applied as written. Locked, so there is always a reference "
+        "to compare every other profile against.",
+    "Buffettology 15%":
+        "Oracle Classic with a higher bar: buys only when the expected 10-year return is at least 15% (the "
+        "Buffettology test), so fewer stocks qualify and they have to be cheaper.",
+    "Relaxed backfill (5y)":
+        "For research: judges companies on 5 years of results instead of 10, so backtests can start in earlier "
+        "years. Less strict than the Oracle's rules, so expect more and weaker buys. Not meant to trade on.",
+    "Oracle Classic + timing":
+        "Oracle Classic with a timing filter: a BUY waits while the price is still sliding (below a falling "
+        "50-day average), for up to 60 signal days. Backtest it against Classic to see whether waiting helps.",
+    "Buffettology 15% · best 7":
+        "The live profile: Buffettology 15% concentrated in the best 7 stocks. Chosen after the backtests "
+        "(Guide, \"Why Buffettology 15% · best 7 was chosen\").",
+    "Oracle Edge 15% · Risk Optimized":
+        "Buffettology 15% with risk limits: 7 holdings, a cash reserve for strong buys, bigger slices for better "
+        "businesses at better prices, and caps of 35% per stock, 50% per sector and 60% in stocks that move "
+        "together.",
+}
+_OLD_DEFAULTS = ("Copy of ", "Buffett's rules of thumb", "The Oracle's rules of thumb, 10-year",
+                 "Stricter: Mary Buffett", "Stricter: the Buffettology 15%", "5-year lookbacks so backtests",
+                 "Oracle Classic, but a BUY waits", "Buffettology 15%, 7 holdings, sliding reserve")
+
+
+def _is_default_note(text: str | None) -> bool:
+    return not text or any(text.startswith(x) for x in _OLD_DEFAULTS)
+
+
+def refresh_notes() -> None:
+    """Replace the app's own old placeholder notes ("Copy of …", the original one-liners) with better ones.
+    Notes the user wrote are left alone."""
+    for r in db.rows("SELECT id, name, notes FROM profiles"):
+        if not _is_default_note(r["notes"]):
+            continue
+        new = PURPOSE.get(r["name"])
+        if (new or None) != r["notes"]:
+            db.get().execute("UPDATE profiles SET notes=? WHERE id=?", (new, r["id"]))
+
+
+def _pct(v) -> str:
+    return f"{float(v) * 100:.0f}%"
+
+
+_SIZING = {"equal": "equal slices", "conviction": "bigger slices for a higher Oracle Rank",
+           "value_quality": "bigger slices for better businesses at better prices"}
+_NEW_MONEY = {"best_value": "new money to the best value", "best_rank": "new money to the best Oracle Rank",
+              "spread": "new money spread evenly", "patient": "new money waits for strong-buy prices",
+              "reserve": "part of new money kept in reserve for strong buys"}
+
+
+def describe(body: dict) -> str:
+    """What a profile does, in one plain paragraph, built from its settings so it is always accurate."""
+    st = body.get("settings", {})
+    out = [f"Buys when Quality is at least {st.get('quality_min', 70):.0f} on {st.get('lookback_years', 10)} years of "
+           f"results, the price is {_pct(st.get('mos_gate', 0.25))} or more below value and the expected 10-year "
+           f"return is at least {_pct(st.get('hurdle', 0.10))}."]
+    if st.get("portfolio_mode", "focused") == "focused":
+        out.append(f"Holds the best {st.get('max_holdings', 15)} ({_SIZING.get(st.get('sizing'), 'equal slices')}); "
+                   f"{_NEW_MONEY.get(st.get('new_money'), 'new money to the best value')}.")
+    else:
+        out.append("Variable portfolio (the old style): buys every Buy Zone stock.")
+    extra = []
+    if st.get("timing_filter"):
+        extra.append(f"buys wait while the price is sliding (up to {st.get('timing_max_wait', 60)} days)")
+    caps = [f"{_pct(st[k])} {w}" for k, w in (("max_position", "per stock"), ("max_sector", "per sector"),
+                                               ("max_correlated", "in stocks that move together")) if st.get(k)]
+    if caps:
+        extra.append("at most " + ", ".join(caps))
+    if st.get("fund_strong"):
+        extra.append("trims weaker holdings to fund a strong buy")
+    if st.get("market_overlay"):
+        extra.append("buys less while the S&P 500 is below its 200-day average")
+    if st.get("regime_modifier"):
+        extra.append("asks a bigger margin of safety when the market is expensive")
+    if st.get("valuation_model") == "enhanced":
+        extra.append("enhanced valuation")
+    if st.get("predictability_mos"):
+        extra.append("bigger margin of safety for less predictable earnings")
+    if st.get("min_rank_score"):
+        extra.append(f"Oracle Rank of {st['min_rank_score']:.0f}+ to buy")
+    if extra:
+        out.append(extra[0][0].upper() + "; ".join(extra)[1:] + ".")
+    return " ".join(out)
+
+
+_DIFF_KEYS = [  # (setting, label, format)
+    ("hurdle", "expected-return bar", "pct"), ("mos_gate", "margin of safety", "pct"),
+    ("quality_min", "Quality bar", "num"), ("lookback_years", "years of results", "num"),
+    ("min_years", "minimum years", "num"), ("portfolio_mode", "portfolio style", "txt"),
+    ("max_holdings", "holdings", "num"), ("sizing", "sizing", "sizing"), ("new_money", "new money", "money"),
+    ("max_position", "max per stock", "pct"), ("max_sector", "max per sector", "pct"),
+    ("max_correlated", "max in correlated stocks", "pct"), ("fund_strong", "fund strong buys", "bool"),
+    ("timing_filter", "timing filter", "bool"), ("market_overlay", "market overlay", "bool"),
+    ("regime_modifier", "bigger margin when expensive", "bool"), ("valuation_model", "valuation", "txt"),
+    ("min_rank_score", "minimum Oracle Rank", "num"), ("include_foreign", "foreign filers", "bool"),
+    ("initial_capital", "starting money", "usd"), ("weekly_contribution", "weekly amount", "usd"),
+    ("trade_cost_bps", "trading cost (bps)", "num"),
+]
+
+
+def _fmt(v, f) -> str:
+    if v is None:
+        return "off"
+    if f == "pct":
+        return _pct(v)
+    if f == "bool":
+        return "on" if v else "off"
+    if f == "usd":
+        return f"${float(v):,.0f}"
+    if f == "num":
+        return f"{float(v):g}"
+    if f == "sizing":
+        return _SIZING.get(v, str(v))
+    if f == "money":
+        return {"best_value": "best value", "best_rank": "best Oracle Rank", "spread": "spread evenly",
+                "patient": "patient", "reserve": "sliding reserve"}.get(v, str(v))
+    return str(v)
+
+
+def differences(body: dict, base: dict) -> list[str]:
+    """Plain-language list of what differs from another profile ("holdings 7 (was 15)")."""
+    a, b = body.get("settings", {}), base.get("settings", {})
+    out = []
+    for k, label, f in _DIFF_KEYS:
+        if _tidy(a.get(k)) != _tidy(b.get(k)):
+            out.append(f"{label} {_fmt(a.get(k), f)} (was {_fmt(b.get(k), f)})")
+    n = sum(1 for book in ("rules", "bank_rules", "insurer_rules")
+            for x, y in zip(body.get(book, []), base.get(book, []))
+            if _tidy({k: x.get(k) for k in ("mode", "floor", "target", "excellent", "weight")})
+            != _tidy({k: y.get(k) for k in ("mode", "floor", "target", "excellent", "weight")}))
+    if n:
+        out.append(f"{n} rule{'s' if n > 1 else ''} changed")
+    return out
+
+
+def parent_of(pid: int) -> "Profile | None":
+    r = db.one("SELECT parent_id FROM profiles WHERE id=?", (pid,))
+    try:
+        return get_profile(r["parent_id"]) if r and r["parent_id"] else None
+    except KeyError:
+        return None
 
 
 def update_profile(pid: int, body: dict) -> None:

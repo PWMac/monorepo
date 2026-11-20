@@ -750,7 +750,10 @@ how each rank bucket performed afterwards.</li>
   <li><i>Oracle Classic + timing</i>;</li>
   <li><i>Oracle Edge 15% · Risk Optimized</i> (editable), with the risk controls above.</li>
 </ul>
-Use <b>Save as</b> to make an editable copy. The editor previews live how many companies would pass. Profiles that differ only
+Use <b>Save as</b> to make an editable copy. Each profile card shows three things: what the profile is <b>for</b> (a description you
+can write in the editor; the built-in ones come with one), for a copy <b>what differs</b> from the profile it was copied from
+(for example "expected-return bar 20% (was 15%)"), and a summary of <b>what it does</b>, written from its settings, so it is
+always accurate after an edit. The editor previews live how many companies would pass. Profiles that differ only
 in portfolio, signal or alert settings share company scores, so trying another portfolio size never rescores everything.</li>
 <li>Several profiles can be <b>active</b> at once; each gets its own live signals and model portfolio.</li>
 </ul>
@@ -795,7 +798,8 @@ or were acquired since 2019 may be missing from backtests. Treat backtest return
 <tr><td><b>Email</b></td><td>Sent from your own account over SMTP. There are presets for Google (Gmail/Workspace), Outlook and iCloud,
 plus custom servers. Google needs a 16-character <b>app password</b>, which requires 2-Step Verification (Workspace admins must
 allow app passwords). Choose which emails you get: actions, price-target alerts, Friday weekly summary, run failures.
-Use <b>Send test email</b> in Settings to check it works.</td></tr>
+Use <b>Send test email</b> in Settings to check it works. Port 465 always uses SSL and 587 STARTTLS; if the server hangs up on one,
+Oracle Edge tries the other and keeps the one that works. Failures are written to <code>logs/oracle_edge.log</code>.</td></tr>
 <tr><td><b>Schedule</b></td><td>Windows Task Scheduler runs <code>Run-Daily.bat</code> on weekdays, silently, at your chosen time.
 The run waits until 6:00 PM New York if started earlier. Start the app any time to catch up.
 The task is named <b>Oracle Edge Daily</b> and sits at the top level of <b>Task Scheduler → Task Scheduler Library</b>
@@ -818,7 +822,14 @@ of the left menu. Run <code>Install-OracleEdge.bat</code> again, which stops the
 restart the PC and open the desktop shortcut.</td></tr>
 <tr><td>The scheduled task isn't in Task Scheduler</td><td>Settings → Daily schedule shows a red line with Windows' reason. Fix that,
 click <b>Save &amp; (re)register task</b>, then <b>Open Task Scheduler</b> and look under <b>Task Scheduler Library</b>.</td></tr>
-<tr><td>The test email fails</td><td>The message says why. For Google, use a 16-character app password, not your normal password.</td></tr>
+<tr><td>The test email fails</td><td>The message says which step failed and why. For Google, use a 16-character app password,
+not your normal password, and sign in with the full address it was created for. <b>Check connection step by step</b>
+(Settings → Email alerts) tests each step without sending: finding the server, opening ports 587 and 465, encryption and
+sign-in.</td></tr>
+<tr><td>"Connection unexpectedly closed"</td><td>The server hung up before signing in, so the password was never checked. Usual causes:
+the port and security don't match (465 = SSL, 587 = STARTTLS; now corrected automatically), or <b>antivirus "email protection"</b>
+(Avast, AVG, Norton, Kaspersky, ESET, Bitdefender) or a <b>VPN</b> intercepting outgoing mail. Turn off the antivirus's mail
+scanning or disconnect the VPN and test again; the step-by-step check shows which port gets through.</td></tr>
 <tr><td>"Another job is already running"</td><td>Only one long job (daily update, backtest, holdings test, rebuild) runs at a time.
 Progress shows in the top bar; start the next one when it finishes.</td></tr>
 <tr><td>A stock shows "pending"</td><td>It can't be valued yet: usually a missing price, exchange rate or ADR ratio. The stock page says
@@ -885,7 +896,8 @@ currency, and their P/E uses the valuation's US-dollar conversion.</td></tr>
 <tr><td><b>Market</b></td><td>Buffett Indicator history and its valuation zones; the Bitcoin early warning: today's reading, its
 history against the cut-offs with every past call marked right or wrong, scores against the base rate, a table of every call,
 what QQQ did after each kind of reading, the live record and recent market alerts</td></tr>
-<tr><td><b>Profiles</b></td><td>Edit rules (standard, bank and insurer tabs) and the portfolio: starting money, weekly amount, how many to hold, where new money goes, swap limits</td></tr>
+<tr><td><b>Profiles</b></td><td>A card per profile: what it is for, what differs from the one it was copied from, and what it
+does. Edit the description, rules (standard, bank and insurer tabs) and the portfolio: starting money, weekly amount, how many to hold, where new money goes, swap limits</td></tr>
 <tr><td><b>Backtest</b></td><td>Find the best number of holdings and new-money rule; run and recalculate historical replays</td></tr>
 <tr><td><b>Data</b></td><td>Price sources (order, API keys, test), recent data problems, coverage gaps, foreign filers' ADR ratios, re-run first-time load, run the daily update now</td></tr>
 <tr><td><b>Settings</b></td><td>Market temperature (Bitcoin window, horizon, cut-offs, market alerts), SEC identity, email, daily schedule,

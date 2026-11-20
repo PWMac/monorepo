@@ -6,12 +6,16 @@ Settings live in the app (config table); the password lives in Windows Credentia
 from __future__ import annotations
 
 import html
+import logging
 import smtplib
+import socket
 import ssl
 from email.message import EmailMessage
 
 from . import db, secrets
 from .signals import BADGE_LABEL
+
+log = logging.getLogger("oracle_edge")
 
 PRESETS = {
     "google": {"label": "Google (Gmail / Workspace)", "host": "smtp.gmail.com", "port": 587, "security": "starttls",
@@ -41,6 +45,92 @@ def save_settings(s: dict, password: str | None = None) -> None:
         secrets.set("smtp_password", password.replace(" ", ""))
 
 
+class SmtpStepError(RuntimeError):
+    """A failure tagged with the step it happened at (connect, greeting, encryption, sign-in, send)."""
+
+    def __init__(self, step: str, err: Exception):
+        super().__init__(f"{step}: {err}")
+        self.step, self.err = step, err
+
+
+# The two standard ways to submit mail. Port 465 speaks TLS from the first byte; 587 (and 25/2525) starts in
+# plain text and switches with STARTTLS. Using the wrong one for the port is the classic cause of
+# "Connection unexpectedly closed": each side waits for the other to speak first until the server hangs up.
+def _mode_for(port: int, security: str) -> str:
+    if port == 465:
+        return "ssl"
+    if port in (25, 587, 2525):
+        return "starttls"
+    return security
+
+
+def _open(host: str, port: int, security: str, user: str, pw: str, timeout: int = 30) -> smtplib.SMTP:
+    """Connect, encrypt and sign in, raising SmtpStepError with the step that failed."""
+    ctx = ssl.create_default_context()
+    try:
+        if security == "ssl":
+            smtp = smtplib.SMTP_SSL(host, port, context=ctx, timeout=timeout)
+        else:
+            smtp = smtplib.SMTP(host, port, timeout=timeout)
+    except (OSError, smtplib.SMTPException) as e:
+        step = "find server" if isinstance(e, socket.gaierror) else "connect"
+        if isinstance(e, (smtplib.SMTPServerDisconnected, ssl.SSLError)):
+            step = "greeting"
+        raise SmtpStepError(step, e) from e
+    try:
+        if security != "ssl":
+            smtp.ehlo()
+            try:
+                smtp.starttls(context=ctx)
+            except (smtplib.SMTPException, ssl.SSLError, OSError) as e:
+                raise SmtpStepError("encryption", e) from e
+            smtp.ehlo()
+        try:
+            smtp.login(user, pw)
+        except (smtplib.SMTPException, OSError) as e:
+            raise SmtpStepError("sign-in", e) from e
+        return smtp
+    except BaseException:
+        try:
+            smtp.close()
+        except Exception:
+            pass
+        raise
+
+
+def _alternative(host: str, port: int, security: str) -> tuple[int, str] | None:
+    """The other standard port/encryption pair to try when the first one gets hung up on."""
+    if (port, security) == (587, "starttls"):
+        return 465, "ssl"
+    if (port, security) == (465, "ssl"):
+        return 587, "starttls"
+    return None
+
+
+def _connect(s: dict, pw: str) -> smtplib.SMTP:
+    host, port = s["host"].strip(), int(s["port"])
+    sec = _mode_for(port, s["security"])
+    if sec != s["security"]:
+        log.warning("email: port %s needs %s, not %s; using %s", port, sec, s["security"], sec)
+    try:
+        return _open(host, port, sec, s["username"].strip(), pw)
+    except SmtpStepError as e:
+        alt = _alternative(host, port, sec)
+        if e.step not in ("connect", "greeting", "encryption") or not alt:
+            raise
+        log.warning("email: %s:%s (%s) failed at %s (%s); trying %s:%s", host, port, sec, e.step, e.err, host, alt[0])
+        try:
+            smtp = _open(host, alt[0], alt[1], s["username"].strip(), pw)
+        except SmtpStepError:
+            raise e from None
+        # the other pair works: remember it so later sends go straight there
+        saved = settings()
+        saved.update({"port": alt[0], "security": alt[1]})
+        db.set_cfg("email", {k: saved[k] for k in DEFAULTS if k in saved})
+        log.warning("email: switched to %s:%s (%s), which works", host, alt[0], alt[1])
+        return smtp
+
+
 def send(subject: str, html_body: str, text_body: str = "") -> None:
     s = settings()
     pw = secrets.get("smtp_password")
@@ -48,22 +138,37 @@ def send(subject: str, html_body: str, text_body: str = "") -> None:
         raise RuntimeError("Email isn't set up yet (Settings → Email).")
     msg = EmailMessage()
     msg["Subject"] = subject
-    msg["From"] = f"{s['from_name']} <{s['username']}>"
+    msg["From"] = f"{s['from_name']} <{s['username'].strip()}>"
     msg["To"] = ", ".join(s["to"])
     msg.set_content(text_body or "Open this email in an HTML-capable mail app.")
     msg.add_alternative(html_body, subtype="html")
-    ctx = ssl.create_default_context()
-    if s["security"] == "ssl":
-        with smtplib.SMTP_SSL(s["host"], int(s["port"]), context=ctx, timeout=30) as smtp:
-            smtp.login(s["username"], pw)
-            smtp.send_message(msg)
-    else:
-        with smtplib.SMTP(s["host"], int(s["port"]), timeout=30) as smtp:
-            smtp.ehlo()
-            smtp.starttls(context=ctx)
-            smtp.ehlo()
-            smtp.login(s["username"], pw)
-            smtp.send_message(msg)
+    try:
+        smtp = _connect(s, pw)
+        with smtp:
+            try:
+                smtp.send_message(msg)
+            except (smtplib.SMTPException, OSError) as e:
+                raise SmtpStepError("send", e) from e
+    except Exception as e:
+        log.error("email failed (%s, %s:%s %s): %s", subject[:60], s["host"], s["port"], s["security"], e)
+        raise
+
+
+_STEP_HELP = {
+    "find server": "The server name couldn't be looked up. Check the spelling of the SMTP server and your internet "
+                   "connection.",
+    "connect": "Couldn't open a connection to the mail server. A firewall, VPN or antivirus is blocking the port, "
+               "or the server name or port is wrong.",
+    "greeting": "The connection opened but the server hung up before saying hello. Usual causes: the port and "
+                "security don't match (465 = SSL, 587 = STARTTLS), or antivirus 'email protection' / a VPN is "
+                "intercepting mail. Oracle Edge already tried the other port.",
+    "encryption": "The server hung up while switching to encryption. Usually antivirus 'email protection' "
+                  "(Avast, AVG, Norton, Kaspersky, ESET, Bitdefender) or a VPN intercepting the connection: turn its "
+                  "mail scanning off, or allow Python.",
+    "sign-in": "The server rejected the sign-in.",
+    "send": "Signed in, but the server refused the message. Check the 'Send to' addresses; Gmail also refuses a "
+            "From address that isn't your own.",
+}
 
 
 def explain_error(e: Exception) -> str:
@@ -71,16 +176,73 @@ def explain_error(e: Exception) -> str:
     if "5.7.9" in t or "Application-specific password required" in t:
         return "Google wants an app password (534-5.7.9). Create one at myaccount.google.com/apppasswords."
     if "5.7.8" in t or "Username and Password not accepted" in t:
-        return "Google rejected the sign-in (535-5.7.8). Check the address and that you pasted the app password."
+        return ("Google rejected the sign-in (535-5.7.8). The sign-in address must be the full Gmail or Workspace "
+                "address the app password was made for, and the password is the 16-letter app password, not "
+                "your normal one.")
+    if "5.7.139" in t or "SmtpClientAuthentication is disabled" in t:
+        return "Microsoft 365 has SMTP sign-in turned off for this mailbox (5.7.139). An admin has to allow SMTP AUTH."
+    if isinstance(e, SmtpStepError):
+        return f"Failed at '{e.step}': {e.err}. {_STEP_HELP.get(e.step, '')}"
     if "timed out" in t.lower():
         return "Couldn't reach the mail server (timeout). Check the server name and port."
     return t
 
 
+def diagnose() -> list[dict]:
+    """Walk through every step of sending, without sending, and say where it stops.
+    Each item: {step, ok, detail}. Tries both standard ports so a blocked or mismatched one shows up."""
+    s = settings()
+    pw = secrets.get("smtp_password")
+    host, port = (s["host"] or "").strip(), int(s["port"] or 587)
+    sec = _mode_for(port, s["security"])
+    out = []
+
+    def add(step, ok, detail):
+        out.append({"step": step, "ok": ok, "detail": detail})
+
+    add("Settings", bool(host and s["username"] and pw and s["to"]),
+        f"server {host or '(blank)'}, port {port}, {sec.upper()}; sign-in {s['username'] or '(blank)'}; "
+        f"password {'saved' if pw else 'MISSING'}; send to {', '.join(s['to']) or '(nobody)'}"
+        + (f". Port {port} needs {sec.upper()}, not {s['security'].upper()}: it will be used automatically"
+           if sec != s["security"] else ""))
+    if not host:
+        return out
+    if s["username"] != s["username"].strip():
+        add("Sign-in address", False, "It has a space before or after it; it is trimmed when sending.")
+    try:
+        ips = sorted({a[4][0] for a in socket.getaddrinfo(host, None)})
+        add("Find server", True, f"{host} → {', '.join(ips[:3])}")
+    except OSError as e:
+        add("Find server", False, f"{e}. {_STEP_HELP['find server']}")
+        return out
+    for p in dict.fromkeys([port, 587, 465]):
+        try:
+            socket.create_connection((host, p), timeout=8).close()
+            add(f"Open port {p}", True, "reachable")
+        except OSError as e:
+            add(f"Open port {p}", False, f"blocked or not answering ({e})")
+    if not pw:
+        return out
+    tried = [(port, sec)] + ([_alternative(host, port, sec)] if _alternative(host, port, sec) else [])
+    for p, mode in tried:
+        try:
+            smtp = _open(host, p, mode, s["username"].strip(), pw, timeout=20)
+            smtp.quit()
+            add(f"Sign in on {p} ({mode.upper()})", True, "connected, encrypted and signed in")
+            if (p, mode) != (port, sec):
+                add("Fix", True, f"Port {p} with {mode.upper()} works: set the port and security to that, or just send "
+                                 f"a test email and Oracle Edge will switch automatically.")
+            break
+        except SmtpStepError as e:
+            add(f"Sign in on {p} ({mode.upper()})", False, explain_error(e))
+    return out
+
+
 def send_test() -> str:
     try:
         send("Oracle Edge · test email", _wrap("<p>Your Oracle Edge email alerts are set up correctly. ✅</p>"))
-        return "Sent! Check your inbox."
+        s = settings()
+        return f"Sent! Check your inbox (via {s['host']}:{s['port']}, {s['security'].upper()})."
     except Exception as e:
         raise RuntimeError(explain_error(e)) from e
 
