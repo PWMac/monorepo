@@ -74,7 +74,7 @@ footer { color:var(--muted); font-size:12.5px; margin-top:50px; border-top:1px s
   <h1><img src="brand/logo/oracle-edge-header-tagline.png" srcset="brand/logo/oracle-edge-header-tagline@2x.png 2x"
      alt="Oracle Edge: Screen, Rank, Signal"></h1>
   <p>A local stock screener that thinks like the Oracle. This guide explains <b>what</b> the app does,
-  <b>how</b> it decides, and <b>why</b> it was built this way. Version 0.15.0.</p>
+  <b>how</b> it decides, and <b>why</b> it was built this way. Version 0.16.0.</p>
   <p style="font-size:14px">Two documents: this <b>guide</b> is the user manual, kept current with every release and opened from
   "Guide" in the app. The <b>plan</b> (<code>docs/Value-Picker-Plan.html</code> with the source code) is the design record: the research, architecture,
   database layout and the decision log behind the app.</p>
@@ -560,6 +560,101 @@ gets his safety from a large margin of safety rather than a high discount rate. 
 from inflating values. The 10% bar reflects his long-held expectation for a good equity investment.</div>
 <div class="why"><b>Why two models and the lower one.</b> Each model fails in different ways: a DCF is sensitive to the
 discount rate, a P/E projection to the exit multiple. Taking the lower answer is margin of safety built into the method.</div>
+<h3 id="valuedriver">The value-driver model (version 0.16.0)</h3>
+<p>A review of the valuation on the app's own history found that the two classic models used very different
+discount rates (Model A the 30-year Treasury + 2 points, about 5–7%; Model B the hurdle) and that taking the lower one made
+the model in charge flip from company to company and year to year. Version 0.16.0 adds <b>one consistent model</b>. Choose it
+per profile (Profiles → Valuation → <i>Value-driver</i>); its value, range and checks show on every stock's Report card and
+Outlook tab whichever model a profile uses.</p>
+<div class="formula">Value = NOPAT × (1 − g ÷ ROIC) ÷ (r − g), year by year for 10 years, then the same formula for the terminal value</div>
+<table>
+<tr><th>Piece</th><th>How</th><th>Why</th></tr>
+<tr><td><b>Normalized profit</b> (NOPAT)</td><td>Median operating margin of 7 years × average sales of 3 years × (1 − tax rate,
+median of 5 years, 10–30%)</td><td>One boom or bust year shouldn't move the value</td></tr>
+<tr><td><b>Growth is paid for</b></td><td>Each year reinvests g ÷ ROIC of its profit (ROIC = median of 5 years) to fund next
+year's growth; in the terminal value new capital earns the higher of the required return and half the company's ROIC</td>
+<td>Growth that earns only the required return adds nothing; the formula makes that automatic</td></tr>
+<tr><td><b>Blended growth</b></td><td>The average of 5-year sales growth, the classic estimate (the lower of ROE × retained share
+and 10-year EPS growth) and a 7% long-run rate, capped at <b>12%</b>; years 1–5, fading to 3% over years 6–10</td><td>Past growth
+barely predicts future growth; at the old 15% cap growth came in about 4 points lower</td></tr>
+<tr><td><b>One required return</b></td><td>The profile's hurdle (or its own setting, <i>Required return</i>); no Treasury
+link</td><td>Values no longer swing with interest rates</td></tr>
+<tr><td><b>Claims ahead of shareholders</b></td><td>+ cash and short-term investments; − debt, operating lease liabilities, an
+underfunded pension (after tax), preferred stock and minority interests; ÷ diluted shares</td><td>The fuller debt picture</td></tr>
+<tr><td><b>R&amp;D as an investment</b></td><td>When R&amp;D is 3%+ of sales: each year's R&amp;D is written off over 5 years
+instead of at once; the unwritten-off research joins invested capital</td><td>Heavy researchers' profits and returns are
+otherwise understated</td></tr>
+<tr><td><b>Latest 12 months</b></td><td>When a 10-Q is newer than the annual report, its trailing-twelve-month sales and margin
+replace the oldest year, and its balance sheet and share count are used</td><td>The value doesn't wait up to a year</td></tr>
+<tr><td><b>Analysts, years 1–2 only</b></td><td>With 3+ analysts, years 1–2 use half the analysts' EPS growth for this and next
+fiscal year, half the blended growth</td><td>Near-term estimates help; long-term ones are too optimistic</td></tr>
+</table>
+<table>
+<tr><th>Output</th><th>How</th></tr>
+<tr><td><b>Likely value</b> and <b>range</b></td><td>Low = growth 3 points lower and required return 1 point higher; high = the
+reverse. On the app's history a range this wide held the business's hindsight value about half the time.</td></tr>
+<tr><td><b>Expected return</b></td><td>The return at which the model's value equals today's price (an implied return).</td></tr>
+<tr><td><b>What the price assumes</b></td><td>The growth (years 1–5, then fading) at which the value equals today's price at
+your required return (a reverse DCF), compared with the growth the record supports and analysts' estimates.</td></tr>
+<tr><td><b>Buy below</b></td><td>Likely value × (1 − margin of safety); strong buy below with the extra margin.</td></tr>
+<tr><td><b>P/E cross-check</b></td><td>P/E on last year's EPS against the company's own 10-year median.</td></tr>
+</table>
+<p><b>The research behind it</b> (standard US companies with prices, annual reports 2013–2021, each valued with only what was known
+on its filing date and compared with what it turned out to be worth given the next five years' actual earnings; both at a 9%
+required return):</p>
+<table>
+<tr><th></th><th>Classic (lower of two models)</th><th>Value-driver</th></tr>
+<tr><td>Ranks value ÷ price like the hindsight value does: all companies</td><td>0.06</td><td><b>0.25</b></td></tr>
+<tr><td>Same, checklist passers</td><td>0.28</td><td><b>0.35</b></td></tr>
+<tr><td>Typical miss, checklist passers</td><td>±45%</td><td><b>±37%</b></td></tr>
+<tr><td>Typical yearly change in the value</td><td>20%</td><td><b>16%</b></td></tr>
+<tr><td>Years the value jumped 50%+</td><td>24%</td><td><b>15%</b></td></tr>
+</table>
+<p>No valuation, classic or new, predicted the next three to five years' returns in this period (2013–2026 was a poor stretch for
+every cheapness measure); treat the value as protection against overpaying, not a return forecast.
+</p>
+<p><b>Backtests</b> (the research copy of the data, weekly decisions, each profile's own portfolio rules; yearly return,
+worst drop):</p>
+<table>
+<tr><th>Profile and model</th><th>From 2015</th><th>From 2019</th><th>Worst drop (from 2015)</th></tr>
+<tr><td>Buffettology 15%, classic</td><td>−2.2%</td><td>+2.1%</td><td>−61%</td></tr>
+<tr><td>Buffettology 15%, <b>value-driver</b></td><td><b>+13.2%</b></td><td><b>+15.0%</b></td><td>−41%</td></tr>
+<tr><td>Buffettology, value-driver at a 10% required return</td><td>+8.3%</td><td></td><td>−42%</td></tr>
+<tr><td>Quality Core, P/E price test</td><td>+10.1%</td><td>+13.0%</td><td>−35%</td></tr>
+<tr><td>Quality Core, value-driver</td><td>+6.1%</td><td>+7.0%</td><td>−18%</td></tr>
+<tr><td>S&amp;P 500</td><td>+12.6%</td><td>+15.4%</td><td>−34%</td></tr>
+</table>
+<p>In a concentrated profile the value-driver model was far better than the classic one in both periods. With a 15% required
+return and a 25% margin of safety it is strict (about 1% of checklist-passing company-years qualified), so a 25-holding profile
+like Quality Core held only about 4 stocks and trailed; there the P/E price test remains the better choice. The portfolios hold
+few stocks over a single market period, so treat these as encouraging, not proof; compare them on your own data under Backtest
+before switching your live profile.</p>
+
+<h3 id="outlook">Forecasts: the Outlook tab</h3>
+<p>Every stock page has an <b>Outlook</b> tab that puts analysts' forecasts next to the app's own view:</p>
+<ul>
+<li><b>The headline cards:</b> this and next fiscal year's EPS estimate and growth, how many quarters the company beat the estimate,
+how much the estimate moved in 90 days, and the average 12-month price target.</li>
+<li><b>In short:</b> plain-English takeaways, for example "analysts expect 9% a year, the record supports 9%, and today's price
+assumes 37%."</li>
+<li><b>Earnings: reported, forecast and assumed.</b> Reported EPS as bars; analysts' average with their low and high; and two
+paths from the last reported year: the growth the app's value assumes (green) and the growth today's price assumes (amber,
+dashed). When the amber line runs far above the others, the price needs more than the record or the analysts suggest.</li>
+<li><b>Beat or miss, quarter by quarter,</b> and <b>are the estimates rising or falling</b> (90/60/30/7 days ago, and how many
+analysts raised or cut). The app stores one copy of the estimates a day for holdings and the shortlist (and whenever you open
+the tab), so it builds its own record of revisions over time.</li>
+<li><b>Price, value and analysts' targets</b> on one number line.</li>
+</ul>
+<p>Source: Yahoo Finance (free, unofficial). Its EPS is usually the company's "adjusted" figure, often above the EPS reported to
+the SEC; the tab says so when they differ by more than 10%. Backtests never use estimates that didn't exist yet. Data →
+Maintenance has the switch.</p>
+
+<h3 id="allprices">Prices for every company (version 0.16.0)</h3>
+<p>Until 0.16.0 the app downloaded prices only for the shortlist (about 850 companies). It now keeps prices for every company
+with annual reports, so research, backtests and new candidates have complete histories. The first download is a few thousand
+tickers: the next daily update does it, or Data → Maintenance → <i>Download missing price histories now</i>. The switch
+<i>Prices for every company</i> turns it off.</p>
+
 <h3 id="enhanced">Enhanced valuation (optional, per profile)</h3>
 <p>Setting a profile's <b>Valuation</b> to <i>Enhanced</i> keeps both models but changes their inputs:</p>
 <table>
@@ -1328,7 +1423,7 @@ their old results until you recalculate them.</p>
 <tr><td><b>XBRL</b></td><td>The tagged data format companies use to file financial statements with the SEC</td></tr>
 </table>
 
-<footer>Oracle Edge v0.15.0 · research tool, not financial advice · MIT license. The full design plan, with research sources,
+<footer>Oracle Edge v0.16.0 · research tool, not financial advice · MIT license. The full design plan, with research sources,
 is in <code>docs/Value-Picker-Plan.html</code> with the source code.</footer>
 </main>
 </div>

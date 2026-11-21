@@ -151,8 +151,10 @@ def _calc_fix_notice():
             with ui.column().classes("gap-1"):
                 ui.label("Calculation fixes are installed: rebuild your results").classes("font-semibold")
                 ui.label("This version corrects how stock splits, share-count units, fiscal years and a few other "
-                         "figures are handled, adds the business-health checks, and applies the ROE gate's yearly floor to the last 5 "
-                         "years (see Guide → Accuracy audit). "
+                         "figures are handled, adds the business-health checks, applies the ROE gate's yearly floor to the last 5 "
+                         "years, and (0.16) re-reads the shortlist's statements for leases, pensions and minority "
+                         "interests so the new value-driver valuation has its inputs (see Guide → Accuracy audit and "
+                         "Valuation). "
                          "Until the rebuild runs, the history "
                          "on screen was calculated the old way. It re-downloads price histories with their split "
                          "dates, re-scores every company and replays the live history: allow an hour or more. The "

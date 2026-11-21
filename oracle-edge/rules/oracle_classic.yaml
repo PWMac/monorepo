@@ -80,8 +80,17 @@ settings:
   overlay_stress_buy: 0.10      # ...and while the VIX is also above overlay_vix_stress
   trade_cost_bps: 0             # trading cost per buy or sell, in basis points (backtests; 10 = 0.10%)
   # ---- valuation ----
-  valuation_model: classic      # classic | enhanced (incremental ROIC, normalized earnings, dilution,
-                                #   maintenance capex, bear/base/bull scenarios)
+  valuation_model: classic      # classic | value_driver (0.16: one model, one required return) | enhanced
+                                #   (incremental ROIC, normalized earnings, dilution, maintenance capex, bear/base/bull)
+  # value-driver model (valuation_model: value_driver; its range, reverse DCF and P/E check show on every stock)
+  vd_required_return: null      # the return the value is discounted at; null = the hurdle
+  vd_growth_cap: 0.12           # blended growth never above this (at 15% the old cap ran ~4 points too high)
+  vd_long_run_growth: 0.07      # the long-run third of the blend (sales growth, classic estimate, this)
+  vd_range_growth: 0.03         # the low / high values: growth -/+ this...
+  vd_range_rate: 0.01           # ...and the required return +/- this
+  vd_use_ttm: true              # use the latest 10-Q's trailing twelve months when newer than the annual report
+  vd_use_estimates: true        # blend analysts' next-two-year EPS growth into years 1-2...
+  vd_estimate_weight: 0.5       # ...at this weight (needs 3+ analysts)
   scenario_weights: [0.25, 0.5, 0.25]
   predictability_mos: false     # ask a bigger margin of safety when earnings are less predictable
   predictability_mos_add: 0.20  # ...up to this many extra points at zero predictability

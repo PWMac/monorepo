@@ -98,6 +98,33 @@ def detect_adr(ciks: list[int], progress=None) -> int:
     return len(todo)
 
 
+def universe_ciks() -> list[int]:
+    """Every active, priceable company with annual reports (not funds, REITs or SPACs)."""
+    return [r["cik"] for r in db.rows(
+        "SELECT s.cik FROM securities s WHERE s.active=1 AND s.ticker IS NOT NULL AND COALESCE(s.category,'') != "
+        "'excluded' AND EXISTS (SELECT 1 FROM facts f WHERE f.cik=s.cik)")]
+
+
+def price_universe(cands: list[int]) -> list[int]:
+    """Whose prices to keep: every company (setting "Prices for every company", on by default since 0.16, so
+    research and new candidates have full histories) or just the shortlist."""
+    if db.cfg("prices_all", True):
+        return sorted(set(cands) | set(universe_ciks()))
+    return cands
+
+
+def prices_all_job(job) -> str:
+    """Download the full price history of every company that has none yet (the daily update then keeps them
+    current). Large the first time: a few thousand tickers."""
+    have = {r["ticker"] for r in db.rows("SELECT DISTINCT ticker FROM prices")}
+    want = [t for t in price_tickers(universe_ciks()) if t not in have]
+    if not want:
+        return "Every company already has a price history."
+    res = fetch_prices_for(want, job.sub(0.0, 1.0, f"Downloading price histories for {len(want):,} companies"))
+    return (f"Downloaded {res['rows']:,} daily prices for {len(want) - len(res['missing']):,} companies; "
+            f"{len(res['missing']):,} had none at any source.")
+
+
 def price_tickers(ciks: list[int]) -> list[str]:
     tk = tickers_by_cik()
     return [tk[c] for c in ciks if c in tk] + MARKET_TICKERS
@@ -351,9 +378,10 @@ def finish_setup(job, lo=0.5) -> None:
 
 
 # ================================================================== daily run
-CALC_VERSION = 4
+CALC_VERSION = 5
 """Bumped when a fix changes stored results (snapshots, live histories). v2 (0.12.0): stock splits, share-count
-scale errors, fiscal-year grouping, buy-below consistency, point-in-time Buffett Indicator."""
+scale errors, fiscal-year grouping, buy-below consistency, point-in-time Buffett Indicator. v5 (0.16.0): the
+value-driver valuation's inputs (leases, pensions, minority interests, R&D as an investment, quarterly figures)."""
 
 
 def calc_fixes_pending() -> bool:
@@ -367,6 +395,16 @@ def apply_calc_fixes(job) -> str:
 
     sec.reset_http()
     rules.seed_profiles()
+    if int(db.cfg("calc_version", 1) or 1) < 5:  # 0.16: new line items (leases, pensions, minority interests)
+        cands0 = candidate_ciks([p.id for p in rules.active_profiles()])
+        for i, cik in enumerate(cands0):
+            try:
+                sec.refresh_company(cik)
+            except Exception as e:
+                db.log("sec", "refresh", False, f"{cik}: {e}")
+            if i % 20 == 0:
+                job.update(0.01 * i / max(len(cands0), 1),
+                           f"Re-reading SEC statements for the shortlist (leases, pensions): {i:,} of {len(cands0):,}")
     tickers = [r["ticker"] for r in db.rows("SELECT DISTINCT ticker FROM prices") if r["ticker"]]
     tickers = list(dict.fromkeys(tickers + MARKET_TICKERS))
     job.update(0.01, f"Downloading price histories and split dates for {len(tickers):,} tickers")
@@ -472,8 +510,15 @@ def daily_run(job, force: bool = False, send_email: bool = True, do_backup: bool
             build_snapshots(p, sorted(annual), latest_only=True)
     job.update(0.25, "Updating prices")
     cands = candidate_ciks([p.id for p in profs])
-    res = fetch_prices_for(price_tickers(cands), job.sub(0.25, 0.55, "Updating prices"))
+    res = fetch_prices_for(price_tickers(price_universe(cands)), job.sub(0.25, 0.50, "Updating prices"))
     db.set_cfg("last_price_fetch", {"at": db.now(), "missing": res["missing"][:200]})
+    if db.cfg("analyst_estimates", True):
+        try:  # analysts' estimates for holdings and the shortlist (the value-driver model's first two years)
+            from . import estimates
+
+            estimates.refresh_watchlist(job.sub(0.50, 0.55, "Analyst estimates for the shortlist"))
+        except Exception as e:
+            db.log("yahoo", "estimates", False, str(e)[:200])
     if annual:
         pb = PriceBook(price_tickers(sorted(annual)))
         for p in profs:

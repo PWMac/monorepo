@@ -9,7 +9,7 @@ import json
 from nicegui import app, ui
 
 from .. import btcsignal, db, rules, strength, targets
-from . import data, quote, wonder
+from . import data, outlook, quote, valuecard, wonder
 from .charts import zoom_chart
 from .layout import empty, frame, kpi
 from .theme import BADGES, BRAND, BTC_COL, badge_html, fmt_value, ladder_html, money, num, pct, sparkline
@@ -488,21 +488,28 @@ def stock_page(ticker: str):
                 "w-full border-b border-gray-200") as tabs:
             t_rep = ui.tab("report", label="Report card", icon="fact_check")
             t_w = ui.tab("wonder", label="Wonderful?", icon="workspace_premium")
+            t_o = ui.tab("outlook", label="Outlook", icon="insights")
             t_q = ui.tab("quote", label="Chart & key stats", icon="candlestick_chart")
         with ui.tab_panels(tabs, value=t_rep).props("animated=false").classes("w-full bg-transparent"):
             with ui.tab_panel(t_rep).classes("p-0 gap-4"):
                 _report_card(s, r, prof, snap, ev, run_id)
             with ui.tab_panel(t_w).classes("p-0 gap-4") as wpanel:
                 pass
+            with ui.tab_panel(t_o).classes("p-0 gap-4") as opanel:
+                pass
             with ui.tab_panel(t_q).classes("p-0 gap-4") as qpanel:
                 pass
-        drawn = {"q": False, "w": False}
+        drawn = {"q": False, "w": False, "o": False}
 
         def lazy(e):
             if e.value == "quote" and not drawn["q"]:  # build the chart once its tab is visible (correct sizing)
                 drawn["q"] = True
                 with qpanel:
                     quote.render(s, ev)
+            if e.value == "outlook" and not drawn["o"]:
+                drawn["o"] = True
+                with opanel:
+                    outlook.render(s, prof, snap, ev)
             if e.value == "wonder" and not drawn["w"]:
                 drawn["w"] = True
                 with wpanel:
@@ -544,7 +551,8 @@ def _report_card(s, r, prof, snap, ev, run_id):
             ui.html(ladder_html(ev["price"], ev["strong_buy_below"], ev["buy_below"], ev["iv"],
                                 det.get("expensive_above"), (tp or {}).get("limit")),
                     sanitize=False).classes("w-full")
-            with ui.row().classes("gap-8 oe-small"):
+            vd_used = (det.get("valuation") or {}).get("model") == "value_driver"
+            with ui.row().classes("gap-8 oe-small" + (" hidden" if vd_used else "")):
                 ui.label(f"Model A ({det.get('model_a') or 'owner-earnings DCF'}): value {money(det.get('iv_a'))}, return "
                          f"{pct(det.get('er_a'), 1)}")
                 ui.label(f"Model B (10-yr projection): value {money(det.get('iv_b'))}, return "
@@ -555,6 +563,10 @@ def _report_card(s, r, prof, snap, ev, run_id):
                          f"{pct(det.get('g'), 1)} · exit P/E {num(det.get('exit_pe'), 1)}")
                 ui.label(f"P/E now {num(det.get('pe_now'), 1)} vs 10-yr median {num(det.get('pe_median'), 1)} · "
                          f"owner-earnings yield {pct(det.get('ey'), 1)} · PEPG {num(det.get('pepg'), 2)}")
+        try:
+            valuecard.render(s, prof, snap, ev)
+        except Exception as e:  # never let the comparison card break the report card
+            db.log("ui", "valuecard", False, f"{s['ticker']}: {e}"[:200])
         owned = bool(db.scalar("SELECT 1 FROM positions p JOIN portfolios f ON f.id=p.portfolio_id "
                                "WHERE f.run_id=? AND p.cik=?", (run_id, s["cik"])) or
                      db.scalar("SELECT 1 FROM real_holdings WHERE cik=?", (s["cik"],)))

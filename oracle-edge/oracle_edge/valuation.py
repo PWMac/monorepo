@@ -222,6 +222,150 @@ def value_enhanced(price: float, vi: dict, st: dict, t30: float, mos_gate: float
                      pe_now, pe_med, ey, pepg, "", extra)
 
 
+# ===================================================================== value-driver model (0.16)
+def classic_growth(vi: dict, cap: float = 0.15) -> float:
+    """The classic model's growth: the lower of ROE x retained share and the 10-year EPS growth, 0..cap."""
+    sust = max(0.0, vi.get("sust_g") or 0.0)
+    eg = vi.get("eps_cagr")
+    return max(0.0, min(sust, eg if eg is not None else sust, cap))
+
+
+def blended_growth(vi: dict, st: dict) -> dict:
+    """The growth the record supports: the average of 5-year sales growth, the classic estimate and a long-run
+    rate (7%), capped (12%). Past growth barely predicts future growth (Chan, Karceski & Lakonishok 2003), so
+    each source gets a third and none is trusted alone."""
+    gc = classic_growth(vi)
+    lr = float(st.get("vd_long_run_growth", 0.07))
+    rv = vi.get("vd_rev5")
+    rv = gc if rv is None else min(max(rv, -0.05), 0.25)
+    g = min(max((rv + gc + lr) / 3, 0.0), float(st.get("vd_growth_cap", 0.12)))
+    return {"g": g, "sales": vi.get("vd_rev5"), "classic": gc, "long_run": lr}
+
+
+def vd_value(nopat: float, g: float, roic: float | None, r: float, tg: float, g12: float | None = None) -> float:
+    """Enterprise value: 10 years of free cash flow, then a terminal value, by the value-driver formula
+    V = NOPAT x (1 - g / ROIC) / (r - g). Growth g for years 1-5 (g12 for years 1-2 when analyst estimates are
+    used), fading to tg over years 6-10; each year reinvests g / ROIC of its profit. In the terminal value new
+    capital earns max(r, ROIC / 2): competition erodes the excess over time. Each year's profit funds the next
+    year's growth, so growth that earns exactly r adds nothing, as the formula says it should."""
+    roic = min(max(roic or r, r), 1.0)
+    gs = [0.0] + [(g12 if (g12 is not None and t <= 2) else g) if t <= 5 else g + (tg - g) * (t - 5) / 5
+                  for t in range(1, 11)] + [tg]
+    pv, e = 0.0, nopat
+    for t in range(1, 11):
+        e *= 1 + gs[t]
+        # this year's profit funds next year's growth: reinvest g(t+1) / ROIC of it
+        pv += e * (1 - max(gs[t + 1], 0.0) / roic) / (1 + r) ** t
+    ronic = max(r, roic / 2)
+    tv = e * (1 + tg) * (1 - tg / ronic) / (r - tg)
+    return pv + tv / (1 + r) ** 10
+
+
+def _solve(f, target: float, lo: float, hi: float, increasing: bool) -> float:
+    """x in [lo, hi] with f(x) = target (bisection); clamps to the ends."""
+    flo, fhi = f(lo), f(hi)
+    if increasing:
+        if target <= flo:
+            return lo
+        if target >= fhi:
+            return hi
+    else:
+        if target >= flo:
+            return lo
+        if target <= fhi:
+            return hi
+    for _ in range(70):
+        mid = (lo + hi) / 2
+        if (f(mid) < target) == increasing:
+            lo = mid
+        else:
+            hi = mid
+    return (lo + hi) / 2
+
+
+def vd_base(vi: dict, ttm: dict | None = None) -> dict | None:
+    """Normalized after-tax operating profit (median margin of 7 years x average sales of 3), with the latest
+    trailing-twelve-month figures taking the oldest year's place when a 10-Q is newer than the annual report."""
+    sales = [v for v in (vi.get("vd_sales") or []) if v]
+    margins = [v for v in (vi.get("vd_margins") or []) if v is not None]
+    cash, claims, shares = vi.get("vd_cash") or 0.0, dict(vi.get("vd_claims") or {}), vi.get("vd_shares")
+    used_ttm = False
+    if ttm and ttm.get("sales") and ttm.get("oi") is not None and len(sales) >= 1:
+        sales = sales[-2:] + [ttm["sales"]]
+        margins = margins[-6:] + [ttm["oi"] / ttm["sales"]]
+        if ttm.get("cash") is not None:
+            cash = ttm["cash"]
+        if ttm.get("shares"):
+            shares = ttm["shares"]
+        if ttm.get("debt") is not None:
+            claims["debt"] = ttm["debt"]
+        if ttm.get("leases") is not None:
+            claims["leases"] = ttm["leases"]
+        used_ttm = True
+    if not sales or len(margins) < 3 or not shares or shares <= 0:
+        return None
+    from statistics import median as _m
+
+    margin = _m(margins)
+    t = vi.get("vd_tax") or 0.21
+    rev = sum(sales) / len(sales)
+    return {"nopat": margin * rev * (1 - t), "margin": margin, "sales": rev, "tax": t, "roic": vi.get("vd_roic"),
+            "cash": cash, "claims": claims, "net_cash": cash - sum(claims.values()), "shares": shares,
+            "ttm": used_ttm}
+
+
+def value_driver(price: float, vi: dict, st: dict, mos_gate: float, fy_prices: dict[str, float],
+                 ttm: dict | None = None, est: dict | None = None) -> Valuation:
+    """One consistent model (valuation_model: value_driver). Value = the free cash flow of a normalized
+    operating profit growing at the blended growth rate, discounted at ONE required return (the profile's hurdle),
+    plus net cash, per diluted share. Also: a low / likely / high range (growth -/+ 3 points, required return
+    +/- 1 point), the expected return the price implies, and the growth the price assumes (reverse DCF)."""
+    r = float(st.get("vd_required_return") or st["hurdle"])
+    tg = min(st["terminal_growth"], r - 0.02)
+    pe_med = median_pe(vi.get("eps_by_fy", {}), fy_prices)
+    eps_last = vi.get("eps_last")
+    pe_now = price / eps_last if eps_last and eps_last > 0 else None
+    oe0 = vi.get("oe_ps")
+    ey = (oe0 / price) if (oe0 and price) else None
+    pepg = (pe_now / (vi["ebitda_g"] * 100)) if (pe_now and vi.get("ebitda_g") and vi["ebitda_g"] > 0) else None
+    gb = blended_growth(vi, st)
+    g = gb["g"]
+    b = vd_base(vi, ttm if st.get("vd_use_ttm", True) else None)
+    none = Valuation(None, None, None, None, None, None, None, None, None, None, r, g, 0.0, pe_now, pe_med, ey, pepg,
+                     "no operating profit to value", {"model": "value_driver", "growth": gb})
+    if not b or b["nopat"] <= 0:
+        return none
+    g12 = None
+    w = float(st.get("vd_estimate_weight", 0.5))
+    if est and st.get("vd_use_estimates", True) and est.get("growth") is not None and (est.get("analysts") or 0) >= 3:
+        g12 = w * min(max(est["growth"], -0.20), 0.40) + (1 - w) * g
+    mult = vi.get("vd_ps_mult", 1.0)  # foreign filers: reporting currency per share -> US$ per traded share
+    sh = b["shares"]
+
+    def iv_at(gg, rr, g12_=g12):
+        return (vd_value(b["nopat"], gg, b["roic"], rr, min(tg, rr - 0.02), g12_) + b["net_cash"]) / sh * mult
+
+    iv = iv_at(g, r)
+    if iv <= 0:
+        return none
+    dg, dr = float(st.get("vd_range_growth", 0.03)), float(st.get("vd_range_rate", 0.01))
+    low = max(iv_at(max(g - dg, -0.03), r + dr, None if g12 is None else g12 - dg), 0.0)
+    high = iv_at(g + dg, max(r - dr, tg + 0.015), None if g12 is None else g12 + dg)
+    target = price
+    er = _solve(lambda rr: iv_at(g, rr), target, max(tg + 0.005, 0.02), 0.60, increasing=False)
+    implied = _solve(lambda gg: iv_at(gg, r, None), target, -0.15, 0.60, increasing=True)
+    mos = 1 - price / iv
+    buy_below = iv * (1 - mos_gate)
+    strong = iv * (1 - (mos_gate + st.get("strong_extra_mos", 0.15)))
+    extra = {"model": "value_driver", "low": low, "high": high, "required_return": r, "growth": gb, "g12": g12,
+             "estimates_used": g12 is not None, "implied_growth": implied, "nopat": b["nopat"], "margin": b["margin"],
+             "sales": b["sales"], "tax": b["tax"], "roic": b["roic"], "net_cash": b["net_cash"], "cash": b["cash"],
+             "claims": b["claims"], "shares": sh, "ttm": b["ttm"], "rnd": vi.get("vd_rnd"),
+             "reinvest": min(max(g, 0.0) / min(max(b["roic"] or r, r), 1.0), 1.0)}
+    return Valuation(iv, iv, None, er, er, None, mos, buy_below, strong, 1.5 * iv, r, g, 0.0, pe_now, pe_med, ey,
+                     pepg, "", extra)
+
+
 def predictability_mos(mos_gate: float, vi: dict, st: dict) -> float:
     """Ask for a bigger margin of safety when earnings are less predictable (predictability 0-1)."""
     if not st.get("predictability_mos"):

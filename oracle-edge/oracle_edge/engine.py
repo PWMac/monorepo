@@ -11,7 +11,8 @@ from .market import Macro, Regime
 from .metrics import build_statement, compute, data_years, valuation_inputs
 from .metrics_fin import compute_bank, compute_insurer, financial_valuation_inputs
 from .rules import Profile, confidence, gate_margin, level_score, quality_from, score_rule
-from .valuation import predictability_mos, rank_score, value, value_enhanced, value_financial, value_score
+from .valuation import (predictability_mos, rank_score, value, value_driver, value_enhanced, value_financial,
+                        value_score)
 
 
 # ================================================================== price book
@@ -414,6 +415,8 @@ def split_scale(vi: dict, f: float) -> dict:
     out["eps_by_fy"] = {y: e / f for y, e in (vi.get("eps_by_fy") or {}).items()}
     if out.get("shares"):
         out["shares"] = out["shares"] * f
+    if out.get("vd_shares"):
+        out["vd_shares"] = out["vd_shares"] * f
     return out
 
 
@@ -438,7 +441,33 @@ def _foreign_scale(vi: dict, info: dict, d: str, macro, pb_fy_dates) -> tuple[di
     out["eps_by_fy"] = eps
     if out.get("shares"):
         out["shares"] = out["shares"] / ratio  # number of traded shares (ADS) equivalent
+    out["vd_ps_mult"] = f  # value-driver: reporting currency per ordinary share -> US$ per traded share
     return out, ""
+
+
+def ttm_inputs(qs, vi: dict, split_factor: float = 1.0) -> dict | None:
+    """The latest 10-Q's trailing-twelve-month sales and operating profit (adjusted like the annual figures: R&D
+    as an investment, the interest part of leases) and balance sheet, for the value-driver model."""
+    if not qs:
+        return None
+    m = json.loads(qs["metrics_json"] or "{}")
+    if not m.get("ttm_revenue") or m.get("ttm_operating_income") is None:
+        return None
+    from .metrics import LEASE_RATE
+
+    oi = m["ttm_operating_income"]
+    rd = vi.get("vd_rnd") or {}
+    if rd.get("capitalized") and m.get("ttm_rnd") is not None and rd.get("amort") is not None:
+        oi += abs(m["ttm_rnd"]) - rd["amort"]
+    lease = m.get("op_lease_liability")
+    if lease is None:
+        lease = (vi.get("vd_claims") or {}).get("leases")
+    oi += LEASE_RATE * (lease or 0.0)
+    cash = None
+    if m.get("cash") is not None:
+        cash = m["cash"] + (m.get("st_investments") or 0.0)
+    return {"sales": m["ttm_revenue"], "oi": oi, "cash": cash, "debt": m.get("debt"), "leases": lease,
+            "shares": (m["shares"] * split_factor) if m.get("shares") else None, "period_end": m.get("period_end")}
 
 
 def evaluate(date: str, profile: Profile, snaps: SnapshotBook, pb: PriceBook, regime: Regime,
@@ -500,6 +529,13 @@ def evaluate(date: str, profile: Profile, snaps: SnapshotBook, pb: PriceBook, re
         gate_c = mos_gate
         if category in ("bank", "insurer"):
             v = value_financial(price, vi, st, regime.t30, mos_gate, fyp)
+        elif st.get("valuation_model") == "value_driver":
+            qv = snaps.quarterly(cik, date, s["filed"]) if not foreign else None
+            ttm = ttm_inputs(qv, vi, snaps.splits.factor(t, qv["filed"]) if qv else 1.0)
+            from . import estimates
+
+            est = estimates.asof(t, date) if not foreign else None
+            v = value_driver(price, vi, st, mos_gate, fyp, ttm, est)
         elif st.get("valuation_model") == "enhanced":
             gate_c = predictability_mos(mos_gate, vi, st)
             v = value_enhanced(price, vi, st, regime.t30, gate_c, fyp)
@@ -541,7 +577,9 @@ def evaluate(date: str, profile: Profile, snaps: SnapshotBook, pb: PriceBook, re
                         detail={"iv_a": v.iv_a, "iv_b": v.iv_b, "er_a": v.er_a, "er_b": v.er_b, "r": v.discount_rate,
                                 "g": v.growth, "exit_pe": v.exit_pe, "ey": v.earnings_yield, "pepg": v.pepg,
                                 "mcap": mcap, "dvol": dvol,
-                                "model_a": "ROE-justified price-to-book" if category != "standard" else "Owner-earnings DCF",
+                                "model_a": "ROE-justified price-to-book" if category != "standard" else (
+                                    "Value-driver DCF" if (v.extra or {}).get("model") == "value_driver"
+                                    else "Owner-earnings DCF"),
                                 "qflags": qflags, "qfiled": base["qfiled"], "category": category,
                                 "gate_margin": s["gate_margin"], "gate_margin_rule": base["gate_margin_rule"],
                                 **({"valuation": v.extra, "mos_gate": gate_c} if v.extra else {})},

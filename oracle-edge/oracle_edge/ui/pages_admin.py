@@ -535,6 +535,18 @@ def data_page():
                               on_click=lambda: _launch("initial_load", {"resume": True})).props("unelevated")
                 ui.button("Re-run first-time load", on_click=lambda: _launch("initial_load")).props("outline")
                 ui.button("Run daily update now", on_click=lambda: _launch("daily", {"force": True})).props("outline")
+            with ui.row().classes("items-center gap-4 pt-2"):
+                ui.switch("Prices for every company (not just the shortlist)", value=bool(db.cfg("prices_all", True)),
+                          on_change=lambda e: db.set_cfg("prices_all", bool(e.value)))
+                ui.button("Download missing price histories now", icon="download",
+                          on_click=lambda: _launch("prices_all")).props("flat")
+                ui.switch("Analyst estimates for holdings and the shortlist (daily)",
+                          value=bool(db.cfg("analyst_estimates", True)),
+                          on_change=lambda e: db.set_cfg("analyst_estimates", bool(e.value)))
+            ui.label("Every company's prices make research and backtests complete and give new candidates a full "
+                     "history; the first download is a few thousand tickers (the daily update does it on its own "
+                     "if you don't). Estimates come from Yahoo Finance, one copy a day, so the app builds its own "
+                     "record of how they change.").classes("oe-small")
             jl = db.rows("SELECT * FROM jobs ORDER BY id DESC LIMIT 8")
             for r in jl:
                 ui.label(f"#{r['id']} {r['kind']} · {r['status']} · {(r['started_at'] or '')[:16]} → "
@@ -719,10 +731,17 @@ def profiles_page(pid: int | None = None):
                 rosb = ui.number("…when VIX > 30, buy %", value=100 * float(st.get("overlay_stress_buy", 0.10)),
                                  format="%.0f", min=0, max=100).props("outlined dense").classes("w-44")
             with ui.row().classes("gap-3 items-end"):
-                rvm = ui.select({"classic": "Classic valuation", "enhanced": "Enhanced valuation (incremental ROIC, "
-                                 "normalized earnings, dilution, maintenance capex, bear/base/bull)"},
+                rvm = ui.select({"classic": "Classic valuation (lower of two models)",
+                                 "value_driver": "Value-driver (one model, one required return; 0.16)",
+                                 "enhanced": "Enhanced valuation (incremental ROIC, normalized earnings, dilution, "
+                                             "maintenance capex, bear/base/bull)"},
                                 value=st.get("valuation_model", "classic"), label="Valuation").props(
                     "outlined dense").classes("w-[520px]")
+                rvr = ui.number("Required return % (value-driver; blank = the hurdle)",
+                                value=_pct(st.get("vd_required_return")), format="%.1f", min=4, max=25).props(
+                    "outlined dense clearable").classes("w-72")
+                rvg = ui.number("Growth cap %", value=100 * float(st.get("vd_growth_cap", 0.12)), format="%.0f",
+                                min=0, max=30).props("outlined dense").classes("w-32")
                 rpm = ui.switch("Bigger margin of safety for less predictable earnings",
                                 value=bool(st.get("predictability_mos")))
                 rdw = ui.switch("Extra early warnings (ROIC, margins, receivables, inventory, acquisitions, stock pay)",
@@ -783,6 +802,8 @@ def profiles_page(pid: int | None = None):
                     "fund_extra_slots": int(pfx.value or 0),
                     "fund_trim_max": round(float(pft.value if pft.value is not None else 34) / 100, 6),
                     "fund_min_hold_days": int(pfh.value or 0),
+                    "vd_required_return": round(float(rvr.value) / 100, 6) if rvr.value not in (None, "") else None,
+                    "vd_growth_cap": round(float(rvg.value if rvg.value is not None else 12) / 100, 6),
                     "max_position": round(float(rmp.value) / 100, 6) if rmp.value not in (None, "") else None,
                     "max_sector": round(float(rms.value) / 100, 6) if rms.value not in (None, "") else None,
                     "max_correlated": round(float(rmc.value) / 100, 6) if rmc.value not in (None, "") else None,
