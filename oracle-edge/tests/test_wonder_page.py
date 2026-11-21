@@ -132,3 +132,31 @@ def test_stock_page_evaluates_untracked_companies_on_the_spot():
     assert evaluate_one(987654321, rules.default_profile()) is None  # unknown company: nothing, no error
     svg = valuecard.value_line_html(15.6, 19.5, 22.7, 26.2, 17.0, None)
     assert 'y="13"' in svg and 'y="30"' in svg  # today's price and buy-below labels never collide
+
+
+def test_background_ceo_grading_saves_real_answers_only(monkeypatch):
+    import time
+
+    from oracle_edge.sources import company, wikidata
+
+    monkeypatch.setattr(company, "get", lambda t, refresh=False: {"officers": []})
+    monkeypatch.setattr(wikidata, "ceos", lambda cik, t: None)  # Wikidata unreachable
+    monkeypatch.setattr(wikidata, "companies_led", lambda *a, **k: [])
+    with db.tx() as con:
+        con.execute("DELETE FROM ceo_grades WHERE cik IN (990010, 990011)")
+    assert ceo.queue_grades([(990010, "ZZA")]) == 1
+    for _ in range(50):
+        if not ceo.grading_status()["running"]:
+            break
+        time.sleep(0.1)
+    assert 990010 not in ceo.graded_since([990010])  # unreachable: nothing saved, tried again later
+    monkeypatch.setattr(wikidata, "ceos", lambda cik, t: [])  # reachable, but no CEO on record
+    ceo.queue_grades([(990011, "ZZB")])
+    for _ in range(50):
+        if not ceo.grading_status()["running"]:
+            break
+        time.sleep(0.1)
+    g = ceo.graded_since([990011])[990011]
+    assert g["grade"] is None and g["note"] == "CEO not found"
+    with db.tx() as con:
+        con.execute("DELETE FROM ceo_grades WHERE cik IN (990010, 990011)")

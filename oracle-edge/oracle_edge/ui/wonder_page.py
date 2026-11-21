@@ -17,7 +17,7 @@ from collections import Counter
 
 from nicegui import app, ui
 
-from .. import db, rules, wonderful
+from .. import ceo, db, rules, wonderful
 from .layout import empty, frame
 from .wonder import (_BIL, _NUM0, _SPARK, _X, _TREND_TIP, _Y70, _c, _compare, history_chart,
                      ranking_rows, trend_facts)
@@ -185,7 +185,7 @@ _PILLARS_MINI = """p => {
 
 _CEO = """p => {
   const r = p.data || {};
-  if (!r.ceo_grade) return `<span style="color:#9aa5a0;font-size:12px">${r.ceo_note ? '—' : ''}</span>`;
+  if (!r.ceo_grade) return `<span style="color:#9aa5a0;font-size:12px">${r.ceo_tried ? '—' : 'rating…'}</span>`;
   const c = {A: '#1f6f4a', B: '#3c8d5f', C: '#8A5A12', D: '#d9822b', F: '#a33a2b'}[r.ceo_grade] || '#6b7280';
   return `<span style="display:inline-block;min-width:20px;text-align:center;background:${c};color:#fff;border-radius:4px;
     font-weight:700;padding:0 5px">${r.ceo_grade}</span> <span style="font-size:12px;color:#4b5563">${p.value == null ? '' : p.value.toFixed(0)}</span>`;
@@ -256,8 +256,8 @@ def columns(bar: float) -> tuple[list[dict], dict[str, list[str]]]:
     mgmt = [
         {"field": "ceo_score", "headerName": "Grade", "width": 100, "minWidth": 100, ":cellRenderer": _CEO,
          "headerTooltip": "The CEO's track record grade (A–F; career, weighted by years at each company). Hover for "
-                          "the name. Graded in the background, 40 a day, best companies first; opening a stock's "
-                          "Wonderful? tab grades it at once.", ":tooltipValueGetter": _CEO_TIP,
+                          "the name. The Screener grades the companies in view in the background as you look "
+                          "(\"rating…\" until done); the daily update does 150 more a day.", ":tooltipValueGetter": _CEO_TIP,
          "filter": "agNumberColumnFilter", "type": "rightAligned"},
         _c("ceo_name", "Name", None, 170, columnGroupShow="open"),
         _c("ceo_since", "Since", None, 80, columnGroupShow="open"),
@@ -643,7 +643,8 @@ def screener_page(compare: str = "", view: str = "both"):
                         ui.separator()
                         ui.switch("Trend arrows in cells", value=arrows["on"],
                                   on_change=lambda e: set_arrows(e.value)).classes("px-3 pb-2")
-        g = ui.aggrid({"columnDefs": cols, "rowData": [], "context": ctx,
+        ceo_status = ui.label("").classes("oe-small")
+        g = ui.aggrid({"columnDefs": cols, "rowData": [], "context": ctx, ":getRowId": "p => p.data.ticker",
                        "defaultColDef": {"sortable": True, "resizable": True, "filter": True, "wrapHeaderText": True,
                                          "autoHeaderHeight": True},
                        "rowHeight": 36, "suppressCellFocus": True, "tooltipShowDelay": 300, "multiSortKey": "shift",
@@ -655,6 +656,34 @@ def screener_page(compare: str = "", view: str = "both"):
                  "before), green when it's an improvement, red when it isn't; no arrow = steady. Hover a cell for its "
                  "yearly history. Click a ticker or name to open the stock in a new tab. Group headers with ‹ › "
                  "open and close; the Columns menu hides whole groups.").classes("oe-small")
+
+        by_cik = {r["cik"]: r for r in rows}
+
+        def ceo_tick():
+            """Fill in CEO grades as the background grader finishes them; say how far it has got."""
+            stt = ceo.grading_status()
+            waiting = [r["cik"] for r in rows if not r.get("ceo_tried")]
+            got = ceo.graded_since(waiting)
+            changed = []
+            for cik, gr in got.items():
+                r = by_cik[cik]
+                r.update(ceo_grade=gr.get("grade"), ceo_score=gr.get("score"), ceo_name=gr.get("name") or "",
+                         ceo_since=(gr.get("start") or "")[:4], ceo_basis=gr.get("basis") or "",
+                         ceo_note=gr.get("note") or "", ceo_tried=True)
+                changed.append(r)
+            if changed:
+                g.run_grid_method("applyTransaction", {"update": changed})
+            left = sum(1 for r in rows if not r.get("ceo_tried"))
+            if stt["running"]:
+                ceo_status.text = (f"Rating CEOs in the background: {stt['pending']:,} to go (now {stt['current'] or '…'}). "
+                                   "Each needs a few Wikidata and Yahoo look-ups; the CEO column fills in as they arrive, "
+                                   "best companies first.")
+            elif left and stt["failed"] and not stt["done"]:
+                ceo_status.text = ("CEO grades couldn't be looked up (offline, or Wikidata/Yahoo unreachable); they'll be "
+                                   "tried again on the next visit and in the daily update.")
+            else:
+                ceo_status.text = ""
+        ui.timer(4.0, ceo_tick)
 
         def show_group(gid, visible):
             h = set(store.get("wonder_hidden") or [])
@@ -684,6 +713,8 @@ def screener_page(compare: str = "", view: str = "both"):
                            f"{n['notwonder']:,} pass the checklist but aren't wonderful")
             g.options["rowData"] = xs
             g.run_grid_method("setGridOption", "rowData", xs)
+            # grade the CEOs of the companies in view first (best first), then the rest of the wonderful ones
+            ceo.queue_grades([(r["cik"], r["ticker"]) for r in xs if not r.get("ceo_tried")][:400], front=True)
             chart.options.clear()
             chart.options.update(map_options(allx, {r["ticker"] for r in xs}, bar))
             chart.update()

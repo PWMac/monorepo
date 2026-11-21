@@ -307,7 +307,10 @@ def assess(cik: int, ticker: str) -> dict:
         res["tenures"] = career_tenures(cik, ticker, cur, led)
         res["record"] = res["tenures"][0]["record"]
         res["career"] = career(res["tenures"])
-    save_grade(cik, res)
+    # save only a real answer: when Wikidata couldn't be reached, a missing CEO means "unknown", not "none"
+    res["saved"] = bool(res.get("wikidata_ok") or (cur or {}).get("source") == "you")
+    if res["saved"]:
+        save_grade(cik, res)
     return res
 
 
@@ -349,3 +352,68 @@ def to_rate(min_score: float = 60.0, max_age_days: int = 30, profile=None) -> li
         "SELECT w.cik, s.ticker FROM wonder w JOIN securities s ON s.cik=w.cik LEFT JOIN ceo_grades g ON g.cik=w.cik "
         "WHERE w.profile_id=? AND w.cohort='now' AND w.score>=? AND s.ticker IS NOT NULL "
         "AND (g.updated_at IS NULL OR g.updated_at < ?) ORDER BY w.score DESC", (p.snap[0], min_score, old))]
+
+
+# ---------------------------------------------------------------- background grading (the Screener fills in as you watch)
+import threading as _threading  # noqa: E402
+
+_Q: list[tuple[int, str]] = []
+_LOCK = _threading.Lock()
+_STATE = {"running": False, "done": 0, "failed": 0, "current": None, "started": None}
+
+
+def queue_grades(items: list[tuple[int, str]], front: bool = True) -> int:
+    """Grade these companies' CEOs in a background thread, in order (front = before anything already waiting).
+    Returns how many were added. Companies already waiting aren't added twice."""
+    with _LOCK:
+        waiting = {c for c, _ in _Q}
+        new = [(c, t) for c, t in dict.fromkeys(items) if c not in waiting and t]
+        if front:
+            _Q[:0] = new
+        else:
+            _Q.extend(new)
+        if new and not _STATE["running"]:
+            _STATE.update(running=True, started=db.now())
+            _threading.Thread(target=_worker, daemon=True, name="oe-ceo-grades").start()
+    return len(new)
+
+
+def _worker() -> None:
+    import time
+
+    while True:
+        with _LOCK:
+            if not _Q:
+                _STATE.update(running=False, current=None)
+                return
+            cik, t = _Q.pop(0)
+            _STATE["current"] = t
+        try:
+            if assess(cik, t).get("saved"):
+                _STATE["done"] += 1
+            else:
+                _STATE["failed"] += 1
+        except Exception as e:  # offline, or Wikidata/Yahoo changed: note it and carry on
+            _STATE["failed"] += 1
+            try:
+                db.log("ceo", "grade", False, f"{t}: {e}"[:200])
+            except Exception:
+                pass
+        time.sleep(0.2)  # be gentle with Wikidata
+
+
+def grading_status() -> dict:
+    with _LOCK:
+        return {"pending": len(_Q), **_STATE}
+
+
+def graded_since(ciks: list[int]) -> dict[int, dict]:
+    """The stored grades of these companies (for refreshing the Screener)."""
+    if not ciks:
+        return {}
+    out = {}
+    for i in range(0, len(ciks), 500):
+        chunk = ciks[i:i + 500]
+        for r in db.rows(f"SELECT * FROM ceo_grades WHERE cik IN ({','.join('?' * len(chunk))})", chunk):
+            out[r["cik"]] = dict(r)
+    return out

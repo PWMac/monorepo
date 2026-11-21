@@ -548,7 +548,7 @@ def data_page():
             ui.label("Every company's prices make research and backtests complete and give new candidates a full "
                      "history; the first download is a few thousand tickers (the daily update does it on its own if "
                      "you don't). Estimates come from Yahoo Finance, one copy a day, so the app builds its own record "
-                     "of how they change. CEO grades for the Screener are worked out 40 a day in the daily update; "
+                     "of how they change. CEO grades for the Screener are worked out as you view it and 150 a day in the daily update; "
                      "'Rate CEOs now' does them all (a few Wikidata and Yahoo look-ups each, so allow a while)."
                      ).classes("oe-small")
             with ui.row().classes("items-center gap-4 pt-2"):

@@ -700,7 +700,7 @@ def ranking_rows(prof) -> list[dict]:
                     "streak70": t.get("streak_70", 0), "hist": hist, "hy0": hy0, "tr": h.get("tr") or {},
                     "ceo_grade": g.get("grade"), "ceo_score": g.get("score"), "ceo_name": g.get("name") or "",
                     "ceo_since": (g.get("start") or "")[:4], "ceo_basis": g.get("basis") or "",
-                    "ceo_note": g.get("note") or ("" if g else "not rated yet"),
+                    "ceo_note": g.get("note") or ("" if g else "not rated yet"), "ceo_tried": bool(g),
                     "v_price": v.get("price"), "v_iv": v.get("iv"), "v_low": v.get("low"), "v_high": v.get("high"),
                     "v_er": v.get("er"), "v_mos": v.get("mos"), "v_required": v.get("required"),
                     "v_buy": (v["price"] <= v["buy_below"]) if v.get("buy_below") else None,

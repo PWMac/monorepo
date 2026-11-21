@@ -156,7 +156,8 @@ def values_job(job) -> str:
 
 def ceo_grades_job(job, limit: int | None = None) -> str:
     """Grade the CEO of every company with Wonderfulness 60+ that has no grade (or one older than 30 days), best
-    first. Each needs a few Wikidata and Yahoo look-ups, so the daily update does at most 40 a day."""
+    first. Each needs a few Wikidata and Yahoo look-ups, so the daily update does at most 150 a day (the Screener
+also grades the companies you're looking at, as you look)."""
     from . import ceo
 
     todo = ceo.to_rate()[: limit or None]
@@ -579,7 +580,7 @@ def daily_run(job, force: bool = False, send_email: bool = True, do_backup: bool
     db.set_cfg("last_price_fetch", {"at": db.now(), "missing": res["missing"][:200]})
     if db.cfg("ceo_grades_daily", True):
         try:  # CEO grades for the ranking page, a few a day (Wikidata look-ups)
-            ceo_grades_job(job, limit=40)
+            ceo_grades_job(job, limit=150)
         except Exception as e:
             db.log("ceo", "grades", False, str(e)[:200])
     if db.cfg("analyst_estimates", True):
