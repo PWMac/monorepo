@@ -50,6 +50,36 @@ def cagr(first, last, years):
     return (last / first) ** (1 / years) - 1
 
 
+def years_between(a: str, b: str) -> float:
+    """Years between two fiscal-year ends, from the dates (a gap in the record isn't counted as one year)."""
+    from datetime import date as _d
+
+    return (_d.fromisoformat(b) - _d.fromisoformat(a)).days / 365.25
+
+
+def _mid(dates: list[str]) -> str:
+    from datetime import date as _d, timedelta as _td
+
+    ds = [_d.fromisoformat(x) for x in dates]
+    base = ds[0]
+    return (base + _td(days=sum((x - base).days for x in ds) / len(ds))).isoformat()
+
+
+def fiscal_year_ends(ends) -> list[tuple[str, list[str]]]:
+    """Group fiscal-year end dates into fiscal years: ends within 20 days of each other are the same year reported
+    with slightly different dates (52/53-week calendars, a tag using the 31st and another the 30th). Two years
+    ending in the same calendar year (Jan 1 and Dec 31) stay separate. Returns [(canonical end = latest, members)]."""
+    from datetime import date as _d
+
+    groups: list[list[str]] = []
+    for e in sorted(set(ends)):
+        if groups and (_d.fromisoformat(e) - _d.fromisoformat(groups[-1][-1])).days <= 20:
+            groups[-1].append(e)
+        else:
+            groups.append([e])
+    return [(g[-1], g) for g in groups]
+
+
 def slope(xs):
     pts = [(i, x) for i, x in enumerate(xs) if x is not None]
     if len(pts) < 3:
@@ -84,16 +114,31 @@ def build_statement(state: dict[tuple[str, str], float], lookback: int) -> dict:
     by_item: dict[str, dict[str, float]] = {}
     for (item, fy), v in state.items():
         by_item.setdefault(item, {})[fy] = v
-    years = sorted(set(by_item.get("net_income", {})) | set(by_item.get("revenue", {})))
-    # collapse near-duplicate year ends (52/53-week calendars): keep one per calendar year of end date
-    seen, uniq = {}, []
-    for y in years:
-        seen[y[:4]] = y
-    uniq = sorted(seen.values())
-    years = uniq[-lookback:]
+    # one entry per fiscal year: near-duplicate ends (52/53-week calendars) merge, the latest date stands for the year
+    groups = fiscal_year_ends(set(by_item.get("net_income", {})) | set(by_item.get("revenue", {})))[-lookback:]
+    years = [canon for canon, _ in groups]
     s: dict = {"years": years}
+    # each fiscal year owns the dates from 20 days before its first member to 20 days after its last; an item
+    # reported on any of them belongs to that year (the canonical date, then other members, then nearest wins)
+    from bisect import bisect_right
+    from datetime import date as _d, timedelta as _td
+
+    lo = [(_d.fromisoformat(g[0]) - _td(days=20)).isoformat() for _, g in groups]
+    hi = [(_d.fromisoformat(g[-1]) + _td(days=20)).isoformat() for _, g in groups]
+    members = [set(g) for _, g in groups]
     for item, m in by_item.items():
-        s[item] = [m.get(y) for y in years]
+        best: dict[int, tuple[int, str, float]] = {}
+        for k, v in m.items():
+            if v is None:
+                continue
+            j = bisect_right(lo, k) - 1
+            if j < 0 or k > hi[j]:
+                continue
+            pr = 2 if k == years[j] else (1 if k in members[j] else 0)
+            cur = best.get(j)
+            if cur is None or (pr, k) > (cur[0], cur[1]):
+                best[j] = (pr, k, v)
+        s[item] = [best[j][2] if j in best else None for j in range(len(years))]
     for item in ("revenue", "cogs", "gross_profit", "sga", "selling_marketing", "rnd", "da", "interest",
                  "operating_income", "pretax_income", "income_tax", "net_income", "eps_diluted", "shares_diluted",
                  "ocf", "capex", "dividends_paid", "buybacks", "cash", "st_investments", "lt_debt", "st_debt",
@@ -106,6 +151,7 @@ def build_statement(state: dict[tuple[str, str], float], lookback: int) -> dict:
     for item in concept_map():
         s.setdefault(item, [None] * len(years))
     n = len(years)
+    fix_share_scale(s)  # on the reported figures, before anything is derived from the share count
     for i in range(n):
         if s["gross_profit"][i] is None and s["revenue"][i] is not None and s["cogs"][i] is not None:
             s["gross_profit"][i] = s["revenue"][i] - s["cogs"][i]
@@ -139,6 +185,47 @@ def build_statement(state: dict[tuple[str, str], float], lookback: int) -> dict:
         (a or 0) + (b or 0) if (a is not None or b is not None) else 0.0 for a, b in zip(s["lt_debt"], s["st_debt"])
     ]
     return s
+
+
+SCALES = (1e3, 1e6, 1e-3, 1e-6)
+
+
+def fix_share_scale(s: dict) -> int:
+    """Some filers tag a year's share count in thousands or millions while the unit says shares (one company's
+    273 million shares arrive as 273,298), which makes every per-share figure 1,000x off. Net income ÷ EPS gives
+    the share count implied by the same filing: a reported count that is a thousand or million times that is
+    rescaled; one that disagrees for another reason is replaced by the implied count. Years without EPS are
+    checked against the other years' median. Returns how many years were corrected."""
+    n = len(s["years"])
+    sh, ni, eps = s["shares_diluted"], s["net_income"], s["eps_diluted"]
+    fixed = 0
+    for i in range(n):
+        if not sh[i] or not ni[i] or eps[i] is None or abs(eps[i]) < 0.05:
+            continue
+        implied = ni[i] / eps[i]
+        if implied <= 0:
+            continue
+        r = sh[i] / implied
+        if 0.5 <= r <= 2.0:
+            continue
+        for k in SCALES:
+            if 0.67 <= r / k <= 1.5:
+                sh[i] = sh[i] / k
+                break
+        else:
+            sh[i] = implied
+        fixed += 1
+    good = sorted(v for v in sh if v)
+    if len(good) >= 3:
+        med = good[len(good) // 2]
+        for i in range(n):
+            if sh[i] and not (0.1 <= sh[i] / med <= 10):
+                for k in SCALES:
+                    if 0.25 <= sh[i] / med / k <= 4:
+                        sh[i] = sh[i] / k
+                        fixed += 1
+                        break
+    return fixed
 
 
 def data_years(s) -> int:
@@ -197,7 +284,7 @@ def compute(s: dict, fy_prices: dict[str, float] | None = None) -> dict[str, Met
         first_idx = next((i for i, e in enumerate(eps) if e is not None and e > 0), None)
         last_idx = max(i for i, e in enumerate(eps) if e is not None)
         if first_idx is not None and last_idx > first_idx:
-            g = cagr(eps[first_idx], eps[last_idx], last_idx - first_idx)
+            g = cagr(eps[first_idx], eps[last_idx], years_between(y[first_idx], y[last_idx]))
             if g is None and eps[last_idx] is not None and eps[last_idx] <= 0:
                 g = -0.10
     ups = [1.0 if (eps[i] is not None and eps[i - 1] is not None and eps[i] > eps[i - 1]) else 0.0
@@ -248,7 +335,7 @@ def compute(s: dict, fy_prices: dict[str, float] | None = None) -> dict[str, Met
     sh_idx = [i for i, v in enumerate(sh) if v]
     sc = None
     if len(sh_idx) >= 3:
-        sc = cagr(sh[sh_idx[0]], sh[sh_idx[-1]], sh_idx[-1] - sh_idx[0])
+        sc = cagr(sh[sh_idx[0]], sh[sh_idx[-1]], years_between(y[sh_idx[0]], y[sh_idx[-1]]))
     out["share_change"] = MetricResult(sc, sh, y)
 
     pref = s["preferred_stock"][-1] if n else None
@@ -258,11 +345,14 @@ def compute(s: dict, fy_prices: dict[str, float] | None = None) -> dict[str, Met
     out["capex_to_ni"] = MetricResult(_med(capni), capni, y)
 
     oe = series(lambda i: (NI[i] + (s["da"][i] or 0) - (s["capex"][i] or 0)) if NI[i] is not None else None)
-    oe_c = [v for v in oe if v is not None]
+    oe_i = [i for i, v in enumerate(oe) if v is not None]
+    oe_c = [oe[i] for i in oe_i]
     oeg = None
     if len(oe_c) >= 6:
+        # average of the first three years vs the last three, compounded over the years between their middles
         a, b = _avg(oe_c[:3]), _avg(oe_c[-3:])
-        oeg = cagr(a, b, len(oe_c) - 3) if a and b else None
+        span = years_between(_mid([y[i] for i in oe_i[:3]]), _mid([y[i] for i in oe_i[-3:]]))
+        oeg = cagr(a, b, span) if a and b else None
         if oeg is None and b is not None and b <= 0:
             oeg = -0.10
     pos = [1.0 if v > 0 else 0.0 for v in oe_c]
@@ -355,8 +445,9 @@ def valuation_inputs(s: dict, m: dict[str, MetricResult]) -> dict:
     eps3 = _avg([e for e in eps[-3:] if e is not None])
     ebitda = [(s["operating_income"][i] + (s["da"][i] or 0)) if s["operating_income"][i] is not None else None
               for i in range(n)]
-    eb = [v for v in ebitda[-6:] if v is not None]
-    ebitda_g = cagr(eb[0], eb[-1], len(eb) - 1) if len(eb) >= 3 else None
+    eb_i = [i for i in range(max(0, n - 6), n) if ebitda[i] is not None]
+    ebitda_g = (cagr(ebitda[eb_i[0]], ebitda[eb_i[-1]], years_between(s["years"][eb_i[0]], s["years"][eb_i[-1]]))
+                if len(eb_i) >= 3 else None)
     eq_last = s["equity"][-1]
     enh = enhanced_inputs(s, m)
     return {
@@ -449,7 +540,7 @@ def enhanced_inputs(s: dict, m: dict) -> dict:
     dil = None
     if len(sh_idx) >= 3:
         k0 = sh_idx[max(0, len(sh_idx) - 6)]
-        dil = cagr(sh[k0], sh[sh_idx[-1]], sh_idx[-1] - k0)
+        dil = cagr(sh[k0], sh[sh_idx[-1]], years_between(s["years"][k0], s["years"][sh_idx[-1]]))
     sbc = s.get("sbc", [None] * n)
     fcf = [(s["ocf"][i] - (s["capex"][i] or 0)) if s["ocf"][i] is not None else None for i in range(n)]
     sbc_fcf = [(_div(sbc[i], fcf[i]) if (sbc[i] is not None and fcf[i] and fcf[i] > 0) else None) for i in range(n)]

@@ -151,8 +151,16 @@ class PortfolioSim:
             t = self.tk.get(s["cik"])
             px = self.pb.open_adj_on(t, d) if t else None
             if px is None or px <= 0:
-                # no bar today: try again tomorrow, unless the signal is >10 trading days old
-                continue
+                # no bar today: try again tomorrow. After 10 trading days (a delisting, a long halt) a sale fills
+                # at the last price there is and a purchase is dropped, so cash isn't tied up forever.
+                if t and len(self.pb.trading_days(BENCH, s["date"], d)) > 10:
+                    if s["type"] in ("SELL", "SWAP", "TRIM") and self.positions.get(s["cik"]):
+                        px = self.pb.adj(t, d)
+                    else:
+                        con.execute("UPDATE signals SET fill_price=0, units=0 WHERE id=?", (s["id"],))
+                        continue
+                if px is None or px <= 0:
+                    continue
             typ = s["type"]
             cik = s["cik"]
             pos = self.positions.get(cik)
@@ -242,7 +250,8 @@ class PortfolioSim:
     # ------------------------------------------------------------ 2. NAV
     def mark(self, d: str, flows_in: float, flows_out: float) -> None:
         v = self.total_on(d)
-        base = self.last_value + flows_in
+        # money added or taken out at the open (fills) is invested for the whole day: time-weighted daily return
+        base = self.last_value + flows_in - flows_out
         r = ((v - self.last_value - flows_in + flows_out) / base) if base > 0 else 0.0
         self.last_nav *= 1 + r
         b = self.pb.adj(BENCH, d)

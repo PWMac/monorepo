@@ -77,7 +77,9 @@ def holdings(run_id) -> list[dict]:
            LEFT JOIN badges b ON b.run_id=? AND b.portfolio_id=p.portfolio_id AND b.date=? AND b.cik=p.cik
            WHERE p.portfolio_id=?""", (run_id, d, pid))
     out = [dict(r) for r in rows]
-    tot = sum((r["units"] or 0) * (r["px"] or 0) for r in out) or 1
+    # weights are shares of the whole portfolio, cash included (focused portfolios hold cash as well)
+    cash = db.scalar("SELECT cash FROM portfolios WHERE id=? AND mode='focused'", (pid,)) or 0.0
+    tot = (sum((r["units"] or 0) * (r["px"] or 0) for r in out) + max(cash, 0.0)) or 1
     for r in out:
         r["value"] = (r["units"] or 0) * (r["px"] or 0)
         r["weight"] = r["value"] / tot
@@ -97,14 +99,15 @@ def stats(curve: list[dict]) -> dict:
     yrs = max((d1 - d0).days / 365.25, 1 / 365)
     nav = [c["nav"] for c in curve]
     bench = [c["bench_nav"] or 1 for c in curve]
-    cagr = nav[-1] ** (1 / yrs) - 1
+    cagr = (nav[-1] / nav[0]) ** (1 / yrs) - 1 if nav[0] else None
     bcagr = (bench[-1] / bench[0]) ** (1 / yrs) - 1 if bench[0] else None
     rets = [nav[i] / nav[i - 1] - 1 for i in range(1, len(nav)) if nav[i - 1]]
     mu = sum(rets) / len(rets) if rets else 0
     sd = math.sqrt(sum((r - mu) ** 2 for r in rets) / max(len(rets) - 1, 1)) if rets else 0
     sharpe = (mu * 252) / (sd * math.sqrt(252)) if sd else None
     dates = [c["date"] for c in curve]
-    return {"cagr": cagr, "bench_cagr": bcagr, "total": nav[-1] - 1, "bench_total": bench[-1] / bench[0] - 1,
+    return {"cagr": cagr, "bench_cagr": bcagr, "total": (nav[-1] / nav[0] - 1) if nav[0] else None,
+            "bench_total": bench[-1] / bench[0] - 1,
             "sharpe": sharpe, "max_dd": max_drawdown(nav), "bench_max_dd": max_drawdown(bench),
             "worst_12m": worst_12m(dates, nav), "bench_worst_12m": worst_12m(dates, bench), "years": yrs}
 
@@ -235,36 +238,53 @@ def stock_badge(run_id, cik):
                      WHERE b.run_id=? AND b.cik=? ORDER BY b.date DESC LIMIT 1""", (run_id, cik))
 
 
-def quiet_day_reasons(run_id, d, alerts: list[dict]) -> list[dict]:
-    """For a day with no actions: where each recently alerted stock stands and why it isn't a trade."""
+def quiet_day_reasons(run_id, d, alerts: list[dict], actions: list[dict] | None = None) -> list[dict]:
+    """Where each recently alerted stock stands on the latest close, and why the alert did or didn't lead to a
+    trade. One entry per stock: {cik, ticker, why, acted}."""
     out, seen = [], set()
     pid = db.scalar("SELECT id FROM portfolios WHERE run_id=? AND kind='model'", (run_id,))
     held = {r["cik"] for r in db.rows("SELECT cik FROM positions WHERE portfolio_id=?", (pid,))} if pid else set()
+    acted = {}
+    for x in actions or []:
+        acted.setdefault(x["cik"], x)
     for a in alerts:
         if a["cik"] in seen:
             continue
         seen.add(a["cik"])
+        if a["cik"] in acted:
+            x = acted[a["cik"]]
+            out.append({"cik": a["cik"], "ticker": a["ticker"], "acted": True, "date": a["date"],
+                        "why": f"Led to today's {x['type'].replace('_', ' ')} signal (see Actions above)."})
+            continue
+        sig = db.one("SELECT type, date FROM signals WHERE run_id=? AND cik=? AND date>=? ORDER BY date DESC LIMIT 1",
+                     (run_id, a["cik"], a["date"]))
+        if sig:
+            out.append({"cik": a["cik"], "ticker": a["ticker"], "acted": True, "date": a["date"],
+                        "why": f"Led to a {sig['type'].replace('_', ' ')} signal on {sig['date']}."})
+            continue
         b = db.one("SELECT badge, reason FROM badges WHERE run_id=? AND cik=? AND date=?", (run_id, a["cik"], d))
         e = db.one("SELECT list, buy_below FROM evaluations WHERE run_id=? AND cik=? AND date=?", (run_id, a["cik"], d))
         if a["kind"] == "trim":
-            why = "a trim level is informational; the model trims only when a holding grows past its size cap"
+            why = ("A trim level is a heads-up. The model trims only when the price stays at 2x value with a P/E "
+                   "twice its usual for 10 days running, or when a holding grows past its size cap.")
         elif str(a["kind"]).startswith("custom"):
-            why = "your own alert price: it isn't part of the model's rules"
+            why = "Your own alert price: it isn't part of the model's rules."
         elif a["state"] != "reached":
-            why = "approaching the target, not there yet"
+            why = "Approaching the target, not there yet."
         elif b and a["cik"] in held:
-            why = f"already in the model portfolio ({b['badge'].replace('_', ' ').lower()}: {b['reason'] or ''})"
+            why = f"Already in the model portfolio ({b['badge'].replace('_', ' ').lower()}: {b['reason'] or ''})."
         elif b:
             why = (b["reason"] or b["badge"]).replace("_", " ")
+            why = why[:1].upper() + why[1:] + "."
         elif e and e["list"] == "pricey":
-            why = "touched the level during the day but closed above the buy price"
+            why = "Touched the level during the day but closed above the buy price."
         elif e and e["list"] == "near":
-            why = "no longer passes every quality check (near miss)"
+            why = "No longer passes every quality check (a near miss), so it can't be bought."
         elif e and e["list"] == "pending":
-            why = "can't be valued today (missing price, exchange rate or share ratio)"
+            why = "Can't be valued today (missing price, exchange rate or share ratio)."
         else:
-            why = "not on today's Buy Zone list"
-        out.append({"ticker": a["ticker"], "why": why, "date": a["date"]})
+            why = "Not on today's Buy Zone list."
+        out.append({"cik": a["cik"], "ticker": a["ticker"], "why": why, "acted": False, "date": a["date"]})
     return out
 
 
@@ -278,12 +298,35 @@ def stock_value_history(run_id, cik) -> list[dict]:
         "SELECT date, iv, buy_below FROM evaluations WHERE run_id=? AND cik=? ORDER BY date", (run_id, cik))]
 
 
-def stock_signals(cik) -> list[dict]:
-    return [dict(r) for r in db.rows(
-        """SELECT g.*, r.name run_name, r.kind, e.rank_score, e.quality, e.mos FROM signals g
-           JOIN runs r ON r.id=g.run_id
+def stock_signals(cik, profile=None, run_id: int | None = None, limit: int | None = 50) -> list[dict]:
+    """A stock's signals without the noise: the live history and the backtests of the given profile's CURRENT
+    version (holdings tests and experiments, and backtests of older versions or other profiles, are left out).
+    With run_id: that run only."""
+    q = """SELECT g.*, r.name run_name, r.kind, r.settings_json, r.profile_id, e.rank_score, e.quality, e.mos
+           FROM signals g JOIN runs r ON r.id=g.run_id
            LEFT JOIN evaluations e ON e.run_id=g.run_id AND e.date=g.date AND e.cik=g.cik
-           WHERE g.cik=? ORDER BY g.date DESC LIMIT 50""", (cik,))]
+           WHERE g.cik=?"""
+    args: list = [cik]
+    if run_id is not None:
+        q += " AND g.run_id=?"
+        args.append(run_id)
+    elif profile is not None:
+        q += " AND r.profile_id=? AND r.kind IN ('live','backtest')"
+        args.append(profile.id)
+    else:
+        q += " AND r.kind IN ('live','backtest')"
+    q += " ORDER BY g.date DESC, g.id DESC" + (f" LIMIT {int(limit) * 4}" if limit else "")
+    out = []
+    for r in db.rows(q, args):
+        x = dict(r)
+        if profile is not None and run_id is None and x["kind"] == "backtest":
+            ver = (json.loads(x["settings_json"] or "{}")).get("profile_version")
+            if ver is not None and ver != profile.version:
+                continue  # a backtest of an older version of the profile
+        out.append(x)
+        if limit and len(out) >= limit:
+            break
+    return out
 
 
 def notes(cik) -> dict:
@@ -301,15 +344,37 @@ def save_notes(n: dict) -> None:
 
 
 def market_now() -> dict:
-    from ..market import regime_now
+    """Both Buffett Indicators: today's reading with the figures behind it, and their history."""
+    from datetime import date as _date
 
-    reg, m, _adj = regime_now()
-    hist = []
-    for d, _ in zip(*m.s.get("GDP", ([], []))):
-        r, _q = m.buffett_indicator(d)
-        if r:
-            hist.append({"date": d, "ratio": r})
-    return {"regime": reg, "history": hist, "t30_hist": list(zip(*m.s.get("DGS30", ([], []))))}
+    from ..market import _add_days, price_lookup, regime_now
+
+    reg, m, vti = regime_now()
+    today = _date.today().isoformat()
+    us = m.us_components(today, vti)
+    hist = m.us_history()
+    if us and hist and hist[-1]["date"] < today:
+        # after the last official quarter: the estimate, weekly up to today (each point uses the latest official
+        # figures moved forward by VTI's price and GDP's trend, the same method as today's reading)
+        est, x = [], hist[-1]["date"]
+        while True:
+            x = min(_add_days(x, 7), today)
+            c = m.us_components(x, vti, point_in_time=False)
+            if c:
+                est.append({"date": x, "equities": c["equities"], "gdp": c["gdp"], "ratio": c["ratio"],
+                            "estimate": True})
+            if x >= today:
+                break
+        if est:
+            est[-1].update(equities=us["equities"], gdp=us["gdp"], ratio=us["ratio"])
+        hist = hist + est
+    world = m.world_now(today, price_lookup("VT"))
+    whist = m.world_history()
+    if world and whist and whist[-1]["date"] < today:
+        whist = whist + [{"date": today, "equities": world["equities"], "gdp": world["gdp"], "ratio": world["ratio"],
+                          "estimate": True}]
+    return {"regime": reg, "us": us, "history": hist, "world": world, "world_history": whist,
+            "t30_hist": list(zip(*m.s.get("DGS30", ([], []))))}
 
 
 def search(q: str) -> list[dict]:

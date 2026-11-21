@@ -60,6 +60,9 @@ def test_fred_gives_up_and_falls_back_for_vix(monkeypatch):
         raise TimeoutError("The read operation timed out")
 
     monkeypatch.setattr(fred, "fetch_series", down)
+    from oracle_edge.sources import worldbank
+
+    monkeypatch.setattr(worldbank, "refresh", lambda: {})
     monkeypatch.setattr(fred, "vix_from_yahoo",
                         lambda start="1990-01-01": pd.DataFrame({"date": ["2026-11-19"], "value": [24.5]}))
     seen = []

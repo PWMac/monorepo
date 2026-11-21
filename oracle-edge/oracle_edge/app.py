@@ -88,6 +88,13 @@ def startup() -> None:
         apply_known_adr()
     except Exception as e:
         logging.getLogger("oracle_edge").warning("known ADR ratios not applied: %s", e)
+    try:  # Yahoo is now the first price source (actually-traded close + split dates); keep a choice the user made
+        from .sources import prices as _prices
+
+        if db.cfg("price_sources") == _prices.OLD_DEFAULT_ORDER:
+            db.set_cfg("price_sources", _prices.DEFAULT_ORDER)
+    except Exception as e:
+        logging.getLogger("oracle_edge").warning("price source order not updated: %s", e)
     if not db.cfg("stints_normalized_v1"):  # once: merge Buy Zone re-entries, add the S&P's same-year return
         try:
             from .pipeline import normalize_stints

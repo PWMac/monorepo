@@ -69,11 +69,31 @@ def beta(bars: list[dict], bench: list[dict], months: int = 60) -> float | None:
     return sum((x - ma) * (y - mb) for x, y in zip(ra, rb)) / var if var else None
 
 
-def annual(cik: int) -> dict[str, dict[str, float]]:
-    """item -> fiscal-year end -> value, from the latest filing for each year."""
+SPLIT_ITEMS = {"eps_diluted": -1, "shares_diluted": 1}  # per-share figures / split factor, share counts x factor
+
+
+def _splits():
+    from ..splits import Splits
+
+    return Splits()
+
+
+def _basis(item: str, v, filed: str, ticker: str | None, sp) -> float | None:
+    """A per-share figure or share count restated on today's share basis (as quote pages show history)."""
+    k = SPLIT_ITEMS.get(item)
+    if v is None or not k or not ticker or sp is None:
+        return v
+    f = sp.factor(ticker, filed)
+    return v * f if k > 0 else v / f
+
+
+def annual(cik: int, ticker: str | None = None, sp=None) -> dict[str, dict[str, float]]:
+    """item -> fiscal-year end -> value, from the latest filing for each year (EPS and share counts on today's
+    share basis when a ticker is given)."""
     out: dict[str, dict[str, float]] = {}
-    for r in db.rows("SELECT item, fy_end, value FROM facts WHERE cik=? ORDER BY filed", (cik,)):
-        out.setdefault(r["item"], {})[r["fy_end"]] = r["value"]
+    sp = sp if sp is not None else (_splits() if ticker else None)
+    for r in db.rows("SELECT item, fy_end, value, filed FROM facts WHERE cik=? ORDER BY filed", (cik,)):
+        out.setdefault(r["item"], {})[r["fy_end"]] = _basis(r["item"], r["value"], r["filed"], ticker, sp)
     return out
 
 
@@ -81,18 +101,20 @@ def _days(a: str, b: str) -> int:
     return (date.fromisoformat(b) - date.fromisoformat(a)).days
 
 
-def quarterly(cik: int, ann: dict | None = None) -> dict[str, dict[str, float]]:
+def quarterly(cik: int, ann: dict | None = None, ticker: str | None = None, sp=None) -> dict[str, dict[str, float]]:
     """item -> quarter end -> the three-month value. 10-Qs often report year-to-date figures (cash flow always
     does) and the fourth quarter only appears in the annual report, so quarters are rebuilt from year-to-date
     differences and Q4 = full year - nine months. Balance-sheet items are the quarter-end balances."""
-    ann = ann if ann is not None else annual(cik)
+    sp = sp if sp is not None else (_splits() if ticker else None)
+    ann = ann if ann is not None else annual(cik, ticker, sp)
     dur: dict[str, dict[tuple[str, str], float]] = {}
     inst: dict[str, dict[str, float]] = {}
-    for r in db.rows("SELECT item, start, end, value FROM qfacts WHERE cik=? ORDER BY filed", (cik,)):
+    for r in db.rows("SELECT item, start, end, value, filed FROM qfacts WHERE cik=? ORDER BY filed", (cik,)):
+        v = _basis(r["item"], r["value"], r["filed"], ticker, sp)
         if r["start"]:
-            dur.setdefault(r["item"], {})[(r["start"], r["end"])] = r["value"]
+            dur.setdefault(r["item"], {})[(r["start"], r["end"])] = v
         else:
-            inst.setdefault(r["item"], {})[r["end"]] = r["value"]
+            inst.setdefault(r["item"], {})[r["end"]] = v
     out: dict[str, dict[str, float]] = {}
     for item, vals in dur.items():
         q: dict[str, float] = {}
@@ -107,7 +129,9 @@ def quarterly(cik: int, ann: dict | None = None) -> dict[str, dict[str, float]]:
             prev = None
             for e, v in pts:
                 n = _days(s0, e)
-                if prev is not None and 150 <= n <= 300 and e not in q:
+                # 6 months - 3 months = Q2, 9 - 6 = Q3; only when the two runs end one quarter apart (a missing
+                # 6-month figure must not turn 9 - 3 months into a "quarter")
+                if prev is not None and 150 <= n <= 300 and e not in q and 80 <= _days(prev[0], e) <= 100:
                     q[e] = v - prev[1]
                 prev = (e, v)
             nine = [(e, v) for e, v in pts if 240 <= _days(s0, e) <= 300]
@@ -123,15 +147,18 @@ def quarterly(cik: int, ann: dict | None = None) -> dict[str, dict[str, float]]:
     return out
 
 
-def statements(cik: int, period: str = "annual", n: int = 6) -> tuple[list[str], dict[str, list]]:
-    ann = annual(cik)
-    src = ann if period == "annual" else quarterly(cik, ann)
+def statements(cik: int, period: str = "annual", n: int = 6, ticker: str | None = None) -> tuple[list[str], dict[str, list]]:
+    from ..metrics import fiscal_year_ends
+
+    sp = _splits() if ticker else None
+    ann = annual(cik, ticker, sp)
+    src = ann if period == "annual" else quarterly(cik, ann, ticker, sp)
     keys = set(src.get("revenue", {})) | set(src.get("net_income", {}))
-    if period == "annual":  # one column per calendar year of the fiscal-year end
-        seen = {}
-        for k in sorted(keys):
-            seen[k[:4]] = k
-        ends = sorted(seen.values())[-n:]
+    if period == "annual":  # one column per fiscal year (52/53-week year ends a few days apart are the same year)
+        ends = [canon for canon, _ in fiscal_year_ends(keys)][-n:]
+        src = {item: {canon: next((vals[m] for m in reversed(members) if m in vals), None)
+                      for canon, members in fiscal_year_ends(keys)}
+               for item, vals in src.items()}
     else:
         ends = sorted(k for k in keys if src.get("net_income", {}).get(k) is not None
                       or src.get("revenue", {}).get(k) is not None)[-n:]
@@ -172,12 +199,14 @@ def key_stats(s: dict, ev: dict | None, bars: list[dict], spy: list[dict]) -> di
         st["returns"] = period_returns(bars)
         st["spy_1y"] = dict(period_returns(spy)).get("1Y") if spy else None
     ratio = (s.get("adr_ratio") or 1.0) if s.get("is_foreign") else 1.0
-    sh = db.one("SELECT value, as_of FROM shares_out WHERE cik=? ORDER BY as_of DESC, filed DESC LIMIT 1", (cik,))
-    st["shares"] = sh["value"] / ratio if sh else None
+    sp = _splits()
+    sh = db.one("SELECT value, as_of, filed FROM shares_out WHERE cik=? ORDER BY as_of DESC, filed DESC LIMIT 1", (cik,))
+    # the cover-page share count is as of its own date: a split after it multiplies the count
+    st["shares"] = sh["value"] / ratio * sp.factor(s.get("ticker"), sh["as_of"]) if sh else None
     st["shares_as_of"] = sh["as_of"] if sh else None
     if st.get("close") and st["shares"]:
         st["market_cap"] = st["close"] * st["shares"]
-    ann = annual(cik)
+    ann = annual(cik, s.get("ticker"), sp)
     det = (ev or {}).get("detail") or {}
     if s.get("is_foreign"):  # local-currency filings: use the valuation's converted P/E
         pe = det.get("pe_now")
@@ -188,7 +217,8 @@ def key_stats(s: dict, ev: dict | None, bars: list[dict], spy: list[dict]) -> di
         m = json.loads(q["metrics_json"]) if q else {}
         fe, eps_fy = _latest(ann.get("eps_diluted"))
         if m.get("ttm_net_income") is not None and m.get("shares"):
-            st["eps"], st["pe_basis"] = m["ttm_net_income"] / m["shares"], f"trailing 12 months to {m.get('period_end') or q['period_end']}"
+            q_sh = m["shares"] * sp.factor(s.get("ticker"), q["filed"])  # 10-Q share count on today's basis
+            st["eps"], st["pe_basis"] = m["ttm_net_income"] / q_sh, f"trailing 12 months to {m.get('period_end') or q['period_end']}"
         else:
             st["eps"], st["pe_basis"] = eps_fy, f"fiscal year ended {fe}" if fe else ""
         st["pe"] = st["close"] / st["eps"] if st.get("close") and st.get("eps") and st["eps"] > 0 else None
@@ -473,7 +503,7 @@ def render(s: dict, ev: dict | None) -> None:
 
         def show():
             box.clear()
-            ends, sd = statements(s["cik"], per.value, int(span.value or 6))
+            ends, sd = statements(s["cik"], per.value, int(span.value or 6), s.get("ticker"))
             with box:
                 if not ends:
                     ui.label("No statements for this company yet." if per.value == "annual" else

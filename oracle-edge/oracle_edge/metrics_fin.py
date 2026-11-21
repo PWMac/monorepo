@@ -6,7 +6,7 @@ material; an insurer's "debt" is float. These metrics judge them the way the Ora
 
 from __future__ import annotations
 
-from .metrics import MetricResult, _avg, _clean, _div, _med, cagr
+from .metrics import MetricResult, _avg, _clean, _div, _med, cagr, years_between
 
 
 def _avg_base(xs, i):
@@ -100,14 +100,15 @@ def compute_insurer(s: dict) -> dict[str, MetricResult]:
     fl = [((s["loss_reserves"][i] or 0) + (s["unearned_premiums"][i] or 0))
           if (s["loss_reserves"][i] is not None or s["unearned_premiums"][i] is not None) else None for i in range(n)]
     idx = [i for i, v in enumerate(fl) if v]
-    fg = cagr(fl[idx[0]], fl[idx[-1]], idx[-1] - idx[0]) if len(idx) >= 3 else None
+    fg = cagr(fl[idx[0]], fl[idx[-1]], years_between(y[idx[0]], y[idx[-1]])) if len(idx) >= 3 else None
     ups = [1.0 if fl[i] > fl[i - 1] else 0.0 for i in range(1, n) if fl[i] and fl[i - 1]]
     out["float_growth"] = MetricResult(fg, fl, y, ok_years=(sum(ups) / len(ups)) if ups else None)
 
     sh = s["shares_diluted"]
     bv = [_div(EQ[i], sh[i]) for i in range(n)]
     bidx = [i for i, v in enumerate(bv) if v and v > 0]
-    out["bvps_growth"] = MetricResult(cagr(bv[bidx[0]], bv[bidx[-1]], bidx[-1] - bidx[0]) if len(bidx) >= 3 else None,
+    out["bvps_growth"] = MetricResult(cagr(bv[bidx[0]], bv[bidx[-1]], years_between(y[bidx[0]], y[bidx[-1]]))
+                                      if len(bidx) >= 3 else None,
                                       bv, y)
 
     pe = [_div(P[i], EQ[i]) for i in range(n)]

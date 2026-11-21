@@ -71,6 +71,26 @@ body {{ background: var(--bg); color: var(--ink);
 .oe-action {{ border:1px solid var(--line); border-radius:10px; padding:10px 12px; background:#fff; }}
 .body--dark .oe-action {{ background:#10241A; }}
 .oe-nav a {{ text-decoration:none; }}
+.oe-nav-group {{ font-size:11px; font-weight:700; letter-spacing:.08em; text-transform:uppercase; color:var(--muted);
+  padding:14px 14px 4px; }}
+.oe-nav-sep {{ height:1px; background:var(--line); margin:10px 12px 6px; }}
+.oe-nav-item {{ padding:8px 12px; margin:1px 6px; width:calc(100% - 12px) !important; border-radius:8px;
+  color:var(--ink); transition:background .12s; }}
+.oe-nav-item:hover {{ background:#e9f3ed; }}
+.oe-nav-icon {{ color:#1f6f4a; font-size:22px; }}
+.oe-nav-label {{ font-size:14px; }}
+.oe-nav-active {{ background:#dcefe4; font-weight:650; box-shadow:inset 3px 0 0 {GOLD}; }}
+.body--dark .oe-nav-item:hover {{ background:#163324; }}
+.body--dark .oe-nav-active {{ background:#1d4230; }}
+.q-drawer--mini .oe-nav-item {{ justify-content:center; padding:10px 0; width:44px !important; margin:2px auto; }}
+.oe-news-link {{ color:var(--ink); text-decoration:none; }}
+.oe-news-link:hover {{ color:#1f6f4a; text-decoration:underline; }}
+/* content uses the screen: fluid up to a very wide cap, with comfortable gutters */
+.oe-main {{ max-width:1920px; padding:20px clamp(12px, 2vw, 32px); }}
+/* KPI rows wrap into as many columns as fit instead of squeezing a fixed number */
+.oe-kpis {{ grid-template-columns:repeat(auto-fit, minmax(175px, 1fr)) !important; }}
+/* long descriptions keep a readable line length even on wide screens */
+.oe-muted {{ max-width:140ch; }}
 .q-drawer {{ background:#fbfaf7 !important; }}
 .body--dark .q-drawer {{ background:#0D1F15 !important; }}
 .ag-theme-quartz {{ --ag-font-family: inherit; --ag-font-size: 13.5px; --ag-header-background-color:#f0eee7;

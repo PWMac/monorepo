@@ -106,7 +106,7 @@ def test_quiet_day_reasons():
           {"cik": 7001, "ticker": "AAA", "kind": "limit", "state": "reached", "date": "2026-11-17"}]
     out = data.quiet_day_reasons(rid, "2026-11-19", al)
     assert [o["ticker"] for o in out] == ["AAA", "BBB"]
-    assert "all 7 slots" in out[0]["why"] and "approaching" in out[1]["why"]
+    assert "all 7 slots" in out[0]["why"] and "Approaching" in out[1]["why"] and not out[0]["acted"]
 
 
 def test_buffett_indicator_uses_nonfinancial_equities_and_quarter_end():
@@ -119,10 +119,17 @@ def test_buffett_indicator_uses_nonfinancial_equities_and_quarter_end():
                          ("GDP", "2026-04-01", 31_000.0)])
     m = Macro()
     r, q = m.buffett_indicator("2026-11-19")
-    assert q == "2026-04-01" and abs(r - 70_000 / 31_000) < 1e-9
+    # $70T of equities ($ millions in Z.1) over $31T of GDP ($ billions), dated at the quarter's last day
+    assert q == "2026-06-30" and abs(r - 70_000 / 31_000) < 1e-9
     seen = []
     r2, _ = m.buffett_indicator("2026-11-19", lambda d: seen.append(d) or 100.0)
     assert seen[0] == "2026-06-30"  # the level is as of the quarter's last day
+    c = m.us_components("2026-11-19", lambda d: 110.0 if d == "2026-11-19" else 100.0)
+    assert abs(c["equities"] - 70e12 * 1.1) < 1 and abs(c["gdp"] - 31e12) < 1 and abs(c["ratio"] - 77 / 31) < 1e-9
+    # point in time: Q2's Z.1 level is published about 75 days after June 30, GDP about 30 days after
+    assert m.buffett_indicator("2026-08-01") == (None, None)
+    assert m.buffett_indicator("2026-09-14")[1] == "2026-06-30"
+    assert m.buffett_indicator("2026-08-01", point_in_time=False)[1] == "2026-06-30"
 
 
 def test_episodes_and_scorecard():

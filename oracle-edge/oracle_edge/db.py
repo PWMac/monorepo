@@ -217,6 +217,13 @@ MIGRATIONS: list[str] = [
     ALTER TABLE stints ADD COLUMN reentries INTEGER DEFAULT 0;
     ALTER TABLE stints ADD COLUMN at_start INTEGER DEFAULT 0;
     """,
+    # ---- v12: stock splits (so per-share figures from older filings match split-adjusted prices); news cache ----
+    """
+    CREATE TABLE IF NOT EXISTS splits (
+        ticker TEXT, date TEXT, ratio REAL, source TEXT, PRIMARY KEY (ticker, date)) WITHOUT ROWID;
+    CREATE TABLE IF NOT EXISTS news_cache (
+        key TEXT PRIMARY KEY, fetched_at TEXT, items_json TEXT);
+    """,
 ]
 
 

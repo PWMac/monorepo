@@ -418,7 +418,7 @@ def data_page():
 
                 ui.timer(2, tick)
         last = h["last_daily"] or {}
-        with ui.grid(columns=4).classes("w-full gap-3"):
+        with ui.grid(columns=4).classes("w-full gap-3 oe-kpis"):
             kpi(f"{h['companies']:,}", "Companies in universe", f"{h['with_facts']:,} with SEC financials")
             kpi(f"{h['price_tickers']:,}", "Tickers with prices", f"latest {h['last_price'] or '—'}")
             kpi((last.get("through") or "—"), "Results through", f"{last.get('signals', 0)} new signals last run")
