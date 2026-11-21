@@ -9,7 +9,6 @@ from nicegui import run, ui
 
 from .. import ceo, db, rules, wonderful
 from ..sources import company
-from .charts import zoom_chart
 from .layout import empty, frame, kpi
 from .theme import money, num, pct
 
@@ -163,8 +162,15 @@ def header_chips(s: dict, prof) -> None:
         return
     with ui.row().classes("items-center gap-2"):
         if w:
-            ui.html(f"<span style='background:{TIER_COL.get(w['tier'])};color:#fff;border-radius:10px;padding:1px 9px;"
-                    f"font-size:12px'>Wonderfulness {w['score']:.0f} · {w['tier']}</span>", sanitize=False)
+            h = wonderful.history(s["cik"], prof)
+            t = wonderful.summarize([(x["fy"], x["score"]) for x in h])
+            arrow = ""
+            if t.get("chg") is not None:
+                sym, word, _ = TREND_WORD[t["dir"]]
+                arrow = f" {sym} {t['chg']:+.0f}"
+            ui.html(f"<span title='Change over the last 3 fiscal years: see the Wonderful? tab' style='background:"
+                    f"{TIER_COL.get(w['tier'])};color:#fff;border-radius:10px;padding:1px 9px;font-size:12px'>"
+                    f"Wonderfulness {w['score']:.0f} · {w['tier']}{arrow}</span>", sanitize=False)
         if q and q["quality"] is not None:
             ok = bool(q["gates_passed"]) and q["quality"] >= float(prof.settings.get("quality_min", 70))
             ui.html(f"<span style='border:1px solid {'#1f6f4a' if ok else '#a33a2b'};color:{'#1f6f4a' if ok else '#a33a2b'};"
@@ -180,24 +186,82 @@ def _quarter_flags(cik: int):
     return (r["filed"], fl) if fl else None
 
 
+TREND_WORD = {"up": ("▲", "rising", "#1f6f4a"), "down": ("▼", "falling", "#a33a2b"), "flat": ("▬", "steady", "#6b7280"),
+              "new": ("•", "new", "#9aa5a0")}
+
+
+def history_chart(h: list[dict], *, pillars: bool = True, compact: bool = False) -> dict:
+    """Wonderfulness, Quality and their average by fiscal year, on the tier bands; pillars hidden until clicked."""
+    labs = [x["fy"] for x in h]
+
+    def ser(name, key, color, width=2, dashed=False, shown=True, dec=1):
+        return {"type": "line", "name": name, "data": [None if x.get(key) is None else round(x[key], dec) for x in h],
+                "connectNulls": True, "showSymbol": not compact, "symbolSize": 6, "z": 3 if width > 2 else 2,
+                "lineStyle": {"width": width, "color": color, "type": "dashed" if dashed else "solid"},
+                "itemStyle": {"color": color}}
+    series = [ser("Wonderfulness", "score", "#1f6f4a", 3), ser("Quality", "quality", "#2c5d8f"),
+              ser("Average of both", "combined", "#c9a227", 2, dashed=True)]
+    series[0]["markArea"] = {"silent": True, "label": {"show": not compact,
+                             "position": "insideTopLeft", "fontSize": 10, "color": "#6b7280"},
+                             "data": [[{"name": "Exceptional 80+", "yAxis": 80, "itemStyle": {"color": "rgba(31,111,74,0.10)"}},
+                                       {"yAxis": 100}],
+                                      [{"name": "Wonderful 70–80", "yAxis": 70, "itemStyle": {"color": "rgba(201,162,39,0.08)"}},
+                                       {"yAxis": 80}]]}
+    selected = {"Wonderfulness": True, "Quality": True, "Average of both": True}
+    if pillars:
+        for p, c in (("moat", "#2c5d8f"), ("growth", "#c9a227"), ("strength", "#7a4f9e"), ("allocation", "#9aa5a0")):
+            name = "Pillar: " + wonderful.PILLAR_NAMES[p].split(":")[0]
+            series.append(ser(name, p, c, 1, dec=0))
+            selected[name] = False
+    ranks = [f"#{x['rank']:,} of {x['n']:,}" + (" (today)" if x.get("now") else "") if x.get("rank") else "" for x in h]
+    lo = min([x["score"] for x in h] + [x["quality"] for x in h if x.get("quality") is not None] + [70])
+    return {"tooltip": {"trigger": "axis", ":formatter":
+                        "ps => { const r = " + json.dumps(ranks) + "; let s = `<b>${ps[0].axisValue}</b>`"
+                        " + (r[ps[0].dataIndex] ? ` · rank ${r[ps[0].dataIndex]}` : ''); "
+                        "ps.forEach(p => { if (p.value != null) s += `<br>${p.marker}${p.seriesName}: <b>${p.value}</b>`; });"
+                        " return s; }"},
+            "legend": {"top": 0, "selected": selected, "type": "scroll"},
+            "grid": {"left": 40, "right": 16, "top": 36 if not compact else 30, "bottom": 28},
+            "xAxis": {"type": "category", "data": labs, "boundaryGap": False},
+            "yAxis": {"type": "value", "min": max(0, int(lo // 10 * 10) - 10), "max": 100},
+            "series": series}
+
+
+def trend_facts(h: list[dict]) -> list[str]:
+    """One-line facts under the history chart."""
+    if not h:
+        return []
+    t = wonderful.summarize([(x["fy"], x["score"]) for x in h])
+    out = [f"Wonderful or better (70+) in {t['years_70']} of {t['years']} years"]
+    last5 = [x["score"] for x in h[-5:]]
+    out.append(f"{sum(v >= 70 for v in last5)} of the last {len(last5)}")
+    out.append(f"first Exceptional: {t['first_80']}" if t["first_80"] else "never Exceptional (80+)")
+    if t.get("chg") is not None:
+        sym, word, _ = TREND_WORD[t["dir"]]
+        out.append(f"{sym} {word}: {t['chg']:+.0f} since {t['since']}")
+    qs = [(x["fy"], x["quality"]) for x in h if x.get("quality") is not None]
+    qt = wonderful.summarize(qs)
+    if qt.get("chg") is not None:
+        out.append(f"Quality {qt['chg']:+.0f} since {qt['since']}")
+    return out
+
+
 def _history(cik: int, prof) -> None:
     h = wonderful.history(cik, prof)
     if len(h) < 2:
         return
     with ui.card().classes("oe-card w-full"):
-        ui.label("Wonderfulness over time").classes("oe-h2")
-        ui.label("Each fiscal year scored against every company reporting that year. A steady or rising line is what "
-                 "a durable business looks like; a falling one is an early warning.").classes("oe-small")
-        series = [{"type": "line", "name": "Wonderfulness", "data": [[x["fy"], round(x["score"], 1)] for x in h],
-                   "lineStyle": {"width": 3, "color": "#1f6f4a"}, "itemStyle": {"color": "#1f6f4a"},
-                   "showSymbol": True}]
-        for p, c in (("moat", "#2c5d8f"), ("growth", "#c9a227"), ("strength", "#7a4f9e"), ("allocation", "#9aa5a0")):
-            series.append({"type": "line", "name": wonderful.PILLAR_NAMES[p].split(":")[0], "showSymbol": False,
-                           "data": [[x["fy"], round(x[p], 0)] for x in h if x.get(p) is not None],
-                           "lineStyle": {"width": 1, "color": c}, "itemStyle": {"color": c}})
-        zoom_chart({"tooltip": {"trigger": "axis"}, "legend": {"top": 0}, "xAxis": {"type": "time"},
-                    "yAxis": {"type": "value", "min": 0, "max": 100}, "series": series},
-                   height="h-72", name="wonderfulness-history")
+        ui.label("Score history").classes("oe-h2")
+        ui.label("Each fiscal year scored against every company reporting that year; the last point is today's score. "
+                 "Quality is the Oracle checklist score from that year's annual report. Click a legend entry to show the "
+                 "four pillars.").classes("oe-small")
+        with ui.row().classes("gap-2 pt-1"):
+            for f in trend_facts(h):
+                ui.label(f).classes("oe-small").style("background:#eef3f0;border-radius:10px;padding:1px 9px")
+        ui.echart(history_chart(h)).classes("w-full").style("height:320px")
+        ui.label("What it predicted (companies at 70+, fiscal years 2016–2022): of those that had also been 70+ in each of "
+                 "the four years before, 77% were still 70+ three years later; of those reaching 70+ for the first time, "
+                 "47%. Consistency mattered more than direction: a jump from lower down held only about 60% of the time.").classes("oe-small")
 
 
 def _capital(cik: int, w: dict) -> None:
@@ -467,6 +531,68 @@ _NUM0 = "p => p.value == null ? '' : p.value.toFixed(0)"
 _X = "p => p.value == null ? '' : p.value.toFixed(2) + '×'"
 _YRS = "p => p.value == null ? '' : p.value.toFixed(1) + ' yrs'"
 _BIL = "p => p.value == null ? '' : (p.value >= 1e12 ? '$' + (p.value / 1e12).toFixed(2) + 'T' : '$' + (p.value / 1e9).toFixed(1) + 'B')"
+_TREND_COLS = "{up: '#1f6f4a', down: '#a33a2b', flat: '#6b7280', new: '#9aa5a0'}"
+_TREND_SYMS = "{up: '▲', down: '▼', flat: '▬', new: '•'}"
+# the Trend cell: a sparkline of up to 10 years of Wonderfulness and the change over the last 3 fiscal years
+_SPARK = """p => {
+  const r = p.data || {}, d = r.spark || [], dir = r.trend_dir || 'new';
+  const col = """ + _TREND_COLS + """[dir], sym = """ + _TREND_SYMS + """[dir];
+  if (d.length < 2) return '<span style="color:#9aa5a0;font-size:12px">new</span>';
+  const W = 64, H = 22, lo0 = Math.min(...d), hi0 = Math.max(...d), mid = (lo0 + hi0) / 2, span = Math.max(hi0 - lo0, 16);
+  const lo = mid - span / 2, hi = mid + span / 2;
+  const x = i => (i * (W - 6) / (d.length - 1) + 3).toFixed(1), y = v => (H - 3 - (v - lo) / (hi - lo) * (H - 6)).toFixed(1);
+  const g70 = (70 > lo && 70 < hi) ? `<line x1="0" x2="${W}" y1="${y(70)}" y2="${y(70)}" stroke="#c7ccc9" stroke-dasharray="2,2"/>` : '';
+  const ch = p.value == null ? '' : (p.value >= 0 ? '+' : '−') + Math.abs(p.value).toFixed(0);
+  return `<span style="display:inline-flex;align-items:center;gap:6px;cursor:pointer"><svg width="${W}" height="${H}">${g70}` +
+    `<polyline points="${d.map((v, i) => x(i) + ',' + y(v)).join(' ')}" fill="none" stroke="#1f6f4a" stroke-width="1.6"/>` +
+    `<circle cx="${x(d.length - 1)}" cy="${y(d[d.length - 1])}" r="2.6" fill="${col}"/></svg>` +
+    `<span style="color:${col};font-size:12px;min-width:38px;text-align:right">${sym} ${ch}</span></span>`;
+}"""
+# hovering the Trend cell: the yearly history of both scores
+_TREND_TIP = """class {
+  init(p) {
+    const r = p.data || {}, d = r.spark || [], q = r.spark_q || [], lab = r.spark_lab || [];
+    const e = document.createElement('div');
+    e.style.cssText = 'background:#fff;border:1px solid #d5dbd7;border-radius:8px;padding:10px 12px;' +
+      'box-shadow:0 6px 18px rgba(0,0,0,.14);font-size:12px;color:#1f2937;width:320px;line-height:1.45';
+    const esc = s => String(s == null ? '' : s).replace(/[&<>]/g, c => ({'&': '&amp;', '<': '&lt;', '>': '&gt;'}[c]));
+    let h = `<div style="font-weight:600;font-size:13px">${esc(r.ticker)} · ${esc(r.name)}</div>`;
+    if (d.length >= 2) {
+      const W = 296, H = 110, all = d.concat(q.filter(v => v != null));
+      const lo = Math.max(0, Math.min(65, Math.min(...all) - 8)), hi = 100;
+      const x = i => (i * (W - 16) / (d.length - 1) + 8).toFixed(1), y = v => (H - 14 - (v - lo) / (hi - lo) * (H - 22)).toFixed(1);
+      const line = (vs, c, w, dash) => {
+        const pts = vs.map((v, i) => v == null ? null : x(i) + ',' + y(v)).filter(Boolean).join(' ');
+        return pts ? `<polyline points="${pts}" fill="none" stroke="${c}" stroke-width="${w}"${dash ? ' stroke-dasharray="4,3"' : ''}/>` : '';
+      };
+      const guide = (v, t) => `<line x1="0" x2="${W}" y1="${y(v)}" y2="${y(v)}" stroke="#d5dbd7" stroke-dasharray="2,3"/>` +
+        `<text x="${W}" y="${+y(v) - 2}" text-anchor="end" font-size="9" fill="#9aa5a0">${t}</text>`;
+      h += `<svg width="${W}" height="${H}" style="margin-top:6px">${guide(80, '80 exceptional')}${guide(70, '70 wonderful')}` +
+        line(q, '#2c5d8f', 1.4, true) + line(d, '#1f6f4a', 2.4, false) +
+        d.map((v, i) => `<circle cx="${x(i)}" cy="${y(v)}" r="2.2" fill="${v >= 80 ? '#1f6f4a' : v >= 70 ? '#3c8d5f' : '#c9a227'}"/>`).join('') +
+        `<text x="8" y="${H - 2}" font-size="9" fill="#6b7280">${lab[0]}</text>` +
+        `<text x="${W - 8}" y="${H - 2}" text-anchor="end" font-size="9" fill="#6b7280">${lab[lab.length - 1]}</text></svg>`;
+      h += `<div style="font-size:11px;color:#6b7280"><span style="color:#1f6f4a">━</span> Wonderfulness &nbsp; ` +
+        `<span style="color:#2c5d8f">╍</span> Quality</div>`;
+      h += '<table style="font-size:11px;border-collapse:collapse;margin:4px 0;width:100%"><tr>' +
+        lab.map(l => `<td style="text-align:center;color:#6b7280">'${l.slice(4)}</td>`).join('') + '</tr><tr>' +
+        d.map(v => `<td style="text-align:center;font-weight:600;color:${v >= 80 ? '#1f6f4a' : v >= 70 ? '#3c8d5f' : '#8A5A12'}">${v.toFixed(0)}</td>`).join('') +
+        '</tr><tr>' + q.map(v => `<td style="text-align:center;color:#2c5d8f">${v == null ? '–' : v.toFixed(0)}</td>`).join('') + '</tr></table>';
+    }
+    const ch = (v, since) => v == null ? '' : `${v >= 0 ? '+' : '−'}${Math.abs(v).toFixed(0)}${since ? ' since ' + since : ''}`;
+    if (r.years) h += `<div>Wonderful or better (70+) in <b>${r.years_70} of ${r.years}</b> years · last ${r.y70n}: <b>${r.y70} of ${r.y70n}</b></div>`;
+    h += `<div>${r.first_80 ? 'First exceptional (80+): <b>' + r.first_80 + '</b>' : 'Never exceptional (80+)'}</div>`;
+    if (r.trend != null) h += `<div>3-year change: <b style="color:${""" + _TREND_COLS + """[r.trend_dir]}">` +
+      `${ch(r.trend, r.trend_since)}</b>${r.q_trend != null ? ' · Quality ' + ch(r.q_trend) : ''}</div>`;
+    h += '<div style="color:#6b7280;margin-top:4px">Click for the full chart.</div>';
+    e.innerHTML = h;
+    this.e = e;
+  }
+  getGui() { return this.e; }
+}"""
+_Y70 = "p => (p.data && p.data.y70n) ? p.value + ' of ' + p.data.y70n : ''"
+TRENDS = {"any": "Any trend", "steady70": "70+ in each of the last 5 years", "up": "Rising ▲", "flat": "Steady ▬",
+          "down": "Falling ▼"}
 
 
 def _c(field, header, fmt=None, width=110, tip=None, **kw):
@@ -539,6 +665,7 @@ def ranking_rows(prof) -> list[dict]:
         flags[r["cik"]] = fl
     checks = checklist(prof)
     evs = price_status(prof)
+    trs = wonderful.trends(prof)
     out = []
     for r in db.rows("SELECT cik, score, rank, n, as_of, pillars_json, feats_json FROM wonder WHERE profile_id=? AND "
                      "cohort='now' ORDER BY score DESC", (prof.snap[0],)):
@@ -550,7 +677,16 @@ def ranking_rows(prof) -> list[dict]:
         fl = flags.get(r["cik"], [])
         q = checks.get(r["cik"], {})
         e = evs.get(r["cik"], {})
-        out.append({"ticker": s["ticker"], "name": s["name"], "industry": s["sic_desc"], "score": r["score"],
+        t = trs.get(r["cik"], {})
+        w10 = (t.get("w") or [])[-10:]
+        qd = dict(t.get("q") or [])
+        last5 = [v for _, v in w10[-5:]]
+        out.append({"cik": r["cik"], "trend": t.get("chg"), "trend_dir": t.get("dir", "new"), "trend_since": t.get("since"),
+                    "spark": [round(v, 1) for _, v in w10], "spark_lab": [k for k, _ in w10],
+                    "spark_q": [None if qd.get(k) is None else round(qd[k], 1) for k, _ in w10],
+                    "y70": sum(v >= 70 for v in last5), "y70n": len(last5), "years_70": t.get("years_70"),
+                    "years": t.get("years"), "first_80": t.get("first_80") or "", "q_trend": t.get("q_chg"),
+                    "ticker": s["ticker"], "name": s["name"], "industry": s["sic_desc"], "score": r["score"],
                     "quality": q.get("quality"), "passes": q.get("passes", False), "why_fail": q.get("why", ""),
                     "checklist": ("✓ passes" if q.get("passes") else ("✗ " + q["why"] if q.get("why") else "✗"))
                     if q else "—",
@@ -581,6 +717,12 @@ VIEWS = {  # key -> (button label, one-line explanation, filter(row, bar), sort 
                   "quality"),
 }
 QUAD_COL = {"both": "#1f6f4a", "nocheck": "#2c5d8f", "notwonder": "#c9a227", "neither": "#c7ccc9"}
+
+
+def _trend_ok(r, mode: str) -> bool:
+    if mode == "steady70":
+        return r["y70n"] >= 5 and r["y70"] == r["y70n"]
+    return mode == "any" or r["trend_dir"] == mode
 
 
 def _quad(r) -> str:
@@ -615,12 +757,14 @@ def wonderful_page(compare: str = "", view: str = "both"):
             q = ui.input(placeholder="Filter by ticker, name or industry").props("dense outlined clearable").classes("w-72")
             size = ui.select({0: "Any size", 2e9: "$2B+", 10e9: "$10B+", 50e9: "$50B+"}, value=2e9,
                              label="Market value").props("dense outlined").classes("w-36")
+            trend = ui.select(TRENDS, value="any", label="Wonderfulness trend").props("dense outlined").classes("w-56")
             healthy = ui.switch("Hide companies slipping now", value=False)
             buyable = ui.switch("Only in the Buy Zone today", value=False)
 
         def base():
             return [r for r in rows if ((r["mcap"] or 0) >= size.value if size.value else True)
-                    and not (healthy.value and r["warnings"]) and not (buyable.value and not r["buyable"])]
+                    and not (healthy.value and r["warnings"]) and not (buyable.value and not r["buyable"])
+                    and _trend_ok(r, trend.value)]
 
         def current():
             label, t, f, key = VIEWS[st["view"]]
@@ -672,6 +816,13 @@ def wonderful_page(compare: str = "", view: str = "both"):
             _c("name", "Company", None, 190, pinned="left"),
             _c("score", "Wonderfulness", _NUM0, 120, "How it ranks among all businesses (0–100)."),
             _c("tier", "Tier", None, 105),
+            {"field": "trend", "headerName": "Trend (3 yrs)", "width": 128, "minWidth": 128, ":cellRenderer": _SPARK,
+             "headerTooltip": "Up to 10 years of Wonderfulness, and the change over the last 3 fiscal years (▲ +5 or "
+                              "more, ▼ −5 or more, ▬ in between). Hover for the yearly scores; click for the full chart.",
+             ":tooltipValueGetter": "p => p.data ? 'trend' : null", ":tooltipComponent": _TREND_TIP,
+             "filter": "agNumberColumnFilter"},
+            _c("y70", "Years at 70+", _Y70, 96, "How many of the last 5 fiscal years scored 70+ (wonderful or better). "
+                                                "Consistency predicted staying on top better than a rising score."),
             _c("quality", "Quality", _NUM0, 90, f"The Oracle checklist score; the model needs {bar:.0f}+ and every "
                                                "must-pass rule to buy."),
             _c("checklist", "Checklist", None, 190, "Passes, or the rule it fails."),
@@ -717,11 +868,39 @@ def wonderful_page(compare: str = "", view: str = "both"):
         def set_view(k):
             st["view"] = k
             refresh()
-        for el in (size, healthy, buyable):
+        for el in (size, trend, healthy, buyable):
             el.on_value_change(lambda e: refresh())
         q.on_value_change(lambda e: g.run_grid_method("setGridOption", "quickFilterText", e.value or ""))
-        g.on("cellClicked", lambda e: ui.navigate.to(f"/stock/{e.args['data']['ticker']}")
-             if e.args.get("colId") not in (None, "ag-Grid-SelectionColumn") and e.args.get("data") else None)
+        dlg = ui.dialog().props("maximized=false")
+
+        def show_history(row):
+            dlg.clear()
+            h = wonderful.history(row["cik"], prof)
+            with dlg, ui.card().classes("oe-card").style("width:min(900px,95vw);max-width:95vw"):
+                with ui.row().classes("w-full items-center justify-between no-wrap"):
+                    ui.label(f"{row['ticker']} · {row['name']}: score history").classes("oe-h2")
+                    with ui.row().classes("items-center gap-1 no-wrap"):
+                        ui.button("Open stock page", icon="open_in_new",
+                                  on_click=lambda: ui.navigate.to(f"/stock/{row['ticker']}")).props("flat dense no-caps")
+                        ui.button(icon="close", on_click=dlg.close).props("flat dense round")
+                if len(h) < 2:
+                    ui.label("Only one year scored so far.").classes("oe-muted")
+                else:
+                    with ui.row().classes("gap-2"):
+                        for f in trend_facts(h):
+                            ui.label(f).classes("oe-small").style("background:#eef3f0;border-radius:10px;padding:1px 9px")
+                    ui.echart(history_chart(h)).classes("w-full").style("height:340px")
+            dlg.open()
+
+        def clicked(e):
+            col, data = e.args.get("colId"), e.args.get("data")
+            if not data or col in (None, "ag-Grid-SelectionColumn"):
+                return
+            if col == "trend":
+                show_history(data)
+            else:
+                ui.navigate.to(f"/stock/{data['ticker']}")
+        g.on("cellClicked", clicked)
         comp = ui.column().classes("w-full gap-3")
 
         async def do_compare():
@@ -763,6 +942,22 @@ def _compare(tickers: list[str], prof) -> None:
                        {"name": t, "value": [round(w["pillars"].get(p, 50)) for p in wonderful.PILLARS],
                         "lineStyle": {"color": cols[i]}, "itemStyle": {"color": cols[i]}, "areaStyle": {"opacity": 0.08}}
                        for i, (t, w) in enumerate(ws)]}]}).classes("w-full h-80")
+        hs = {t: {x["fy"]: x["score"] for x in wonderful.history(w["cik"], prof)} for t, w in ws}
+        labs = sorted({k for h in hs.values() for k in h})
+        if len(labs) >= 2:
+            ui.label("Wonderfulness over time").classes("font-semibold pt-2")
+            ui.echart({"tooltip": {"trigger": "axis"}, "legend": {"top": 0},
+                       "grid": {"left": 40, "right": 16, "top": 32, "bottom": 28},
+                       "xAxis": {"type": "category", "data": labs, "boundaryGap": False},
+                       "yAxis": {"type": "value", "min": max(0, int(min(v for h in hs.values() for v in h.values()) // 10
+                                                                    * 10) - 10), "max": 100},
+                       "series": [{"type": "line", "name": t, "connectNulls": True, "symbolSize": 5,
+                                   "data": [None if hs[t].get(k) is None else round(hs[t][k], 1) for k in labs],
+                                   "lineStyle": {"color": cols[i], "width": 2}, "itemStyle": {"color": cols[i]},
+                                   **({"markLine": {"silent": True, "symbol": "none", "label": {"show": False},
+                                                    "lineStyle": {"type": "dashed", "color": "#9aa5a0"},
+                                                    "data": [{"yAxis": 70}, {"yAxis": 80}]}} if i == 0 else {})}
+                                  for i, (t, _w) in enumerate(ws)]}).classes("w-full").style("height:300px")
         head = "".join(f"<th style='text-align:right;padding:4px 10px'><a href='/stock/{t}'>{t}</a></th>" for t, _ in ws)
         body = [f"<tr><td style='padding:4px 10px 4px 0'><b>Wonderfulness</b></td>" + "".join(
             f"<td style='text-align:right;padding:4px 10px'><b>{w['score']:.0f}</b> ({w['tier']})</td>" for _, w in ws)

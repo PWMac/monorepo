@@ -163,3 +163,50 @@ def test_career_tenures_skip_the_current_role_and_explain_unrated_ones(monkeypat
     ten = ceo.career_tenures(9901, "ZZCEO", {"start": "2020-03-01"}, led)
     assert [x["label"] for x in ten] == ["this company", "Private Co"]
     assert "not in the app's data" in ten[1]["why"] and ten[0]["years"] == 3.0
+
+
+def test_fiscal_years_ending_in_early_january_keep_their_own_label():
+    assert wonderful.fy_label("2019-12-28") == "FY2019"
+    assert wonderful.fy_label("2021-01-02") == "FY2020"  # a 53-week year, not a second FY2021
+    assert wonderful.fy_label("2022-01-30") == "FY2022"  # a late-January year end keeps the company's own label
+    assert wonderful.fy_label("2025-06-30") == "FY2025"
+
+
+def test_trend_summary_change_direction_and_consistency():
+    s = [("FY2018", 66.0), ("FY2019", 72.0), ("FY2020", 81.0), ("FY2021", 78.0), ("FY2022", 83.0), ("FY2023", 86.0)]
+    t = wonderful.summarize(s)
+    assert t["since"] == "FY2020" and round(t["chg"]) == 5 and t["dir"] == "up"
+    assert t["years_70"] == 5 and t["years"] == 6 and t["first_80"] == "FY2020"
+    assert wonderful.summarize([("FY2022", 80.0), ("FY2025", 71.0)])["dir"] == "down"
+    assert wonderful.summarize([("FY2023", 80.0), ("FY2025", 82.0)])["dir"] == "flat"
+    one = wonderful.summarize([("FY2025", 75.0)])
+    assert one["dir"] == "new" and one["chg"] is None
+    assert wonderful.summarize([]) == {}
+
+
+def test_history_and_trends_end_on_todays_score_with_quality_alongside():
+    p = rules.default_profile()
+    pid, ver = p.snap
+    cik = 990001
+    with db.tx() as con:
+        con.execute("DELETE FROM wonder WHERE cik=?", (cik,))
+        con.execute("DELETE FROM snapshots WHERE cik=?", (cik,))
+        for cohort, as_of, score in (("FY2019", "2019-12-28", 71.0), ("FY2020", "2021-01-02", 75.0),
+                                     ("FY2021", "2022-01-01", 79.0), ("now", "2022-01-01", 80.5)):
+            con.execute("INSERT INTO wonder(cik,profile_id,cohort,as_of,filed,score,rank,n,pillars_json,feats_json) "
+                        "VALUES(?,?,?,?,?,?,?,?,?,?)", (cik, pid, cohort, as_of, as_of, score, 5, 100,
+                                                        '{"moat": 90}', '{"f": {}, "pct": {}}'))
+        for fy_end, filed, q in (("2019-12-28", "2020-02-20", 70.0), ("2021-01-02", "2021-02-20", 74.0),
+                                 ("2022-01-01", "2022-02-20", 77.0), ("2022-01-01", "2022-05-01", 78.0)):
+            con.execute("INSERT INTO snapshots(cik,profile_id,profile_version,filed,fy_end,quality,gates_passed) "
+                        "VALUES(?,?,?,?,?,?,1)", (cik, pid, ver, filed, fy_end, q))
+    h = wonderful.history(cik, p)
+    assert [x["fy"] for x in h] == ["FY2019", "FY2020", "FY2021"]
+    assert h[-1]["score"] == 80.5 and h[-1]["now"] and h[-1]["quality"] == 78.0  # today's score, the amended report
+    assert h[0]["combined"] == 70.5
+    t = wonderful.trends(p)[cik]
+    assert t["w"][-1] == ("FY2021", 80.5) and t["q"][-1] == ("FY2021", 78.0)
+    assert t["years_70"] == 3 and t["first_80"] == "FY2021"
+    with db.tx() as con:
+        con.execute("DELETE FROM wonder WHERE cik=?", (cik,))
+        con.execute("DELETE FROM snapshots WHERE cik=?", (cik,))

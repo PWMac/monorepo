@@ -189,6 +189,17 @@ def financial_ciks() -> set[int]:
     return out
 
 
+HISTORY_VERSION = 2
+"""Bumped when the year-by-year scores need recomputing. v2 (0.15.0): years ending in the first week of January
+(52/53-week fiscal years) are labelled with the year they mostly cover, so two years no longer share a label."""
+
+
+def fy_label(fy_end: str) -> str:
+    """'FY2019' for a fiscal year ending 2019-12-28 and also for one ending 2020-01-02 (a 53-week year)."""
+    y, m, d = int(fy_end[:4]), int(fy_end[5:7]), int(fy_end[8:10])
+    return f"FY{y - 1 if m == 1 and d <= 7 else y}"
+
+
 def compute(profile=None, history: bool = True, progress=None) -> int:
     """Score every standard company: 'now' (each company's latest annual report) and, with history, each
     fiscal year (companies compared with others reporting the same fiscal year). Stored in the wonder table."""
@@ -220,8 +231,10 @@ def compute(profile=None, history: bool = True, progress=None) -> int:
             groups["now"][cik]["mcap"] = mc
     if history:
         for cik, fys in by_cik.items():
-            for fy, s in fys.items():
-                c = "FY" + fy[:4]
+            for fy, s in sorted(fys.items()):
+                c = fy_label(fy)
+                if (c, cik) in filed:  # two reports for one fiscal year (a changed year end): keep the first
+                    continue
                 f = features(s["rules_json"], s["val_inputs"], fy, rev.get(cik, {}))
                 if f:
                     groups.setdefault(c, {})[cik] = f
@@ -241,7 +254,13 @@ def compute(profile=None, history: bool = True, progress=None) -> int:
             n += len(res)
             if progress:
                 progress((k + 1) / len(groups))
+    if history:
+        db.set_cfg("wonder_history_version", HISTORY_VERSION)
     return n
+
+
+def history_stale() -> bool:
+    return int(db.cfg("wonder_history_version", 1) or 1) < HISTORY_VERSION
 
 
 def market_caps(latest: dict[int, dict]) -> dict[int, float]:
@@ -295,11 +314,80 @@ def get(cik: int, profile=None) -> dict | None:
     return x
 
 
+def _quality_by_year(prof, cik: int | None = None) -> dict[int, dict[str, float]]:
+    """Quality (the Oracle checklist score) per company and fiscal-year label, from the newest report for each year."""
+    q: dict[int, dict[str, tuple[str, float]]] = defaultdict(dict)
+    sql = ("SELECT cik, fy_end, filed, quality FROM snapshots WHERE profile_id=? AND profile_version=? AND fy_end IS NOT "
+           "NULL AND quality IS NOT NULL" + (" AND cik=?" if cik else ""))
+    for r in db.rows(sql, (*prof.snap, cik) if cik else prof.snap):
+        lab = fy_label(r["fy_end"])
+        old = q[r["cik"]].get(lab)
+        if old is None or r["filed"] > old[0]:
+            q[r["cik"]][lab] = (r["filed"], r["quality"])
+    return {c: {k: v[1] for k, v in d.items()} for c, d in q.items()}
+
+
 def history(cik: int, profile=None) -> list[dict]:
+    """Year by year: Wonderfulness (against the companies reporting that year), its rank and pillars, Quality and the
+    average of the two. The latest year shows today's score, so the line ends where the ranking does."""
     p = profile or rules.default_profile()
-    return [{"fy": r["as_of"], "score": r["score"], "rank": r["rank"], "n": r["n"], **json.loads(r["pillars_json"])}
-            for r in db.rows("SELECT as_of, score, rank, n, pillars_json FROM wonder WHERE cik=? AND profile_id=? AND "
-                             "cohort LIKE 'FY%' ORDER BY as_of", (cik, p.snap[0]))]
+    rows = db.rows("SELECT cohort, as_of, filed, score, rank, n, pillars_json FROM wonder WHERE cik=? AND profile_id=? "
+                   "AND (cohort LIKE 'FY%' OR cohort='now') ORDER BY as_of, cohort", (cik, p.snap[0]))
+    qual = _quality_by_year(p, cik).get(cik, {})
+    now = next((r for r in rows if r["cohort"] == "now"), None)
+    out: dict[str, dict] = {}
+    for r in rows:
+        if r["cohort"] == "now":
+            continue
+        out[r["cohort"]] = {"fy": r["cohort"], "fy_end": r["as_of"], "filed": r["filed"], "score": r["score"],
+                            "rank": r["rank"], "n": r["n"], "now": False, **json.loads(r["pillars_json"])}
+    if now:
+        lab = fy_label(now["as_of"])
+        out[lab] = {"fy": lab, "fy_end": now["as_of"], "filed": now["filed"], "score": now["score"], "rank": now["rank"],
+                    "n": now["n"], "now": True, **json.loads(now["pillars_json"])}
+    for lab, x in out.items():
+        x["quality"] = qual.get(lab)
+        x["combined"] = (x["score"] + x["quality"]) / 2 if x["quality"] is not None else None
+    return [out[k] for k in sorted(out)]
+
+
+def summarize(series: list[tuple[str, float]], years: int = 3) -> dict:
+    """Trend of a yearly score: change over the last `years` fiscal years, direction and consistency."""
+    if not series:
+        return {}
+    last_lab, last = series[-1]
+    y0 = int(last_lab[2:]) - years
+    base = next(((lab, v) for lab, v in series if int(lab[2:]) >= y0), series[0])
+    chg = last - base[1] if base[0] != last_lab else None
+    direction = ("new" if chg is None else "up" if chg >= 5 else "down" if chg <= -5 else "flat")
+    first_exc = next((lab for lab, v in series if v >= 80), None)
+    return {"chg": chg, "since": base[0], "dir": direction, "years": len(series),
+            "years_70": sum(1 for _, v in series if v >= 70), "first_80": first_exc,
+            "low": min(v for _, v in series), "high": max(v for _, v in series)}
+
+
+def trends(profile=None) -> dict[int, dict]:
+    """For every scored company: its yearly Wonderfulness and Quality (latest year = today's score) and a trend
+    summary. One pass over the tables, for the ranking page."""
+    p = profile or rules.default_profile()
+    w: dict[int, dict[str, float]] = defaultdict(dict)
+    now: dict[int, tuple[str, float]] = {}
+    for r in db.rows("SELECT cik, cohort, as_of, score FROM wonder WHERE profile_id=? AND (cohort LIKE 'FY%' OR "
+                     "cohort='now')", (p.snap[0],)):
+        if r["cohort"] == "now":
+            now[r["cik"]] = (fy_label(r["as_of"]), r["score"])
+        else:
+            w[r["cik"]][r["cohort"]] = r["score"]
+    qual = _quality_by_year(p)
+    out = {}
+    for cik, (lab, sc) in now.items():
+        ws = w.get(cik, {})
+        ws = {k: v for k, v in ws.items() if k <= lab}  # a cohort newer than today's year can't happen; be safe
+        ws[lab] = sc
+        wser = sorted(ws.items())
+        qser = sorted((k, v) for k, v in qual.get(cik, {}).items() if k <= lab)
+        out[cik] = {"w": wser, "q": qser, **summarize(wser), "q_chg": summarize(qser).get("chg")}
+    return out
 
 
 # ---------------------------------------------------------------- strengths and red flags
