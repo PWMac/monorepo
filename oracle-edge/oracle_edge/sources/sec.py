@@ -27,6 +27,7 @@ DAILY_INDEX_URL = "https://www.sec.gov/Archives/edgar/daily-index/{y}/QTR{q}/for
 
 ANNUAL_FORMS = {"10-K", "10-K/A", "10-KT", "10-KT/A", "20-F", "20-F/A", "40-F", "40-F/A"}
 QUARTER_FORMS = {"10-Q", "10-Q/A"}
+EIGHTK_FORMS = {"8-K", "8-K/A"}  # current reports; item 5.02 = a director or officer leaving or being appointed
 # items tracked from 10-Qs for trailing-12-month early warnings
 QUARTER_ITEMS = {"revenue", "net_income", "ocf", "capex", "operating_income", "eps_diluted", "shares_diluted",
                  "lt_debt", "st_debt", "equity", "total_assets", "cash", "treasury_stock",
@@ -324,17 +325,19 @@ def set_sic(cik: int, sic: int | None, desc: str) -> None:
 _IDX_LINE = re.compile(r"^(?P<form>\S.*?)\s{2,}(?P<name>.+?)\s{2,}(?P<cik>\d+)\s{2,}(?P<date>\d{8}|\d{4}-\d{2}-\d{2})\s{2,}\S+\s*$")
 
 
-def parse_daily_index(text: str) -> list[tuple[str, int, str]]:
+def parse_daily_index(text: str, forms: set[str] | None = None) -> list[tuple[str, int, str]]:
+    forms = forms or (ANNUAL_FORMS | QUARTER_FORMS)
     out = []
     for line in text.splitlines():
         m = _IDX_LINE.match(line)
-        if m and m.group("form").strip() in (ANNUAL_FORMS | QUARTER_FORMS):
+        if m and m.group("form").strip() in forms:
             d = m.group("date").replace("-", "")
             out.append((m.group("form").strip(), int(m.group("cik")), f"{d[:4]}-{d[4:6]}-{d[6:]}"))
     return out
 
 
-def annual_filings_since(since: date, until: date | None = None) -> list[tuple[str, int, str]]:
+def annual_filings_since(since: date, until: date | None = None, forms: set[str] | None = None
+                         ) -> list[tuple[str, int, str]]:
     until = until or date.today()
     found: list[tuple[str, int, str]] = []
     d = since
@@ -345,11 +348,28 @@ def annual_filings_since(since: date, until: date | None = None) -> list[tuple[s
             try:
                 r = http().get(url)
                 if r.status_code == 200:
-                    found.extend(parse_daily_index(r.text))
+                    found.extend(parse_daily_index(r.text, forms))
             except Exception as e:
                 db.log("sec", "daily_index", False, f"{d}: {e}")
         d += timedelta(days=1)
     return found
+
+
+def officer_changes(cik: int, since: str) -> list[str]:
+    """Filing dates of the company's 8-Ks since `since` that report item 5.02 (departure or appointment of
+    directors or certain officers, the CEO among them), newest first. From the SEC submissions file."""
+    r = http().get(SUBMISSIONS_URL.format(cik=cik))
+    if r.status_code != 200:
+        return []
+    return parse_officer_changes(r.json(), since)
+
+
+def parse_officer_changes(doc: dict, since: str) -> list[str]:
+    rec = (doc.get("filings") or {}).get("recent") or {}
+    forms, dates, items = rec.get("form") or [], rec.get("filingDate") or [], rec.get("items") or []
+    out = [d for f, d, it in zip(forms, dates, items + [""] * (len(forms) - len(items)))
+           if f in EIGHTK_FORMS and d >= since and "5.02" in (it or "")]
+    return sorted(set(out), reverse=True)
 
 
 def today_str() -> str:

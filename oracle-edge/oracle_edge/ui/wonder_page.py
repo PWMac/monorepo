@@ -185,13 +185,16 @@ _PILLARS_MINI = """p => {
 
 _CEO = """p => {
   const r = p.data || {};
-  if (!r.ceo_grade) return `<span style="color:#9aa5a0;font-size:12px">${r.ceo_tried ? '—' : 'rating…'}</span>`;
+  const nw = r.ceo_changed ? ' <span style="background:#2c5d8f;color:#fff;border-radius:3px;font-size:9px;padding:0 3px;' +
+    'vertical-align:top">NEW</span>' : '';
+  if (!r.ceo_grade) return `<span style="color:#9aa5a0;font-size:12px">${r.ceo_tried ? '—' : 'rating…'}</span>${nw}`;
   const c = {A: '#1f6f4a', B: '#3c8d5f', C: '#8A5A12', D: '#d9822b', F: '#a33a2b'}[r.ceo_grade] || '#6b7280';
   return `<span style="display:inline-block;min-width:20px;text-align:center;background:${c};color:#fff;border-radius:4px;
-    font-weight:700;padding:0 5px">${r.ceo_grade}</span> <span style="font-size:12px;color:#4b5563">${p.value == null ? '' : p.value.toFixed(0)}</span>`;
+    font-weight:700;padding:0 5px">${r.ceo_grade}</span> <span style="font-size:12px;color:#4b5563">${p.value == null ? '' : p.value.toFixed(0)}</span>${nw}`;
 }"""
 _CEO_TIP = """p => { const r = p.data || {}; if (!r.ceo_name) return r.ceo_note || 'Not rated yet';
-  return `${r.ceo_name}${r.ceo_since ? ', CEO since ' + r.ceo_since : ''}` +
+  const chg = r.ceo_changed ? ` · NEW CEO from ${r.ceo_changed}${r.ceo_prev ? ' (was ' + r.ceo_prev + ')' : ''}` : '';
+  return `${r.ceo_name}${r.ceo_since ? ', CEO since ' + r.ceo_since : ''}${chg}` +
     (r.ceo_grade ? ` · grade ${r.ceo_grade} (${(p.value || 0).toFixed(0)}/100, ${r.ceo_basis === 'career' ? 'career' : 'this company'})` :
      ` · ${r.ceo_note || 'not rated'}`); }"""
 
@@ -366,10 +369,11 @@ FILTERS = {
     "v_gap": ("Price assumes minus record (points)", "range", "v_gap", "pct"),
     "v_pe_rel": ("P/E vs its usual (×)", "range", "v_pe_rel", "x"),
     "v_buy": ("Below the buy price", "multi", "v_buy", None),
+    "ceo_new": ("New CEO (last 12 months)", "multi", "ceo_changed", None),
 }
 FILTER_GROUPS = [("Company", ["industry", "tier", "checklist", "mcap"]),
                  ("Scores", ["score", "quality", "combined", "wtrend", "trend", "y70", "streak70"]),
-                 ("Management", ["ceo_grade", "ceo_score"]),
+                 ("Management", ["ceo_grade", "ceo_score", "ceo_new"]),
                  ("Pillars", ["moat", "growth", "strength", "allocation"]),
                  ("Key measures", ["roic_med", "gm_med", "rev_g5", "debt_payback", "dollar_test"]),
                  ("Value", ["v_mos", "v_er", "v_buy", "v_implied", "v_gap", "v_pe_rel"])]
@@ -390,6 +394,8 @@ def multi_options(key: str, rows: list[dict]) -> dict:
         return {"pass": "Passes", "fail": "Fails"}
     if key == "wtrend":
         return TREND_OPTS
+    if key == "ceo_new":
+        return {"yes": "New CEO in the last 12 months", "no": "Same CEO"}
     if key == "v_buy":
         return {"yes": "Below the buy price", "no": "Above it", "none": "Not valued"}
     return {}
@@ -411,6 +417,8 @@ def passes(r: dict, flt: dict) -> bool:
                 x = x or "none"
             elif k == "wtrend":
                 x = x or "new"
+            elif k == "ceo_new":
+                x = "yes" if x else "no"
             elif k == "v_buy":
                 x = "none" if x is None else "yes" if x else "no"
             if x not in v:
@@ -670,6 +678,9 @@ def screener_page(compare: str = "", view: str = "both"):
                 r.update(ceo_grade=gr.get("grade"), ceo_score=gr.get("score"), ceo_name=gr.get("name") or "",
                          ceo_since=(gr.get("start") or "")[:4], ceo_basis=gr.get("basis") or "",
                          ceo_note=gr.get("note") or "", ceo_tried=True)
+                ch = ceo.recent_changes(365).get(cik) if gr.get("name") else None
+                if ch:
+                    r.update(ceo_changed=ch["date"], ceo_prev=ch["old_name"] or "")
                 changed.append(r)
             if changed:
                 g.run_grid_method("applyTransaction", {"update": changed})

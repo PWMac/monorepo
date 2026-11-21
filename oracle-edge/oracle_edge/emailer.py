@@ -371,11 +371,24 @@ def _pending_market():
 def market_html(rows) -> str:
     if not rows:
         return ""
-    items = "".join(f"<div style='border-left:4px solid #8A5A12;padding:6px 10px;margin:6px 0'>"
-                    f"<span style='color:#8A5A12;font-size:11px;font-weight:700'>MARKET</span> "
-                    f"{html.escape(r['message'] or '')}</div>" for r in rows)
-    return ("<h3 style='margin:18px 0 4px;font-size:15px'>Market temperature</h3><div style='font-size:12px;"
-            "color:#666'>Warnings, not hard stops: Oracle Edge keeps following its rules.</div>" + items)
+    ceo_rows = [r for r in rows if r["kind"] == "ceo_change"]
+    mkt = [r for r in rows if r["kind"] != "ceo_change"]
+    out = ""
+    if mkt:
+        items = "".join(f"<div style='border-left:4px solid #8A5A12;padding:6px 10px;margin:6px 0'>"
+                        f"<span style='color:#8A5A12;font-size:11px;font-weight:700'>MARKET</span> "
+                        f"{html.escape(r['message'] or '')}</div>" for r in mkt)
+        out += ("<h3 style='margin:18px 0 4px;font-size:15px'>Market temperature</h3><div style='font-size:12px;"
+                "color:#666'>Warnings, not hard stops: Oracle Edge keeps following its rules.</div>" + items)
+    if ceo_rows:
+        items = "".join(f"<div style='border-left:4px solid #2c5d8f;padding:6px 10px;margin:6px 0'>"
+                        f"<span style='color:#2c5d8f;font-size:11px;font-weight:700'>CEO</span> "
+                        f"{html.escape(r['message'] or '')}</div>" for r in ceo_rows)
+        out += ("<h3 style='margin:18px 0 4px;font-size:15px'>CEO changes</h3><div style='font-size:12px;"
+                "color:#666'>Found by the daily check (SEC 8-K filings, Yahoo, Wikidata). A new CEO isn't graded "
+                "until they have two fiscal years in the role; their record at other companies still counts.</div>"
+                + items)
+    return out
 
 
 def _mark_market(rows) -> None:

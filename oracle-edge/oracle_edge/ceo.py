@@ -293,14 +293,27 @@ def who(cik: int, ticker: str, yahoo_officers: list[dict] | None = None) -> dict
 
 
 # ---------------------------------------------------------------- the grade, for the ranking page
-def assess(cik: int, ticker: str) -> dict:
+def assess(cik: int, ticker: str, hint_start: str | None = None, refresh: bool = False,
+           source: str | None = None) -> dict:
     """Who runs the company and their record: the CEO card's data (network: Yahoo officers, Wikidata). Saves the
-    grade for the ranking page."""
+    grade for the ranking page, and records a change of CEO.
+
+    refresh: look again now (drop the cached Wikidata answer and Yahoo profile). hint_start: the filing date of an
+    SEC 8-K reporting an officer change; when Yahoo then names a different CEO than Wikidata (which often lags by
+    weeks), Yahoo's name is taken, starting on that date."""
     from .sources import company, wikidata
 
-    info = company.get(ticker)
+    if refresh:
+        db.get().execute("DELETE FROM ceo_cache WHERE key=?", (f"ceos:{cik}",))
+    info = company.get(ticker, refresh=refresh)
     res = who(cik, ticker, (info or {}).get("officers"))
     cur = res.get("current")
+    if hint_start and res.get("yahoo_ceo") and (cur or {}).get("source") != "you" and (
+            not cur or not _same_person(cur.get("name"), res["yahoo_ceo"])):
+        cur = {"name": res["yahoo_ceo"], "start": hint_start, "source": "Yahoo; start date from the SEC 8-K"}
+        res["current"] = cur
+        res.pop("conflict", None)
+    res["change_source"] = source
     if cur and cur.get("start"):
         led = wikidata.companies_led(cur.get("qid"), None if cur.get("qid") else cur.get("name")) \
             if res.get("wikidata_ok") or cur.get("qid") else []
@@ -315,8 +328,12 @@ def assess(cik: int, ticker: str) -> dict:
 
 
 def save_grade(cik: int, res: dict) -> None:
-    """Keep the career grade (or this tenure's when the career can't be graded) for the ranking page."""
+    """Keep the career grade (or this tenure's when the career can't be graded) for the ranking page; a different
+    CEO from the one on record is logged as a change (and flagged in the daily email)."""
     cur = res.get("current") or {}
+    prev = db.one("SELECT name FROM ceo_grades WHERE cik=?", (cik,))
+    if prev and prev["name"] and cur.get("name") and not _same_person(prev["name"], cur["name"]):
+        record_change(cik, prev["name"], cur["name"], cur.get("start"), res.get("change_source") or cur.get("source"))
     car = res.get("career")
     rec = (res.get("record") or {}).get("rating")
     g = car or rec
@@ -333,6 +350,77 @@ def save_grade(cik: int, res: dict) -> None:
         (cik, cur.get("name"), cur.get("start"), g["grade"] if g else None, g["score"] if g else None,
          "career" if car and car.get("n", 1) > 1 else "this company" if g else None,
          (car or {}).get("years") or (res.get("record") or {}).get("years"), note, db.now()))
+
+
+def record_change(cik: int, old: str, new: str, start: str | None, source: str | None) -> None:
+    from datetime import date as _d
+
+    d = start or _d.today().isoformat()
+    if db.scalar("SELECT 1 FROM ceo_changes WHERE cik=? AND new_name=?", (cik, new)):
+        return
+    db.get().execute("INSERT INTO ceo_changes(cik, date, old_name, new_name, source, created_at) VALUES(?,?,?,?,?,?)",
+                     (cik, d, old, new, source or "", db.now()))
+    t = db.scalar("SELECT ticker FROM securities WHERE cik=?", (cik,)) or str(cik)
+    try:
+        db.get().execute("INSERT INTO market_alerts(date, kind, state, message, created_at) VALUES(?,?,?,?,?)",
+                         (_d.today().isoformat(), "ceo_change", "new",
+                          f"{t}: new CEO {new} (was {old})" + (f", from {d}" if start else "") +
+                          (f" · source: {source}" if source else ""), db.now()))
+    except Exception:
+        pass
+
+
+def recent_changes(days: int = 365) -> dict[int, dict]:
+    """Each company's latest CEO change within `days`: {cik: {date, old_name, new_name, source}}."""
+    from datetime import date as _d, timedelta as _td
+
+    since = (_d.today() - _td(days=days)).isoformat()
+    out = {}
+    for r in db.rows("SELECT * FROM ceo_changes WHERE date>=? ORDER BY date", (since,)):
+        out[r["cik"]] = dict(r)
+    return out
+
+
+def check_changes(eightk: dict[int, str], annual: set[int] | None = None) -> dict:
+    """The daily update's CEO step. eightk: companies that filed an 8-K since the last check (cik -> first filing
+    date). Those we follow (graded, or Wonderfulness 60+) whose 8-K reports item 5.02 are looked up again now
+    (fresh Wikidata and Yahoo). Companies with a new annual report are re-graded (their record changed)."""
+    from datetime import date as _d, timedelta as _td
+
+    from . import rules
+    from .sources import sec
+
+    p = rules.default_profile()
+    followed = {r["cik"] for r in db.rows("SELECT cik FROM ceo_grades")} | {
+        r["cik"] for r in db.rows("SELECT cik FROM wonder WHERE profile_id=? AND cohort='now' AND score>=60",
+                                  (p.snap[0],))}
+    tick = {r["cik"]: r["ticker"] for r in db.rows("SELECT cik, ticker FROM securities WHERE ticker IS NOT NULL")}
+    out = {"checked_8k": 0, "officer_changes": 0, "regraded": 0, "changes": []}
+    before = db.scalar("SELECT COALESCE(MAX(id), 0) FROM ceo_changes", default=0)
+    for cik, first in sorted(eightk.items()):
+        if cik not in followed or cik not in tick:
+            continue
+        out["checked_8k"] += 1
+        try:
+            since = (_d.fromisoformat(first) - _td(days=3)).isoformat()
+            dates = sec.officer_changes(cik, since)
+            if dates:
+                out["officer_changes"] += 1
+                assess(cik, tick[cik], hint_start=dates[0], refresh=True, source=f"SEC 8-K item 5.02 filed {dates[0]}")
+        except Exception as e:
+            db.log("ceo", "8-K check", False, f"{tick.get(cik)}: {e}"[:200])
+    graded = {r["cik"] for r in db.rows("SELECT cik FROM ceo_grades")}
+    for cik in sorted((annual or set()) & graded):
+        if cik in tick:
+            try:
+                assess(cik, tick[cik])
+                out["regraded"] += 1
+            except Exception as e:
+                db.log("ceo", "regrade", False, f"{tick.get(cik)}: {e}"[:200])
+    out["changes"] = [dict(r) for r in db.rows("SELECT * FROM ceo_changes WHERE id>?", (before,))]
+    db.set_cfg("last_ceo_check", {"at": db.now(), **{k: v for k, v in out.items() if k != "changes"},
+                                  "changes": len(out["changes"])})
+    return out
 
 
 def grades() -> dict[int, dict]:
