@@ -311,7 +311,7 @@ def _fmt(v, f) -> str:
     if f == "share":
         return f"{v * 100:.0f}%"
     if f == "years":
-        return f"{v:.1f} yrs"
+        return f"{v:.1f} yrs" if v < 90 else "never (losses)"
     if f == "x":
         return f"{v:.2f}x"
     return f"{v:g}"
