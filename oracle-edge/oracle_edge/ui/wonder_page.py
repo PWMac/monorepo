@@ -187,7 +187,12 @@ _CEO = """p => {
   const r = p.data || {};
   const nw = r.ceo_changed ? ' <span style="background:#2c5d8f;color:#fff;border-radius:3px;font-size:9px;padding:0 3px;' +
     'vertical-align:top">NEW</span>' : '';
-  if (!r.ceo_grade) return `<span style="color:#9aa5a0;font-size:12px">${r.ceo_tried ? '—' : 'rating…'}</span>${nw}`;
+  if (!r.ceo_grade) {
+    const n = r.ceo_note || '';
+    const why = !r.ceo_tried ? 'rating…' : n.includes('under two') ? 'new CEO' : n.includes('start date') ? 'no start date'
+      : n.includes('not found') ? 'not found' : '—';
+    return `<span style="color:#9aa5a0;font-size:11px">${why}</span>${nw}`;
+  }
   const c = {A: '#1f6f4a', B: '#3c8d5f', C: '#8A5A12', D: '#d9822b', F: '#a33a2b'}[r.ceo_grade] || '#6b7280';
   return `<span style="display:inline-block;min-width:20px;text-align:center;background:${c};color:#fff;border-radius:4px;
     font-weight:700;padding:0 5px">${r.ceo_grade}</span> <span style="font-size:12px;color:#4b5563">${p.value == null ? '' : p.value.toFixed(0)}</span>${nw}`;
@@ -690,32 +695,38 @@ def screener_page(compare: str = "", view: str = "both"):
         by_cik = {r["cik"]: r for r in rows}
 
         def ceo_tick():
-            """Fill in CEO grades as the background grader finishes them; say how far it has got."""
+            """Fill in CEO grades as the background grader finishes them; say how far it has got, or, when it's
+            idle, how many in view are graded and why the rest aren't."""
             stt = ceo.grading_status()
-            waiting = [r["cik"] for r in rows if not r.get("ceo_tried")]
-            got = ceo.graded_since(waiting)
+            watch = st.setdefault("watch", set())
+            got = ceo.graded_since(sorted(watch))
             changed = []
             for cik, gr in got.items():
                 r = by_cik[cik]
+                if r.get("ceo_tried") and (gr.get("updated_at") or "") <= (r.get("ceo_updated") or ""):
+                    continue  # not redone yet
                 r.update(ceo_grade=gr.get("grade"), ceo_score=gr.get("score"), ceo_name=gr.get("name") or "",
                          ceo_since=(gr.get("start") or "")[:4], ceo_basis=gr.get("basis") or "",
-                         ceo_note=gr.get("note") or "", ceo_tried=True)
+                         ceo_note=gr.get("note") or "", ceo_tried=True, ceo_updated=gr.get("updated_at") or "")
                 ch = ceo.recent_changes(365).get(cik) if gr.get("name") else None
                 if ch:
                     r.update(ceo_changed=ch["date"], ceo_prev=ch["old_name"] or "")
+                watch.discard(cik)
                 changed.append(r)
             if changed:
                 g.run_grid_method("applyTransaction", {"update": changed})
-            left = sum(1 for r in rows if not r.get("ceo_tried"))
             if stt["running"]:
                 ceo_status.text = (f"Rating CEOs in the background: {stt['pending']:,} to go (now {stt['current'] or '…'}). "
-                                   "Each needs a few Wikidata and Yahoo look-ups; the CEO column fills in as they arrive, "
-                                   "best companies first.")
-            elif left and stt["failed"] and not stt["done"]:
+                                   "Each needs a few Wikidata, Yahoo and SEC look-ups; the CEO column fills in as they "
+                                   "arrive, best companies first.")
+            elif watch and stt["failed"] and not stt["done"]:
                 ceo_status.text = ("CEO grades couldn't be looked up (offline, or Wikidata/Yahoo unreachable); they'll be "
                                    "tried again on the next visit and in the daily update.")
             else:
-                ceo_status.text = ""
+                vis = [r["cik"] for r in st.get("last_view", [])]
+                ceo_status.text = ("CEO grades in this view: " + ceo.coverage_text(ceo.coverage(vis)) + ". Hover a cell "
+                                   "for the reason; a missing start date can be entered on the stock's Wonderful? tab."
+                                   ) if vis else ""
         ui.timer(4.0, ceo_tick)
 
         def show_group(gid, visible):
@@ -745,9 +756,16 @@ def screener_page(compare: str = "", view: str = "both"):
             counts.text = (f"{n['both']:,} best of both · {n['nocheck']:,} wonderful but fail the checklist · "
                            f"{n['notwonder']:,} pass the checklist but aren't wonderful")
             g.options["rowData"] = xs
+            st["last_view"] = xs
             g.run_grid_method("setGridOption", "rowData", xs)
-            # grade the CEOs of the companies in view first (best first), then the rest of the wonderful ones
-            ceo.queue_grades([(r["cik"], r["ticker"]) for r in xs if not r.get("ceo_tried")][:400], front=True)
+            # grade the CEOs of the companies in view first (best first): never looked up, or stuck without a start date
+            # or a CEO since before 0.17.5 could read start dates from filings
+            retry_from = ceo.retry_from_date()
+            todo = [r for r in xs if not r.get("ceo_tried") or (
+                r.get("ceo_note") in ("start date unknown", "CEO not found") and r.get("ceo_updated", "") < retry_from)]
+            todo = todo[:400]
+            st.setdefault("watch", set()).update(r["cik"] for r in todo)
+            ceo.queue_grades([(r["cik"], r["ticker"]) for r in todo], front=True)
             chart.options.clear()
             chart.options.update(map_options(allx, {r["ticker"] for r in xs}, bar))
             chart.update()

@@ -211,3 +211,47 @@ def test_daily_ceo_check_finds_a_new_ceo_and_records_the_change(monkeypatch):
         con.execute("DELETE FROM ceo_changes WHERE cik=?", (cik,))
         con.execute("DELETE FROM market_alerts WHERE kind='ceo_change'")
         con.execute("DELETE FROM securities WHERE cik=?", (cik,))
+
+
+def test_ceo_start_date_is_read_from_a_biography_sentence():
+    from oracle_edge.sources import sec
+
+    f = sec.ceo_start_in_text
+    assert f("Timothy D. Cook has served as the Company's Chief Executive Officer since August 2011.", "Tim Cook")[0] \
+        == "2011-08-01"
+    assert f("Satya Nadella was appointed Chief Executive Officer in February 2014 and Chairman in 2021.",
+             "Satya Nadella")[0] == "2014-02-01"
+    assert f("Anirudh Devgan has served as our President since 2017 and as Chief Executive Officer since December "
+             "2021.", "Anirudh Devgan")[0] == "2021-12-01"
+    assert f("Mr. Brown served as interim CEO in 2015 and has been CFO since 2016.", "Al Brown") is None
+    assert f("Ms. Lee has served as Chief Executive Officer since 2012.", "Bob Jones") is None  # someone else
+    html = "<p>Mr.&nbsp;Jones has served as CEO since <b>January 1, 2019</b>.</p>"
+    assert f(sec._text(html), "Bob Jones")[0] == "2019-01-01"
+
+
+def test_missing_start_date_comes_from_filings_and_coverage_says_why(monkeypatch):
+    from oracle_edge.sources import company, sec, wikidata
+
+    cik = 990040
+    with db.tx() as con:
+        con.execute("DELETE FROM ceo_grades WHERE cik IN (990040, 990041)")
+        con.execute("DELETE FROM ceo_cache WHERE key LIKE 'secstart:99004%'")
+    monkeypatch.setattr(wikidata, "ceos", lambda c, t: [{"qid": "Q9", "name": "Dana Ruiz", "start": None, "end": None}])
+    monkeypatch.setattr(wikidata, "companies_led", lambda *a, **k: [])
+    monkeypatch.setattr(company, "get", lambda t, refresh=False: {"officers": []})
+    calls = []
+    monkeypatch.setattr(sec, "ceo_start_from_filings", lambda c, n: calls.append(c) or (
+        {"start": "2015-03-01", "form": "DEF 14A", "filed": "2026-03-20",
+         "sentence": "Ms. Ruiz has served as CEO since March 2015."} if c == cik else None))
+    res = ceo.assess(cik, "ZZS")
+    assert res["current"]["start"] == "2015-03-01" and "DEF 14A" in res["current"]["source"]
+    ceo.assess(cik, "ZZS")
+    assert calls.count(cik) == 1  # cached
+    res2 = ceo.assess(990041, "ZZT")  # nothing in the filings either
+    assert not res2["current"].get("start")
+    cov = ceo.coverage([cik, 990041, 990042])
+    assert cov["no_start"] == 1 and cov["not_tried"] == 1 and cov["graded"] + cov["other"] + cov["new"] == 1
+    assert "no start date" in ceo.coverage_text(cov)
+    with db.tx() as con:
+        con.execute("DELETE FROM ceo_grades WHERE cik IN (990040, 990041)")
+        con.execute("DELETE FROM ceo_cache WHERE key LIKE 'secstart:99004%'")

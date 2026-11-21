@@ -713,7 +713,7 @@ def ranking_rows(prof) -> list[dict]:
                     "streak70": t.get("streak_70", 0), "hist": hist, "hy0": hy0, "tr": h.get("tr") or {},
                     "ceo_grade": g.get("grade"), "ceo_score": g.get("score"), "ceo_name": g.get("name") or "",
                     "ceo_since": (g.get("start") or "")[:4], "ceo_basis": g.get("basis") or "",
-                    "ceo_note": g.get("note") or ("" if g else "not rated yet"), "ceo_tried": bool(g),
+                    "ceo_note": g.get("note") or ("" if g else "not rated yet"), "ceo_tried": bool(g), "ceo_updated": g.get("updated_at") or "",
                     "gm_kind": gmk.get(r["cik"], "none"),
                     "ceo_changed": (cch.get(r["cik"]) or {}).get("date") or "",
                     "ceo_prev": (cch.get(r["cik"]) or {}).get("old_name") or "",

@@ -314,6 +314,13 @@ def assess(cik: int, ticker: str, hint_start: str | None = None, refresh: bool =
         res["current"] = cur
         res.pop("conflict", None)
     res["change_source"] = source
+    if cur and cur.get("name") and not cur.get("start") and cur.get("source") != "you":
+        found = start_from_filings(cik, cur["name"])
+        if found:
+            cur = {**cur, "start": found["start"],
+                   "source": f"{cur.get('source') or 'Wikidata'}; start date from the {found['form']} filed {found['filed']}"}
+            res["current"] = cur
+            res["start_note"] = found["sentence"]
     if cur and cur.get("start"):
         led = wikidata.companies_led(cur.get("qid"), None if cur.get("qid") else cur.get("name")) \
             if res.get("wikidata_ok") or cur.get("qid") else []
@@ -325,6 +332,28 @@ def assess(cik: int, ticker: str, hint_start: str | None = None, refresh: bool =
     if res["saved"]:
         save_grade(cik, res)
     return res
+
+
+def start_from_filings(cik: int, name: str) -> dict | None:
+    """When the CEO started, read from the company's latest proxy statement or annual report; cached 30 days
+    (misses too), so a company is read at most once a month."""
+    import json as _json
+    from datetime import datetime as _dt, timedelta as _td
+
+    from .sources import sec
+
+    key = f"secstart:{cik}:{name}"
+    r = db.one("SELECT fetched_at, json FROM ceo_cache WHERE key=?", (key,))
+    if r and _dt.fromisoformat(r["fetched_at"]) > _dt.now() - _td(days=30):
+        return _json.loads(r["json"])
+    try:
+        found = sec.ceo_start_from_filings(cik, name)
+    except Exception as e:  # offline: try again next time
+        db.log("sec", "ceo start", False, f"{cik}: {e}"[:200])
+        return None
+    db.get().execute("INSERT OR REPLACE INTO ceo_cache(key, fetched_at, json) VALUES(?,?,?)",
+                     (key, _dt.now().isoformat(timespec="seconds"), _json.dumps(found)))
+    return found
 
 
 def save_grade(cik: int, res: dict) -> None:
@@ -436,10 +465,58 @@ def to_rate(min_score: float = 60.0, max_age_days: int = 30, profile=None) -> li
 
     p = profile or rules.default_profile()
     old = (date.today() - timedelta(days=max_age_days)).isoformat()
+    # 0.17.5 can find a missing start date in the company's filings: companies stuck without one (or without a CEO)
+    # are looked at once more, whenever they were last tried
+    retry_from = retry_from_date()
     return [(r["cik"], r["ticker"]) for r in db.rows(
         "SELECT w.cik, s.ticker FROM wonder w JOIN securities s ON s.cik=w.cik LEFT JOIN ceo_grades g ON g.cik=w.cik "
         "WHERE w.profile_id=? AND w.cohort='now' AND w.score>=? AND s.ticker IS NOT NULL "
-        "AND (g.updated_at IS NULL OR g.updated_at < ?) ORDER BY w.score DESC", (p.snap[0], min_score, old))]
+        "AND (g.updated_at IS NULL OR g.updated_at < ? OR (g.grade IS NULL AND g.note IN ('start date unknown', "
+        "'CEO not found') AND g.updated_at < ?)) ORDER BY w.score DESC", (p.snap[0], min_score, old, retry_from))]
+
+
+def retry_from_date() -> str:
+    """When this version first ran: companies left without a start date or a CEO before then get one more look
+    (0.17.5 can read start dates from filings). Set once."""
+    v = db.cfg("ceo_retry_from")
+    if not v:
+        v = db.now()
+        db.set_cfg("ceo_retry_from", v)
+    return v
+
+
+STATUS = [("graded", "graded"), ("new", "new CEO (under two years)"), ("no_start", "no start date"),
+          ("not_found", "no CEO found"), ("other", "not enough data"), ("not_tried", "not looked up yet")]
+
+
+def status_of(g: dict | None) -> str:
+    if not g:
+        return "not_tried"
+    if g.get("grade"):
+        return "graded"
+    note = g.get("note") or ""
+    return ("new" if "under two" in note else "no_start" if "start date" in note else
+            "not_found" if "not found" in note else "other")
+
+
+def coverage(ciks: list[int] | None = None, min_score: float = 60.0, profile=None) -> dict[str, int]:
+    """How many companies' CEOs are graded, and why the rest aren't. ciks: these companies; default: every company
+    with Wonderfulness >= min_score."""
+    from . import rules
+
+    if ciks is None:
+        p = profile or rules.default_profile()
+        ciks = [r["cik"] for r in db.rows("SELECT cik FROM wonder WHERE profile_id=? AND cohort='now' AND score>=?",
+                                          (p.snap[0], min_score))]
+    g = graded_since(list(ciks))
+    out = {k: 0 for k, _ in STATUS}
+    for c in ciks:
+        out[status_of(g.get(c))] += 1
+    return out
+
+
+def coverage_text(cov: dict[str, int]) -> str:
+    return " · ".join(f"{cov[k]:,} {lab}" for k, lab in STATUS if cov.get(k))
 
 
 # ---------------------------------------------------------------- background grading (the Screener fills in as you watch)

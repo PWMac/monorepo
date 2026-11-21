@@ -372,6 +372,74 @@ def parse_officer_changes(doc: dict, since: str) -> list[str]:
     return sorted(set(out), reverse=True)
 
 
+# ---------------------------------------------------------------- when the CEO started, from filings
+ARCHIVE_URL = "https://www.sec.gov/Archives/edgar/data/{cik}/{acc}/{doc}"
+_MONTHS = {m: i for i, m in enumerate(["january", "february", "march", "april", "may", "june", "july", "august",
+                                       "september", "october", "november", "december"], 1)}
+_CEO_RE = re.compile(r"chief\s+executive\s+officer|\bceo\b", re.I)
+_SINCE_RE = re.compile(r"\b(since|in|effective|from|as of)\s+(?:(january|february|march|april|may|june|july|august|"
+                       r"september|october|november|december)\s+(?:\d{1,2},\s*)?)?((?:19|20)\d{2})\b", re.I)
+
+
+def _text(html_: str) -> str:
+    t = re.sub(r"(?is)<(script|style).*?</\1>", " ", html_)
+    t = re.sub(r"(?s)<[^>]+>", " ", t)
+    t = t.replace("&nbsp;", " ").replace("&#160;", " ").replace("&amp;", "&").replace("&#8217;", "'")
+    return re.sub(r"\s+", " ", t)
+
+
+def ceo_start_in_text(text: str, name: str) -> tuple[str, str] | None:
+    """The date `name` became CEO, from a biography sentence such as "Mr. Smith has served as our Chief Executive
+    Officer since March 2014" or "was appointed President and CEO in 2019". Returns (YYYY-MM-01, the sentence), the
+    earliest such date found, or None. The sentence must name the person (last name) and the CEO role, and the date
+    must follow the CEO wording."""
+    last = [w for w in re.sub(r"[.,]", " ", name or "").split() if len(w) > 1]
+    if not last:
+        return None
+    ln = last[-1].lower()
+    if ln in ("jr", "sr", "ii", "iii", "iv") and len(last) > 1:
+        ln = last[-2].lower()
+    best = None
+    for sent in re.split(r"(?<=[.;])\s+", text):
+        low = sent.lower()
+        if ln not in low or len(sent) > 600:
+            continue
+        for m in _CEO_RE.finditer(sent):
+            tail = sent[m.end(): m.end() + 120]
+            d = _SINCE_RE.search(tail)
+            if not d:
+                continue
+            if re.search(r"\b(former|previously|prior|until|retired|interim)\b", sent[max(0, m.start() - 60): m.start()], re.I):
+                continue  # a past or interim role, not the current one
+            mon = _MONTHS.get((d.group(2) or "").lower(), 1)
+            when = f"{d.group(3)}-{mon:02d}-01"
+            if best is None or when < best[0]:
+                best = (when, sent.strip()[:300])
+    return best
+
+
+def ceo_start_from_filings(cik: int, name: str) -> dict | None:
+    """Look for when the CEO started in the latest proxy statement (DEF 14A), then the latest annual report (their
+    executive-officer biographies). {start, form, filed, sentence} or None."""
+    r = http().get(SUBMISSIONS_URL.format(cik=cik))
+    if r.status_code != 200:
+        return None
+    rec = (r.json().get("filings") or {}).get("recent") or {}
+    rows = list(zip(rec.get("form") or [], rec.get("filingDate") or [], rec.get("accessionNumber") or [],
+                    rec.get("primaryDocument") or []))
+    for forms in (("DEF 14A",), ("10-K", "20-F", "40-F")):
+        doc = next((x for x in rows if x[0] in forms and x[3]), None)
+        if not doc:
+            continue
+        resp = http().get(ARCHIVE_URL.format(cik=int(cik), acc=doc[2].replace("-", ""), doc=doc[3]))
+        if resp.status_code != 200:
+            continue
+        hit = ceo_start_in_text(_text(resp.text), name)
+        if hit:
+            return {"start": hit[0], "form": doc[0], "filed": doc[1], "sentence": hit[1]}
+    return None
+
+
 def today_str() -> str:
     return datetime.now().strftime("%Y-%m-%d")
 
