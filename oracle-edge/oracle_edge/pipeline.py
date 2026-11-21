@@ -197,14 +197,65 @@ def _store_evals_tx(run_id, d, evals):
 
 
 def _fill_forward_returns(run_id, pb, tk):
-    for s in db.rows("SELECT * FROM stints WHERE run_id=? AND fwd_1y IS NULL", (run_id,)):
+    """Each Buy Zone entry's return over the next 365 days, and the S&P 500's over the same days."""
+    for s in db.rows("SELECT * FROM stints WHERE run_id=? AND (fwd_1y IS NULL OR bench_fwd_1y IS NULL)", (run_id,)):
         d1 = (date.fromisoformat(s["entered_on"]) + timedelta(days=365)).isoformat()
         t = tk.get(s["cik"])
         last = pb.last_date(t, d1) if t else None
         if last and last >= (date.fromisoformat(d1) - timedelta(days=7)).isoformat() and s["entry_px"]:
             px = pb.adj(t, d1)
-            if px:
-                db.get().execute("UPDATE stints SET fwd_1y=? WHERE id=?", (px / s["entry_px"] - 1, s["id"]))
+            b0, b1 = pb.adj(BENCH, s["entered_on"]), pb.adj(BENCH, d1)
+            fwd = (px / s["entry_px"] - 1) if px else None
+            bfwd = (b1 / b0 - 1) if (b0 and b1) else None
+            db.get().execute("UPDATE stints SET fwd_1y=COALESCE(fwd_1y, ?), bench_fwd_1y=? WHERE id=?",
+                             (fwd, bfwd, s["id"]))
+
+
+def normalize_stints(run_id: int | None = None) -> int:
+    """Bring Buy Zone entries recorded by older versions up to the current rules: merge re-entries within
+    signals.REENTRY_DAYS of leaving into the earlier entry, flag entries on the run's first day, and fill the
+    S&P 500's return over each entry's next year. Safe to run again; returns how many entries were merged away."""
+    from .signals import REENTRY_DAYS
+
+    run_ids = [run_id] if run_id else [r["run_id"] for r in db.rows("SELECT DISTINCT run_id FROM stints")]
+    if not run_ids:
+        return 0
+    pb = PriceBook([BENCH])
+    merged = 0
+    for rid in run_ids:
+        rows = [dict(r) for r in db.rows("SELECT * FROM stints WHERE run_id=? ORDER BY cik, entered_on", (rid,))]
+        if not rows:
+            continue
+        first = min(r["entered_on"] for r in rows)
+        with db.tx() as con:
+            con.execute("UPDATE stints SET at_start=CASE WHEN entered_on=? THEN 1 ELSE 0 END WHERE run_id=?",
+                        (first, rid))
+            keep = None
+            for r in rows:
+                if keep and keep["cik"] == r["cik"] and keep["left_on"] and \
+                        (date.fromisoformat(r["entered_on"]) - date.fromisoformat(keep["left_on"])).days <= REENTRY_DAYS:
+                    # continue the earlier entry: it now ends where this one ends
+                    keep["left_on"], keep["exit_px"], keep["status"] = r["left_on"], r["exit_px"], r["status"]
+                    keep["reentries"] = (keep.get("reentries") or 0) + 1 + (r.get("reentries") or 0)
+                    ret = (keep["exit_px"] / keep["entry_px"] - 1) if (keep["exit_px"] and keep["entry_px"]) else None
+                    b0 = pb.adj(BENCH, keep["entered_on"])
+                    b1 = pb.adj(BENCH, keep["left_on"]) if keep["left_on"] else None
+                    con.execute("UPDATE stints SET left_on=?, exit_px=?, status=?, return_pct=?, bench_return_pct=?, "
+                                "reentries=? WHERE id=?",
+                                (keep["left_on"], keep["exit_px"], keep["status"], ret,
+                                 (b1 / b0 - 1) if (b0 and b1) else None, keep["reentries"], keep["id"]))
+                    con.execute("DELETE FROM stints WHERE id=?", (r["id"],))
+                    merged += 1
+                else:
+                    keep = r
+    for rid in run_ids:
+        if db.scalar("SELECT COUNT(*) FROM stints WHERE run_id=? AND bench_fwd_1y IS NULL", (rid,), 0):
+            ciks = [r["cik"] for r in db.rows("SELECT DISTINCT cik FROM stints WHERE run_id=?", (rid,))]
+            tk = tickers_by_cik()
+            book = PriceBook([BENCH] + [tk[c] for c in ciks if tk.get(c)])
+            with db.tx():
+                _fill_forward_returns(rid, book, tk)
+    return merged
 
 
 def _prev_day(d: str) -> str:

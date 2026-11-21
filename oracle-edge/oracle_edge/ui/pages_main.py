@@ -997,28 +997,50 @@ def performance_page(run: int | None = None):
                      "itemStyle": {"color": "#c9c5b9"}},
                 ],
             }, height="h-96", name="growth-of-1")
-        with ui.row().classes("w-full gap-4 no-wrap items-start"):
-            with ui.card().classes("oe-card flex-1"):
+        with ui.column().classes("w-full gap-4"):
+            with ui.card().classes("oe-card w-full"):
                 ui.label("Is the ranking working?").classes("oe-h2")
-                ui.label("Groups every Buy Zone entry by its rank on the day it entered. Top ranks should do "
-                         "better over time.").classes("oe-small")
+                ui.label("Every Buy Zone entry, grouped by its rank on the day it entered, with the stock's next "
+                         "year next to the S&P 500's over the same days. Top ranks should beat the S&P by more. "
+                         "Compare the 'vs S&P' columns, not the raw return: a rank of 16 or worse only exists when "
+                         "many stocks are cheap at once, which is usually a market sell-off, so the raw return "
+                         "includes the market's own rebound.").classes("oe-small")
                 rb = data.rank_buckets(run_id)
-                ui.table(rows=[{"bucket": b["bucket"], "stints": b["stints"], "fwd": pct(b["avg_fwd_1y"], 1),
-                                "eps": b["episodes"], "ex": pct(b["avg_excess"], 1)} for b in rb],
+                skipped = rb[-1].get("skipped_start", 0)
+                rb = rb[:-1]
+                ui.table(rows=[{"bucket": b["bucket"], "n": f"{b['stints']} ({b['stocks']})",
+                                "fwd": pct(b["avg_fwd_1y"], 1), "med": pct(b["med_fwd_1y"], 1),
+                                "spx": pct(b["avg_bench"], 1), "ex": pct(b["avg_excess_1y"], 1),
+                                "mex": pct(b["med_excess_1y"], 1),
+                                "beat": "—" if b["beat"] is None else f"{b['beat'] * 100:.0f}%",
+                                "eps": b["episodes"], "hex": pct(b["avg_excess"], 1), "hmex": pct(b["med_excess"], 1)}
+                               for b in rb],
                          columns=[{"name": "bucket", "label": "Entry rank", "field": "bucket"},
-                                  {"name": "stints", "label": "Buy-zone entries", "field": "stints"},
-                                  {"name": "fwd", "label": "Avg 1-yr return after entry", "field": "fwd"},
+                                  {"name": "n", "label": "Entries (stocks)", "field": "n"},
+                                  {"name": "fwd", "label": "1-yr return: avg", "field": "fwd"},
+                                  {"name": "med", "label": "median", "field": "med"},
+                                  {"name": "spx", "label": "S&P same days", "field": "spx"},
+                                  {"name": "ex", "label": "vs S&P: avg", "field": "ex"},
+                                  {"name": "mex", "label": "median", "field": "mex"},
+                                  {"name": "beat", "label": "Beat S&P", "field": "beat"},
                                   {"name": "eps", "label": "Closed holdings", "field": "eps"},
-                                  {"name": "ex", "label": "Avg excess vs S&P", "field": "ex"}],
+                                  {"name": "hex", "label": "Holdings vs S&P: avg", "field": "hex"},
+                                  {"name": "hmex", "label": "median", "field": "hmex"}],
                          row_key="bucket").props("flat dense").classes("w-full")
-            with ui.card().classes("oe-card flex-1"):
+                ui.label("A stock that leaves the Buy Zone and comes back within 30 days counts as one entry. "
+                         + (f"{skipped} entries on the first day of the history are left out: those stocks were "
+                            "already in the Buy Zone when it began. " if skipped else "")
+                         + "Medians are less swayed by a few huge winners. Holdings: return vs the S&P while "
+                           "actually owned (not annualized).").classes("oe-small")
+            with ui.card().classes("oe-card w-full"):
                 ui.label("While stocks met the criteria").classes("oe-h2")
                 ss = data.stints_summary(run_id)
                 ui.label("Every stretch a stock spent in the Buy Zone, owned or not.").classes("oe-small")
                 if ss and ss.get("n"):
                     ui.label(f"{ss['n']} completed stretches · average {pct(ss['r'], 1)} vs S&P {pct(ss['b'], 1)} over "
-                             f"the same days · beat the S&P {ss['beat'] or 0} times · average return 1 year after "
-                             f"entry {pct(ss['f'], 1)}").classes("text-sm")
+                             f"the same days (median gap {pct(ss['med_ex'], 1)}) · beat the S&P {ss['beat'] or 0} "
+                             f"times · 1 year after entry: {pct(ss['f'], 1)}, {pct(ss['fx'], 1)} vs the S&P "
+                             f"(median {pct(ss['med_fx'], 1)})").classes("text-sm")
                 else:
                     ui.label("No completed stretches yet.").classes("oe-muted")
         open_ret = data.open_episode_returns(run_id)

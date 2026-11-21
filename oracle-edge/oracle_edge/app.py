@@ -88,6 +88,15 @@ def startup() -> None:
         apply_known_adr()
     except Exception as e:
         logging.getLogger("oracle_edge").warning("known ADR ratios not applied: %s", e)
+    if not db.cfg("stints_normalized_v1"):  # once: merge Buy Zone re-entries, add the S&P's same-year return
+        try:
+            from .pipeline import normalize_stints
+
+            n = normalize_stints()
+            db.set_cfg("stints_normalized_v1", db.now())
+            logging.getLogger("oracle_edge").info("Buy Zone entries: merged %d re-entries within 30 days", n)
+        except Exception as e:
+            logging.getLogger("oracle_edge").warning("Buy Zone entries not normalized: %s", e)
     # catch up automatically if the PC was off at the scheduled time
     try:
         from .tradecal import completed_session

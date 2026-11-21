@@ -66,10 +66,15 @@ def decorate(options: dict, name: str = "chart", slider: bool = True) -> dict:
                 g["bottom"] = 64  # room for the axis labels above the slider
         if not grids:
             options["grid"] = {"left": 60, "right": 30, "top": 44, "bottom": 64}
+    ys = options.get("yAxis")
+    named = any(isinstance(y, dict) and y.get("name") for y in (ys if isinstance(ys, list) else [ys]))
+    top_min = 66 if named else 44  # a y-axis title sits above the plot: keep it below the legend and toolbox
     grids = options.get("grid")
-    for g in grids if isinstance(grids, list) else [grids] if grids else []:
-        if isinstance(g.get("top"), (int, float)) and g["top"] < 44:
-            g["top"] = 44  # room for the legend and toolbox
+    if not grids:
+        options["grid"] = grids = {"left": 60, "right": 30, "top": top_min, "bottom": 30}
+    for i, g in enumerate(grids if isinstance(grids, list) else [grids]):
+        if i == 0 and isinstance(g.get("top"), (int, float)) and g["top"] < top_min:
+            g["top"] = top_min
     options["toolbox"] = {"right": 6, "top": 0, "itemSize": 14, "feature": {
         "dataZoom": {"yAxisIndex": "none", "title": {"zoom": "Box zoom: drag a rectangle", "back": "Undo zoom"}},
         "restore": {"title": "Reset"},
