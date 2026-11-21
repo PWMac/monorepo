@@ -74,7 +74,7 @@ footer { color:var(--muted); font-size:12.5px; margin-top:50px; border-top:1px s
   <h1><img src="brand/logo/oracle-edge-header-tagline.png" srcset="brand/logo/oracle-edge-header-tagline@2x.png 2x"
      alt="Oracle Edge: Screen, Rank, Signal"></h1>
   <p>A local stock screener that thinks like the Oracle. This guide explains <b>what</b> the app does,
-  <b>how</b> it decides, and <b>why</b> it was built this way. Version 0.17.1.</p>
+  <b>how</b> it decides, and <b>why</b> it was built this way. Version 0.17.2.</p>
   <p style="font-size:14px">Two documents: this <b>guide</b> is the user manual, kept current with every release and opened from
   "Guide" in the app. The <b>plan</b> (<code>docs/Value-Picker-Plan.html</code> with the source code) is the design record: the research, architecture,
   database layout and the decision log behind the app.</p>
@@ -428,8 +428,12 @@ record supports; amber when the price expects more), the P/E against the company
 buy price, and the live profile's own Buy Zone status (which uses that profile's valuation model). All of these can be
 filtered with Add filter. Banks and insurers aren't valued this way and show blank.</li>
 <li><b>CEO grade</b>: the CEO's track-record grade (A–F, with the score; career-weighted when they ran other companies; see
-CEO track record). Hover for the name and since when. Grades are worked out in the background, 40 a day, best companies
-first, and immediately when you open a stock's Wonderful? tab; "—" means not rated yet or not enough data.</li>
+CEO track record). Hover for the name and since when. Opening the Screener starts grading the CEOs of the companies in
+the current view in the background, best first (a few Wikidata and Yahoo look-ups each, so a second or two apiece); the
+column shows "rating…" and fills in as the grades arrive, with a progress line above the table. The daily update grades up to
+150 more a day, opening a stock's Wonderful? tab grades it at once, and grades are refreshed after 30 days. "—" means the CEO
+or their start date couldn't be found, or they've been in the role under two years (hover for which). If Wikidata can't be
+reached nothing is recorded, so the company is simply tried again later (since 0.17.2).</li>
 </ul>
 
 <h4>CEO track record</h4>
@@ -1456,7 +1460,7 @@ their old results until you recalculate them.</p>
 <tr><td><b>XBRL</b></td><td>The tagged data format companies use to file financial statements with the SEC</td></tr>
 </table>
 
-<footer>Oracle Edge v0.17.1 · research tool, not financial advice · MIT license. The full design plan, with research sources,
+<footer>Oracle Edge v0.17.2 · research tool, not financial advice · MIT license. The full design plan, with research sources,
 is in <code>docs/Value-Picker-Plan.html</code> with the source code.</footer>
 </main>
 </div>
