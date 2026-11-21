@@ -103,7 +103,6 @@ footer { color:var(--muted); font-size:12.5px; margin-top:50px; border-top:1px s
   <a href="#risk" style="padding-left:22px">Risk controls</a>
   <a href="#market">14. Market temperature</a>
   <a href="#backtest">15. Backtests and profiles</a>
-  <a href="#experiments" style="padding-left:22px">Experiments and robustness</a>
   <a href="#ops">16. Email, schedule, backups, security</a>
   <a href="#trouble" style="padding-left:22px">Troubleshooting</a>
   <a href="#screens">17. The screens</a>
@@ -396,7 +395,7 @@ weighted 25 / 50 / 25.</td><td>One growth path pretends to know the future; a ra
 </table>
 <p><b>Bigger margin of safety for less predictable earnings</b> (a separate switch) adds up to 20 points to the required margin of
 safety as earnings predictability falls: a perfectly steady business needs the usual margin, one with erratic earnings up to 20
-points more. Both options are tested as experiments G and G+ (section 15).</p>
+points more. Both options can be compared under Backtest → Experiments.</p>
 
 <!-- ================================================================ 9 -->
 <h2 id="rank"><span class="n">9</span>Ranking and the lists</h2>
@@ -724,13 +723,23 @@ carried forward daily by the <b>price</b> change of the total-market ETF (VTI) s
 add to market value, so the dividend-adjusted price isn't used). This matches the published readings (about 220–230% in 2026).
 Versions before 0.11.1 used the all-sectors series, which also counts financial companies and read about 1.7 times higher.</p>
 <ul>
-<li><b>Both numbers are shown</b> on the Market page: the market value (the quarter-end level and how far it has moved since) and
-GDP (the latest quarter, at a yearly rate), each charted over time.</li>
-<li><b>Point in time.</b> The Fed publishes a quarter's market value about ten weeks after the quarter ends and GDP about a month
-after. A past reading uses only the quarters already published on that day, so backtests can't see numbers nobody had yet. The
-history chart dates each point at its quarter's end.</li>
+<li><b>A current reading every day, official figures as soon as they're out.</b> The Fed publishes a quarter's market value about
+ten weeks after the quarter ends, and GDP about a month after. Between releases the app estimates both parts to today:
+<ul>
+<li><i>Market value</i>: the latest published quarter-end level, moved by VTI's price change since that quarter's end.</li>
+<li><i>GDP</i>: the latest published quarter (a yearly rate), grown from that quarter's end to today at its growth over the past
+four quarters (for example, 5% a year for 50 days adds about 0.7%).</li>
+</ul>
+When a new quarter is published, the next daily update downloads it and the reading switches to it at once; the estimate then
+continues from the new quarter.</li>
+<li><b>Both numbers are shown</b> on the Market page with how each was estimated, and charted: solid lines are the official
+quarter-end figures, the dashed line is the weekly estimate since the last official quarter, ending with today's reading.</li>
+<li><b>Backtests see only what was known on each day.</b> A past day's reading is built the same way, but only from quarters already
+published by that day (about ten weeks after a quarter's end for market value, a month for GDP), so a backtest can't use numbers
+nobody had yet. Revised figures are used, since FRED doesn't keep the first-published versions.</li>
 <li><b>Global Buffett Indicator.</b> The World Bank's annual world totals (listed companies' market value ÷ world GDP). The latest
-year-end value is moved to today by the world total-market ETF (VT), over the latest published world GDP; both years are shown.
+year-end value is moved to today by the world total-market ETF (VT), over the latest published world GDP grown to today at its
+latest yearly rate; both years are shown, and new World Bank figures replace the estimate when they're published.
 Other markets list far fewer of their companies, so the US zones don't apply: compare the world reading with its own average.</li>
 </ul>
 <table>
@@ -785,7 +794,7 @@ how each rank bucket performed afterwards.</li>
 <li><b>Recalculate</b> (on each backtest, or "Recalculate all") re-runs it over the same dates with the profile's
 <i>current</i> rules and portfolio settings and replaces the old results. Use it after changing the number of holdings.</li>
 <li><b>Find the best number of holdings</b> is explained in section 13.</li>
-<li><b>Experiments</b> (section below) compare risk-control setups and rank them by a robustness score.</li>
+<li><b>Experiments</b> compare risk-control setups side by side and rank them by a robustness score.</li>
 <li><b>Profiles</b> hold every rule, threshold and setting. Shipped profiles are locked:
 <ul>
   <li><i>Oracle Classic</i> (the default);</li>
@@ -801,58 +810,6 @@ always accurate after an edit. The editor previews live how many companies would
 in portfolio, signal or alert settings share company scores, so trying another portfolio size never rescores everything.</li>
 <li>Several profiles can be <b>active</b> at once; each gets its own live signals and model portfolio.</li>
 </ul>
-<h3 id="experiments">Experiments and the robustness score</h3>
-<p><b>Backtest → Experiments</b> runs, on the Risk Optimized profile's company scores and the same dates:</p>
-<table>
-<tr><th>Exp.</th><th>Setup</th><th>Question</th></tr>
-<tr><td>Live</td><td>Your live setup: 7 holdings, equal slices, no new limits</td><td>The benchmark to beat</td></tr>
-<tr><td>R</td><td>Risk Optimized defaults: 7 holdings, value-and-quality sizing, 35% / 50% / 60% limits</td><td>Does the profile as set up
-help?</td></tr>
-<tr><td>A / B / C</td><td>7 / 8 / 9 holdings with a 20% cap</td><td>Less concentration, more diversification</td></tr>
-<tr><td>D</td><td>7 holdings, 20% cap + sector and correlation limits</td><td>Less correlated risk</td></tr>
-<tr><td>E / F</td><td>7 / 8 holdings, 20% cap + market overlay</td><td>Smaller bear-market losses</td></tr>
-<tr><td>G</td><td>The most robust of A–F + enhanced valuation</td><td>Better stock selection</td></tr>
-<tr><td>G+</td><td>G + bigger margin of safety for less predictable earnings</td><td>Does uncertainty deserve a bigger discount?</td></tr>
-</table>
-<p>Each row shows CAGR, maximum drawdown, the <b>Calmar ratio</b> (CAGR ÷ |maximum drawdown|), the worst 12 months, CAGR in each third
-of the period, how many thirds beat the S&amp;P 500, turnover, trading costs, and whether it beat your live setup on the stated goal:
-<b>higher CAGR with the same or a smaller drawdown</b>.</p>
-<p>The <b>robustness score</b> (0–100) ranks them, so a setup that got lucky in one market can't win:</p>
-<table>
-<tr><th>Weight</th><th>Part</th><th>Scale</th></tr>
-<tr><td>30%</td><td>Median CAGR across the three independent periods</td><td>0% = 0, 30%/yr = 100</td></tr>
-<tr><td>25%</td><td>Maximum drawdown</td><td>−50% = 0, no drawdown = 100</td></tr>
-<tr><td>20%</td><td>Worst rolling 12 months</td><td>−40% = 0, no loss = 100</td></tr>
-<tr><td>15%</td><td>Consistency: share of periods beating the S&amp;P 500 (60%) and how even the period CAGRs are (40%)</td><td></td></tr>
-<tr><td>10%</td><td>Turnover and trading costs</td><td>no trading = 100, 200%/yr = 0</td></tr>
-</table>
-<p>The three periods are independent stretches of the same history, not true out-of-sample data, since no setting is fitted to one
-period and judged on another. Results are only as good as the history: with about 7 years and one deep bear market, small differences
-are noise.</p>
-<h3 id="ranktests">Tested and not adopted (November 2026)</h3>
-<p>On the live profile (Buffettology 15% · best 7), 2019 → November 2026, weekly replays:</p>
-<table>
-<tr><th>Idea</th><th>Result</th><th>Decision</th></tr>
-<tr><td><b>Buy more in bargain markets</b>: spend the whole cash reserve when more of the wonderful companies are in the Buy Zone than
-on 80% of past days</td><td>25.1% CAGR vs 25.2% live: no measurable effect. The reserve is rarely large, so there was little extra
-to spend.</td><td>Not adopted</td></tr>
-<tr><td><b>Trim as holdings get expensive</b>: sell 25% of a holding at or above its intrinsic value (at most every 90 days) and keep
-the cash for bargains</td><td>17.1% CAGR (18.3% trimming only at 1.2× value) vs 25.2%. The best holdings kept rising well past
-their estimated value, and trimming them cut the compounding.</td><td>Not adopted. The existing nose-bleed trim (2× value and P/E)
-stays.</td></tr>
-<tr><td><b>Quality weight in the rank</b> (0.65 now): 0.80, 0.50, 0.35, 0.20</td><td>Every other weight did much worse in the portfolio
-(8–13% CAGR vs 25.2%), with similar or deeper drawdowns. A same-day check of the whole Buy Zone found that value-heavier orderings put
-slightly better stocks in the top 5, but with only 7 holdings the portfolio result depends on a few picks, so that edge didn't
-survive.</td><td>Kept at 0.65</td></tr>
-</table>
-<p>What this says about the live result: changing any one setting a little roughly halved the backtested CAGR. With 7 holdings, a
-handful of picks drive the outcome, so treat the 25% as one lucky-or-good path through 2019–2026, not a rate to expect.</p>
-<div class="note"><b>Before running G and G+ the first time</b>, run <b>Data → re-run first-time load</b> once. It re-reads the SEC data
-with the new items (stock pay, receivables, inventory, acquisitions, PP&amp;E) and re-scores every company. Until then the enhanced
-valuation falls back to the classic inputs, and the results card says so.</div>
-<div class="note"><b>Survivorship bias.</b> The free SEC ticker list covers companies listed today, so companies that went bankrupt
-or were acquired since 2019 may be missing from backtests. Treat backtest returns as somewhat optimistic.</div>
-
 <!-- ================================================================ 16 -->
 <h2 id="ops"><span class="n">16</span>Email, schedule, backups, security</h2>
 <table>
@@ -1078,8 +1035,9 @@ different decade could favor a different number, so treat its answer as a range.
 use the checklist on each report card.</li>
 <li><b>Approximations by design</b> (deliberate, documented, and conservative where they matter): quarterly EPS for a fourth quarter is
 the full year minus nine months (share counts differ slightly between quarters); a missing debt line counts as no debt; Model B
-treats dividends as received at year 10 without reinvesting them (understates the return slightly); the US indicator holds GDP at
-its latest quarter between releases; the world indicator holds world GDP at its latest published year.</li>
+treats dividends as received at year 10 without reinvesting them (understates the return slightly); between releases both Buffett
+Indicators are estimates (market value moved by an ETF's price, GDP grown at its recent rate), so they can be off by a few points
+until the official figures arrive.</li>
 </ul>
 
 <h2 id="audit"><span class="n">20a</span>Accuracy audit (version 0.12.0)</h2>
@@ -1107,7 +1065,7 @@ rescaled</td></tr>
 <tr><td><b>Bank and insurer expected return</b></td><td>Left out dividends; the buy-below price didn't include one of the tests</td>
 <td>Dividends included; buy-below is the exact Buy Zone test for every model</td></tr>
 <tr><td><b>Buffett Indicator history</b></td><td>Used quarters before they were published; points dated at the quarter's start;
-scaled by VTI including dividends</td><td>Publication lags, quarter-end dates, price-only scaling</td></tr>
+scaled by VTI including dividends</td><td>Backtests use only published quarters, estimated forward to each day; quarter-end dates; price-only scaling</td></tr>
 <tr><td><b>Smaller items</b></td><td>CAGR assumed the curve started at exactly 1; holding weights ignored cash; a sale of a delisted stock
 never filled; the value score saturated below a 20%+ hurdle; the quarterly rebuild could treat two quarters as one; wording said
 "average of the two models" (it's the lower) and "10% return" on a 15% profile</td><td>Each corrected</td></tr>

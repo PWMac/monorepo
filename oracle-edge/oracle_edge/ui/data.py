@@ -347,15 +347,27 @@ def market_now() -> dict:
     """Both Buffett Indicators: today's reading with the figures behind it, and their history."""
     from datetime import date as _date
 
-    from ..market import price_lookup, regime_now
+    from ..market import _add_days, price_lookup, regime_now
 
     reg, m, vti = regime_now()
     today = _date.today().isoformat()
     us = m.us_components(today, vti)
     hist = m.us_history()
-    if us and hist and hist[-1]["date"] < today:  # the history ends with today's estimate
-        hist = hist + [{"date": today, "equities": us["equities"], "gdp": us["gdp"], "ratio": us["ratio"],
-                        "estimate": True}]
+    if us and hist and hist[-1]["date"] < today:
+        # after the last official quarter: the estimate, weekly up to today (each point uses the latest official
+        # figures moved forward by VTI's price and GDP's trend, the same method as today's reading)
+        est, x = [], hist[-1]["date"]
+        while True:
+            x = min(_add_days(x, 7), today)
+            c = m.us_components(x, vti, point_in_time=False)
+            if c:
+                est.append({"date": x, "equities": c["equities"], "gdp": c["gdp"], "ratio": c["ratio"],
+                            "estimate": True})
+            if x >= today:
+                break
+        if est:
+            est[-1].update(equities=us["equities"], gdp=us["gdp"], ratio=us["ratio"])
+        hist = hist + est
     world = m.world_now(today, price_lookup("VT"))
     whist = m.world_history()
     if world and whist and whist[-1]["date"] < today:

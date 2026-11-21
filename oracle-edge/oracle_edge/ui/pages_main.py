@@ -1161,12 +1161,29 @@ def _tn(v) -> str:
     return f"${v / 1e12:,.2f}T" if abs(v) >= 1e12 else f"${v / 1e9:,.1f}B"
 
 
+def _gdp_note(us: dict) -> str:
+    base = f"{_tn(us['gdp_q'])} for the quarter ending {us['gdp_quarter_end']} (nominal, seasonally adjusted)"
+    if us.get("gdp_growth") is None or abs(us["gdp_scale"] - 1) < 1e-9:
+        return base
+    return (f"{base}, grown {(us['gdp_scale'] - 1) * 100:+.1f}% to today at its past-year rate of "
+            f"{us['gdp_growth'] * 100:.1f}%/yr until the next release")
+
+
+def _gdp_note_world(w: dict) -> str:
+    base = f"{_tn(w['gdp_y'])} for {w['gdp_year']} (latest the World Bank has published)"
+    if w.get("gdp_growth") is None or abs(w["gdp_scale"] - 1) < 1e-9:
+        return base
+    return f"{base}, grown {(w['gdp_scale'] - 1) * 100:+.1f}% since at its latest yearly rate of {w['gdp_growth'] * 100:.1f}%"
+
+
 @ui.page("/market")
 def market_page():
     with frame("Market"):
         mk = data.market_now()
         reg = mk["regime"]
         us, world = mk["us"], mk["world"]
+        off = [h for h in mk["history"] if not h.get("estimate")]
+        est = (off[-1:] + [h for h in mk["history"] if h.get("estimate")]) if off else []
         ui.label("Market temperature").classes("oe-h1")
         ui.label("The Buffett Indicator: the stock market's total value ÷ the economy's yearly output (GDP). It rates "
                  "the whole market, so it can raise the margin-of-safety bar but never forces a sale.").classes(
@@ -1174,17 +1191,17 @@ def market_page():
         with ui.grid(columns=4).classes("w-full gap-3 oe-kpis"):
             kpi(pct(reg.ratio) if reg.ratio else "—", "US: market value ÷ GDP", reg.zone)
             kpi(_tn(us["equities"]) if us else "—", "US stock market value",
-                (f"Fed Z.1 level at {us['quarter_end']} ({_tn(us['equities_q'])}), "
+                (f"Fed Z.1 level at {us['quarter_end']} ({_tn(us['equities_q'])}), moved "
                  f"{(us['scale'] - 1) * 100:+.1f}% since by the US total-market ETF (VTI) price") if us else "")
-            kpi(_tn(us["gdp"]) if us else "—", "US GDP (yearly rate)",
-                f"quarter ending {us['gdp_quarter_end']}, nominal, seasonally adjusted" if us else "")
+            kpi(_tn(us["gdp"]) if us else "—", "US GDP (yearly rate)", _gdp_note(us) if us else "")
             kpi(pct(reg.mos_gate), "Margin of safety required",
                 "raised when expensive (profile setting on)" if rules.default_profile().settings.get("regime_modifier")
                 else "fixed (the profile doesn't raise it when expensive)")
         with ui.card().classes("oe-card w-full"):
             ui.label("US Buffett Indicator history").classes("oe-h2")
-            ui.label("Quarter-end market value of US companies' shares ÷ that quarter's GDP; the last point is "
-                     "today's estimate.").classes("oe-small")
+            ui.label("Solid: official quarter-end figures (market value of US companies' shares ÷ that quarter's "
+                     "GDP). Dashed: the weekly estimate since the last official quarter, ending with today's "
+                     "reading.").classes("oe-small")
             zoom_chart({
                 "tooltip": {"trigger": "axis", ":valueFormatter": "(v) => v + '%'"}, "grid": {"left": 55, "right": 48},
                 "xAxis": {"type": "time"}, "yAxis": {"type": "value", "axisLabel": {"formatter": "{value}%"}},
@@ -1193,9 +1210,12 @@ def market_page():
                     {"gte": 120, "lt": 150, "color": "#c9a227"}, {"gte": 150, "lt": 200, "color": "#d9822b"},
                     {"gte": 200, "color": "#a33a2b"}]},
                 "series": [{"type": "line", "showSymbol": False, "name": "Market value ÷ GDP",
-                            "data": [[h["date"], round(h["ratio"] * 100, 1)] for h in mk["history"]],
+                            "data": [[h["date"], round(h["ratio"] * 100, 1)] for h in off],
                             "markLine": {"silent": True, "symbol": "none", "lineStyle": {"type": "dashed"},
-                                         "data": [{"yAxis": 90}, {"yAxis": 120}, {"yAxis": 150}, {"yAxis": 200}]}}],
+                                         "data": [{"yAxis": 90}, {"yAxis": 120}, {"yAxis": 150}, {"yAxis": 200}]}},
+                           {"type": "line", "showSymbol": False, "name": "Estimate",
+                            "data": [[h["date"], round(h["ratio"] * 100, 1)] for h in est],
+                            "lineStyle": {"type": "dashed", "width": 2}}],
             }, height="h-96", name="us-buffett-indicator")
             ui.label("Zones: <90% undervalued · 90–120% fair · 120–150% modestly overvalued · 150–200% significantly "
                      "overvalued · >200% extreme. Different methods can differ by 20–40 points.").classes("oe-small")
@@ -1209,17 +1229,24 @@ def market_page():
                                                      "axisLabel": {"formatter": "${value}T"}},
                 "series": [
                     {"type": "line", "showSymbol": False, "name": "Stock market value (Fed Z.1)",
-                     "data": [[h["date"], round(h["equities"] / 1e12, 2)] for h in mk["history"]],
+                     "data": [[h["date"], round(h["equities"] / 1e12, 2)] for h in off],
                      "lineStyle": {"color": "#1f6f4a", "width": 2}, "itemStyle": {"color": "#1f6f4a"}},
                     {"type": "line", "showSymbol": False, "name": "GDP (yearly rate)",
-                     "data": [[h["date"], round(h["gdp"] / 1e12, 2)] for h in mk["history"]],
-                     "lineStyle": {"color": "#8A5A12", "width": 2}, "itemStyle": {"color": "#8A5A12"}}],
+                     "data": [[h["date"], round(h["gdp"] / 1e12, 2)] for h in off],
+                     "lineStyle": {"color": "#8A5A12", "width": 2}, "itemStyle": {"color": "#8A5A12"}},
+                    {"type": "line", "showSymbol": False, "name": "Market value, estimate",
+                     "data": [[h["date"], round(h["equities"] / 1e12, 2)] for h in est],
+                     "lineStyle": {"color": "#1f6f4a", "width": 2, "type": "dashed"}, "itemStyle": {"color": "#1f6f4a"}},
+                    {"type": "line", "showSymbol": False, "name": "GDP, estimate",
+                     "data": [[h["date"], round(h["gdp"] / 1e12, 2)] for h in est],
+                     "lineStyle": {"color": "#8A5A12", "width": 2, "type": "dashed"}, "itemStyle": {"color": "#8A5A12"}}],
             }, height="h-80", name="us-market-value-and-gdp")
         ui.label("Global Buffett Indicator").classes("oe-h1 mt-4")
         ui.label("The same idea for the whole world: the value of every listed company ÷ world GDP, from the World "
                  "Bank (World Federation of Exchanges data). Annual, and published with a lag, so today's figure is "
                  "an estimate: the latest year-end market value moved by the world total-market ETF (VT) since, over "
-                 "the latest world GDP.").classes("oe-muted")
+                 "the latest world GDP grown at its latest yearly rate. Official figures replace the estimate as "
+                 "the World Bank publishes them.").classes("oe-muted")
         if not world:
             empty("No World Bank data yet. It downloads with the next daily update.")
         else:
@@ -1229,8 +1256,8 @@ def market_page():
                 kpi(pct(world["ratio"]), "World: market value ÷ GDP", f"long-run average {pct(avg)} (since {wh[0]['date'][:4]})")
                 kpi(_tn(world["equities"]), "World stock market value",
                     f"{world['year_end'][:4]} year-end {_tn(world['equities_y'])}, "
-                    f"{(world['scale'] - 1) * 100:+.1f}% since by VT's price")
-                kpi(_tn(world["gdp"]), "World GDP", f"{world['gdp_year']} (latest the World Bank has published)")
+                    f"moved {(world['scale'] - 1) * 100:+.1f}% since by VT's price")
+                kpi(_tn(world["gdp"]), "World GDP", _gdp_note_world(world))
                 kpi(pct(reg.ratio) if reg.ratio else "—", "US, for comparison", reg.zone)
             with ui.card().classes("oe-card w-full"):
                 ui.label("Global Buffett Indicator history").classes("oe-h2")

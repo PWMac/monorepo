@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import random
+from datetime import date
 
 import pandas as pd
 import pytest
@@ -225,7 +226,12 @@ def test_world_buffett_indicator_estimate():
                          ("WB_WLD_MCAP", "2023-12-31", 100e12), ("WB_WLD_GDP", "2023-12-31", 105e12)])
     m = Macro()
     w = m.world_now("2026-11-20", lambda d: 120.0 if d == "2026-11-20" else 100.0)
-    assert w["year_end"] == "2024-12-31" and abs(w["ratio"] - 120 * 1.2 / 110) < 1e-12
+    assert w["year_end"] == "2024-12-31"
+    # GDP grown from the end of 2024 to the reading date at 2024's growth (110 / 105, over 366 days)
+    yrs = (date(2026, 11, 20) - date(2024, 12, 31)).days / 365.25
+    g = (110 / 105) ** (365.25 / 366) - 1
+    assert abs(w["gdp_growth"] - g) < 1e-12 and abs(w["gdp"] - 110e12 * (1 + g) ** yrs) < 1
+    assert abs(w["ratio"] - 120 * 1.2 / (110 * (1 + g) ** yrs)) < 1e-12
     assert [round(h["ratio"], 6) for h in m.world_history()] == [round(100 / 105, 6), round(120 / 110, 6)]
 
 
@@ -265,3 +271,36 @@ def test_news_parsing_both_yahoo_layouts_and_rss():
     items = news.parse_rss(rss, "Google News")
     assert items == [{"title": "Stocks rise", "url": "https://example.com/c", "source": "MarketWatch",
                       "when": "2026-11-19T21:08:53+00:00"}]
+
+
+def test_us_buffett_indicator_nowcast_between_releases():
+    """Each part is the official figure once published, and an estimate until then: equities moved by VTI's price,
+    GDP grown at its past-four-quarter rate from the end of its quarter."""
+    from oracle_edge.market import Macro
+
+    gdp = [("2025-04-01", 30_000.0), ("2025-07-01", 30_300.0), ("2025-10-01", 30_600.0), ("2026-01-01", 30_900.0),
+           ("2026-04-01", 31_500.0)]
+    with db.tx() as con:
+        con.execute("DELETE FROM macro WHERE series IN ('NCBEILQ027S','BOGZ1LM893064105Q','GDP')")
+        con.executemany("INSERT INTO macro(series,date,value) VALUES(?,?,?)",
+                        [("NCBEILQ027S", "2026-04-01", 70_000_000.0)] + [("GDP", d, v) for d, v in gdp])
+    m = Macro()
+    c = m.us_components("2026-09-30", lambda d: 105.0 if d == "2026-09-30" else 100.0)
+    g = 31_500 / 30_000 - 1  # Q2 2026 over Q2 2025
+    yrs = (date(2026, 9, 30) - date(2026, 6, 30)).days / 365.25
+    assert c["quarter_end"] == "2026-06-30" and c["gdp_quarter_end"] == "2026-06-30"
+    assert abs(c["gdp_growth"] - g) < 1e-12 and abs(c["gdp"] - 31_500e9 * (1 + g) ** yrs) < 1
+    assert abs(c["ratio"] - 70e12 * 1.05 / (31_500e9 * (1 + g) ** yrs)) < 1e-12
+    # on its quarter's last day nothing is estimated: the reading equals the official quarterly history point
+    c0 = m.us_components("2026-06-30", lambda d: 100.0, point_in_time=False)
+    assert abs(c0["ratio"] - m.us_history()[-1]["ratio"]) < 1e-12 and c0["gdp_scale"] == 1.0
+    # from today on, a release already downloaded is used at once (no waiting for the usual publication lag)
+    from datetime import date as _d
+
+    t = _d.today()
+    qs = _d(t.year, (t.month - 1) // 3 * 3 + 1, 1)
+    prev_q = _d(qs.year - 1, 10, 1) if qs.month == 1 else _d(qs.year, qs.month - 3, 1)  # the quarter just ended
+    t = t.isoformat()
+    with db.tx() as con:
+        con.execute("INSERT INTO macro(series,date,value) VALUES('NCBEILQ027S',?,?)", (prev_q.isoformat(), 71_000_000.0))
+    assert Macro().us_components(t)["equities_q"] == 71e12

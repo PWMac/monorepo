@@ -44,6 +44,9 @@ class Macro:
     """Loads macro series once; answers 'as of date' questions fast (used by backtests too)."""
 
     def __init__(self):
+        from datetime import date as _date
+
+        self.today = _date.today().isoformat()
         self.s: dict[str, tuple[list[str], list[float]]] = {}
         for (series,) in db.get().execute("SELECT DISTINCT series FROM macro").fetchall():
             rs = db.rows("SELECT date, value FROM macro WHERE series=? ORDER BY date", (series,))
@@ -82,23 +85,44 @@ class Macro:
     # use quarters already published by d, or backtests would see numbers nobody had yet.
     PUB_LAG_DAYS = {"NCBEILQ027S": 75, "BOGZ1LM893064105Q": 75, "GDP": 30}
 
-    def asof_published(self, series: str, d: str):
-        """Latest quarterly observation that had been published by date d: (quarter start, value)."""
+    def asof_published(self, series: str, d: str, lag: int | None = None):
+        """Latest quarterly observation that had been published by date d: (quarter start, value).
+        From today on, everything already downloaded for a finished quarter counts as published (the lag rule is only
+        needed for the past, and an early release shouldn't be hidden for a few days)."""
         dates, vals = self.s.get(series, ([], []))
-        lag = self.PUB_LAG_DAYS.get(series, 0)
-        for i in range(bisect_right(dates, d) - 1, -1, -1):
+        i0 = bisect_right(dates, d) - 1
+        if lag is None:
+            lag = 0 if d >= self.today else self.PUB_LAG_DAYS.get(series, 0)
+        for i in range(i0, -1, -1):
             if _add_days(quarter_end(dates[i]), lag) <= d:
                 return dates[i], vals[i]
         return None, None
 
+    def gdp_growth(self, q_start: str) -> float | None:
+        """Nominal GDP growth over the four quarters up to the quarter starting q_start (e.g. 0.05 = 5% a year)."""
+        dates, vals = self.s.get("GDP", ([], []))
+        try:
+            i = dates.index(q_start)
+        except ValueError:
+            return None
+        if i < 4 or not vals[i - 4]:
+            return None
+        return vals[i] / vals[i - 4] - 1.0
+
     def us_components(self, d: str, price=None, point_in_time: bool = True) -> dict | None:
-        """The parts of the US Buffett Indicator on date d (all in US$):
+        """The parts of the US Buffett Indicator on date d (all in US$). Each part is the official figure once it is
+        published and the best estimate until then:
         equities_q   nonfinancial corporate equities at the end of the latest published quarter (Fed Z.1)
-        equities     that level scaled to d by the total-market ETF's PRICE change (VTI, dividends excluded:
+        equities     that level moved to d by the total-market ETF's PRICE change (VTI, dividends excluded:
                      paid-out dividends don't add to market value)
-        gdp          latest published nominal GDP, seasonally adjusted annual rate
+        gdp_q        latest published nominal GDP, seasonally adjusted annual rate
+        gdp          that rate grown from the end of its quarter to d at its growth over the past four quarters
         ratio        equities / gdp"""
-        get = self.asof_published if point_in_time else self.asof
+        # point_in_time: only figures already published on d (backtests). Otherwise every quarter finished by d,
+        # with hindsight (charts of the estimate between releases).
+        def get(series, x):
+            return self.asof_published(series, x, None if point_in_time else 0)
+
         qd, eq = get("NCBEILQ027S", d)
         src = "NCBEILQ027S"
         if eq is None:
@@ -113,11 +137,19 @@ class Macro:
             p0, p1 = price(q_end), price(d)
             if p0 and p1:
                 scale = p1 / p0
+        g_end = quarter_end(gd)
+        growth = self.gdp_growth(gd)
+        g_scale = 1.0
+        if growth is not None and g_end < d:
+            from .metrics import years_between
+
+            g_scale = (1.0 + growth) ** years_between(g_end, d)
         eq_q = eq * 1e6     # $ millions -> $
-        gdp_usd = gdp * 1e9  # $ billions -> $
+        gdp_q = gdp * 1e9   # $ billions -> $
         return {"date": d, "equities_q": eq_q, "equities": eq_q * scale, "quarter_end": q_end, "scale": scale,
-                "gdp": gdp_usd, "gdp_quarter": gd, "gdp_quarter_end": quarter_end(gd), "series": src,
-                "ratio": eq_q * scale / gdp_usd}
+                "gdp_q": gdp_q, "gdp": gdp_q * g_scale, "gdp_growth": growth, "gdp_scale": g_scale,
+                "gdp_quarter": gd, "gdp_quarter_end": g_end, "series": src,
+                "ratio": eq_q * scale / (gdp_q * g_scale)}
 
     def buffett_indicator(self, d: str, vti_px=None, point_in_time: bool = True) -> tuple[float | None, str | None]:
         c = self.us_components(d, vti_px, point_in_time)
@@ -130,7 +162,7 @@ class Macro:
         out = []
         for q, e in zip(eqd, eqv):
             g = gdp.get(q)
-            if g:
+            if g and quarter_end(q) <= self.today:
                 out.append({"date": quarter_end(q), "equities": e * 1e6, "gdp": g * 1e9, "ratio": e * 1e6 / (g * 1e9)})
         return out
 
@@ -148,8 +180,9 @@ class Macro:
         return out
 
     def world_now(self, d: str, vt_px=None) -> dict | None:
-        """Today's estimate: the latest year-end world market value scaled by the world total-market ETF's PRICE
-        change since then (VT), over the latest world GDP the World Bank has published."""
+        """Today's estimate: the latest year-end world market value moved by the world total-market ETF's PRICE
+        change since then (VT), over the latest world GDP grown from that year's end to d at its latest annual
+        growth. Official World Bank figures replace the estimate as they are published."""
         mc = [(y, v) for y, v in zip(*self.s.get("WB_WLD_MCAP", ([], []))) if y <= d]
         gd = [(y, v) for y, v in zip(*self.s.get("WB_WLD_GDP", ([], []))) if y <= d]
         if not mc or not gd:
@@ -160,8 +193,19 @@ class Macro:
             p0, p1 = vt_px(my), vt_px(d)
             if p0 and p1:
                 scale = p1 / p0
-        return {"date": d, "equities_y": m, "equities": m * scale, "year_end": my, "scale": scale, "gdp": g,
-                "gdp_year": gy[:4], "ratio": m * scale / g}
+        growth = None
+        if len(gd) >= 2 and gd[-2][1] and g:
+            from .metrics import years_between
+
+            growth = (g / gd[-2][1]) ** (1.0 / years_between(gd[-2][0], gy)) - 1.0
+        g_scale = 1.0
+        if growth is not None and gy < d:
+            from .metrics import years_between
+
+            g_scale = (1.0 + growth) ** years_between(gy, d)
+        return {"date": d, "equities_y": m, "equities": m * scale, "year_end": my, "scale": scale, "gdp_y": g,
+                "gdp": g * g_scale, "gdp_growth": growth, "gdp_scale": g_scale, "gdp_year": gy[:4],
+                "ratio": m * scale / (g * g_scale)}
 
     def regime(self, d: str, base_mos: float, modifier_on: bool, vti_px=None) -> Regime:
         ratio, asof = self.buffett_indicator(d, vti_px)
