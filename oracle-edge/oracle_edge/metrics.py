@@ -466,8 +466,13 @@ def valuation_inputs(s: dict, m: dict[str, MetricResult]) -> dict:
                 if len(eb_i) >= 3 else None)
     eq_last = s["equity"][-1]
     enh = enhanced_inputs(s, m)
+    try:
+        vd = vd_inputs(s, m)
+    except Exception:  # an odd statement must never stop scoring; the value-driver model then has no value
+        vd = {}
     return {
         **enh,
+        **vd,
         "oe_ps": _avg(oe_ps),
         "eps3": eps3,
         "eps_last": eps[-1],
@@ -480,6 +485,100 @@ def valuation_inputs(s: dict, m: dict[str, MetricResult]) -> dict:
         "ebitda_g": ebitda_g,
         "eps_by_fy": {y: e for y, e in zip(s["years"], eps) if e is not None},
         "fy_end": s["years"][-1],
+    }
+
+
+# ------------------------------------------------------------------ value-driver valuation inputs
+RND_LIFE = 5          # years over which research spending is written off when treated as an investment
+RND_MIN_SHARE = 0.03  # R&D at least this share of sales = a "heavy researcher"
+LEASE_RATE = 0.05     # the interest part of lease payments, added back to operating profit with leases as debt
+
+
+def rnd_capital(rnd: list, i: int, life: int = RND_LIFE) -> tuple[float, float]:
+    """(research asset, this year's amortization) at year i: each year's R&D is written off evenly over `life`
+    years (Damodaran). Years before the record are assumed to match the earliest known year."""
+    known = [k for k, v in enumerate(rnd) if v is not None]
+    if not known:
+        return 0.0, 0.0
+
+    def at(k):
+        if k < known[0]:
+            return rnd[known[0]] or 0.0
+        v = rnd[k] if 0 <= k < len(rnd) else None
+        if v is None:  # a gap: the nearest earlier known year
+            prev = [j for j in known if j <= k]
+            return rnd[prev[-1]] if prev else 0.0
+        return v
+    asset = sum(abs(at(i - k)) * (1 - k / life) for k in range(life))
+    amort = sum(abs(at(i - k)) / life for k in range(1, life + 1))
+    return asset, amort
+
+
+def vd_inputs(s: dict, m: dict) -> dict:
+    """Inputs for the value-driver model (valuation.value_driver): normalized after-tax operating profit, the
+    return on capital that growth will earn, and the claims that come ahead of shareholders.
+
+    - R&D treated as an investment for heavy researchers (R&D >= 3% of sales): operating profit adds back this
+      year's R&D and deducts the write-off of the last five years'; the unamortized research joins invested capital.
+    - Operating leases treated as debt: the lease liability is a claim and part of invested capital; the interest
+      part of the rent (5% of the liability) is added back to operating profit.
+    - Claims ahead of shareholders: debt, lease liabilities, an underfunded pension (after tax), preferred stock and
+      minority interests; cash and short-term investments are added back."""
+    n = len(s["years"])
+    if n < 2:
+        return {}
+    R, OI = s["revenue"], s["operating_income"]
+    g = lambda k, i: (s.get(k) or [None] * n)[i]  # noqa: E731
+    taxes = [_div(g("income_tax", i), g("pretax_income", i)) for i in range(n)
+             if (g("pretax_income", i) or 0) > 0 and g("income_tax", i) is not None]
+    t = min(max(_med(taxes[-5:]) if taxes else 0.21, 0.10), 0.30)
+    rnd = [abs(v) if v is not None else None for v in (s.get("rnd") or [None] * n)]
+    shares_rnd = [_div(rnd[i], R[i]) for i in range(n) if rnd[i] is not None and R[i] and R[i] > 0]
+    rnd_share = _med(shares_rnd[-3:]) if shares_rnd else None
+    cap = bool(rnd_share is not None and rnd_share >= RND_MIN_SHARE and len(shares_rnd) >= 3)
+    lease = [g("op_lease_liability", i) for i in range(n)]
+    adj_oi, ic, assets = [], [], []
+    for i in range(n):
+        oi = OI[i]
+        asset = amort = 0.0
+        if cap:
+            asset, amort = rnd_capital(rnd, i)
+        assets.append(asset)
+        if oi is None:
+            adj_oi.append(None)
+        else:
+            adj_oi.append(oi + ((rnd[i] or 0.0) - amort if cap else 0.0) + LEASE_RATE * (lease[i] or 0.0))
+        e = s["equity"][i]
+        if e is not None and e <= 0 and (s["treasury_stock"][i] or 0) > 0:
+            e = e + s["treasury_stock"][i]
+        if e is None:
+            ic.append(None)
+            continue
+        c = (s["total_debt"][i] or 0) + e - (s["cash"][i] or 0) + (lease[i] or 0) + asset
+        ic.append(c if c > 0 else None)
+    margins = [_div(adj_oi[i], R[i]) if (R[i] and R[i] > 0 and adj_oi[i] is not None) else None for i in range(n)]
+    roics = [adj_oi[i] * (1 - t) / ic[i - 1] for i in range(1, n) if adj_oi[i] is not None and ic[i - 1]]
+    k = [i for i, v in enumerate(R) if v]
+    rev5 = None
+    if len(k) >= 3:
+        i0 = max(k[0], k[-1] - 5)
+        rev5 = cagr(R[i0], R[k[-1]], years_between(s["years"][i0], s["years"][k[-1]]))
+    pf = g("pension_funded_status", n - 1)
+    claims = {"debt": s["total_debt"][-1] or 0.0, "leases": lease[-1] or 0.0,
+              "pension": (-pf * (1 - t)) if (pf is not None and pf < 0) else 0.0,
+              "preferred": g("preferred_stock", n - 1) or 0.0, "minority": g("minority_interest", n - 1) or 0.0}
+    return {
+        "vd_fy": s["years"][-1],
+        "vd_sales": [v for v in R[-3:]],
+        "vd_margins": [v for v in margins[-7:]],
+        "vd_tax": t,
+        "vd_roic": _med(roics[-5:]) if roics else None,
+        "vd_rev5": rev5,
+        "vd_rnd": {"capitalized": cap, "share": rnd_share, "asset": assets[-1] if cap else None,
+                   "amort": rnd_capital(rnd, n - 1)[1] if cap else None, "life": RND_LIFE},
+        "vd_cash": (s["cash"][-1] or 0.0) + (g("st_investments", n - 1) or 0.0),
+        "vd_claims": claims,
+        "vd_shares": s["shares_diluted"][-1],
     }
 
 

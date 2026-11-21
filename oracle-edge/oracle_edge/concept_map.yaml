@@ -395,3 +395,20 @@ customer_concentration:
   unit: pure
   tags:
     - us-gaap:ConcentrationRiskPercentage1
+# ---- added in 0.16: the claims ahead of shareholders (value-driver valuation) ----
+op_lease_liability:
+  kind: instant
+  tags:
+    - us-gaap:OperatingLeaseLiability
+    - us-gaap:OperatingLeaseLiabilityNoncurrent
+    - ifrs-full:LeaseLiabilities
+pension_funded_status:
+  kind: instant
+  tags:
+    - us-gaap:DefinedBenefitPlanFundedStatusOfPlan
+    - us-gaap:DefinedBenefitPensionPlanFundedStatusOfPlan
+minority_interest:
+  kind: instant
+  tags:
+    - us-gaap:MinorityInterest
+    - ifrs-full:NoncontrollingInterests

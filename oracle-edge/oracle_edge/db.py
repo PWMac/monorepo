@@ -238,6 +238,13 @@ MIGRATIONS: list[str] = [
     CREATE TABLE IF NOT EXISTS ceo_cache (key TEXT PRIMARY KEY, fetched_at TEXT, json TEXT);
     CREATE TABLE IF NOT EXISTS ceo_manual (cik INTEGER PRIMARY KEY, name TEXT, start TEXT, updated_at TEXT);
     """,
+    # ---- v15: analyst estimates (one copy a day, so revisions and accuracy can be tracked) and earnings surprises ----
+    """
+    CREATE TABLE IF NOT EXISTS estimates (ticker TEXT, day TEXT, fetched_at TEXT, json TEXT,
+        PRIMARY KEY (ticker, day)) WITHOUT ROWID;
+    CREATE TABLE IF NOT EXISTS surprises (ticker TEXT, date TEXT, eps_est REAL, eps_actual REAL, surprise REAL,
+        PRIMARY KEY (ticker, date)) WITHOUT ROWID;
+    """,
 ]
 
 

@@ -30,7 +30,8 @@ QUARTER_FORMS = {"10-Q", "10-Q/A"}
 # items tracked from 10-Qs for trailing-12-month early warnings
 QUARTER_ITEMS = {"revenue", "net_income", "ocf", "capex", "operating_income", "eps_diluted", "shares_diluted",
                  "lt_debt", "st_debt", "equity", "total_assets", "cash", "treasury_stock",
-                 "gross_profit", "cogs", "receivables", "inventory", "sbc"}
+                 "gross_profit", "cogs", "receivables", "inventory", "sbc", "rnd", "st_investments",
+                 "op_lease_liability", "pretax_income", "income_tax"}
 FOREIGN_FORMS = {"20-F", "20-F/A", "40-F", "40-F/A"}
 
 BANK_SIC = {6021, 6022, 6029, 6035, 6036}

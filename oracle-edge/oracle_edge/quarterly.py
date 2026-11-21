@@ -269,6 +269,13 @@ def check(st: _State, E: str, category: str, prof: Profile) -> tuple[list[dict],
     sh, sh0 = _quarter_shares(st, E), _quarter_shares(st, E, 365)
     m = {"period_end": E, "ttm_net_income": ni, "ttm_ocf": ocf, "equity": eq, "lt_debt": ltd, "shares": sh,
          "shares_year_ago": sh0}
+    # for the value-driver valuation: the latest twelve months and balance sheet (0.16)
+    std = _instant(st, "st_debt", E)
+    m.update({"ttm_revenue": _ttm(st, "revenue", E), "ttm_operating_income": _ttm(st, "operating_income", E),
+              "ttm_rnd": _ttm(st, "rnd", E), "cash": _instant(st, "cash", E),
+              "st_investments": _instant(st, "st_investments", E),
+              "debt": (ltd or 0.0) + (std or 0.0) if (ltd is not None or std is not None) else None,
+              "op_lease_liability": _instant(st, "op_lease_liability", E)})
     flags: list[dict] = []
     if ni is not None and ni <= 0:
         flags.append({"id": "ttm_loss", "name": "Trailing-12-month loss", "hard": True,
