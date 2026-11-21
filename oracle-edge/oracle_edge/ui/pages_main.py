@@ -477,6 +477,7 @@ def stock_page(ticker: str):
                     ui.label(s["ticker"]).classes("oe-h1")
                     if bd:
                         ui.html(badge_html(bd["badge"]), sanitize=False)
+                wonder.header_chips(s, prof)
                 ui.label(f"{s['name']} · {s['exchange']} · {s['sic_desc'] or s['category']}"
                          f"{' · foreign filer (' + s['currency'] + ')' if s['is_foreign'] else ''}").classes("oe-muted")
                 if bd:

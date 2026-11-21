@@ -153,6 +153,25 @@ def render(s: dict, prof) -> None:
             "change. The management section and the red flags are where to start your own judgment.")
 
 
+def header_chips(s: dict, prof) -> None:
+    """Wonderfulness and the Oracle checklist at a glance, under the ticker on every stock page."""
+    try:
+        w = wonderful.get(s["cik"], prof)
+        q = db.one("SELECT quality, gates_passed FROM snapshots WHERE cik=? AND profile_id=? AND profile_version=? "
+                   "ORDER BY filed DESC LIMIT 1", (s["cik"], *prof.snap))
+    except Exception:
+        return
+    with ui.row().classes("items-center gap-2"):
+        if w:
+            ui.html(f"<span style='background:{TIER_COL.get(w['tier'])};color:#fff;border-radius:10px;padding:1px 9px;"
+                    f"font-size:12px'>Wonderfulness {w['score']:.0f} · {w['tier']}</span>", sanitize=False)
+        if q and q["quality"] is not None:
+            ok = bool(q["gates_passed"]) and q["quality"] >= float(prof.settings.get("quality_min", 70))
+            ui.html(f"<span style='border:1px solid {'#1f6f4a' if ok else '#a33a2b'};color:{'#1f6f4a' if ok else '#a33a2b'};"
+                    f"border-radius:10px;padding:0 9px;font-size:12px'>Checklist {'✓' if ok else '✗'} · Quality "
+                    f"{q['quality']:.0f}</span>", sanitize=False)
+
+
 def _quarter_flags(cik: int):
     r = db.one("SELECT filed, flags_json FROM qsnaps WHERE cik=? ORDER BY filed DESC LIMIT 1", (cik,))
     if not r:
@@ -317,7 +336,13 @@ def ceo_data(s: dict) -> dict:
     res = ceo.who(s["cik"], s["ticker"], (info or {}).get("officers"))
     cur = res.get("current")
     if cur and cur.get("start"):
-        res["record"] = ceo.record(s["cik"], s["ticker"], cur["start"])
+        from ..sources import wikidata
+
+        led = wikidata.companies_led(cur.get("qid"), None if cur.get("qid") else cur.get("name")) \
+            if res.get("wikidata_ok") or cur.get("qid") else []
+        res["tenures"] = ceo.career_tenures(s["cik"], s["ticker"], cur, led)
+        res["record"] = res["tenures"][0]["record"]
+        res["career"] = ceo.career(res["tenures"])
     hist = [h for h in res.get("history") or [] if h.get("start")]
     prev = []
     for i, h in enumerate(hist):
@@ -327,17 +352,6 @@ def ceo_data(s: dict) -> dict:
         if end > "2010-06-30":
             prev.append((h, end, ceo.record(s["cik"], s["ticker"], h["start"], end).get("rating")))
     res["prev"] = prev[-4:]
-    other = []
-    if cur and cur.get("qid"):
-        from ..sources import wikidata
-
-        for c in wikidata.companies_led(cur["qid"]):
-            if not c.get("cik") or c["cik"] == s["cik"] or not c.get("start"):
-                continue
-            t = db.scalar("SELECT ticker FROM securities WHERE cik=?", (c["cik"],))
-            if t:
-                other.append((c, t, ceo.record(c["cik"], t, c["start"], c.get("end")).get("rating")))
-    res["other"] = other
     return res
 
 
@@ -364,23 +378,54 @@ def _ceo_card(s: dict) -> None:
                       ". ") + "Enter the start date below to rate their record.").classes("oe-muted")
         else:
             r = m.get("rating")
+            car = res.get("career")
+            ten = res.get("tenures") or []
+            multi = car and car["n"] >= 2
+            head = car if car else r
             with ui.row().classes("items-center gap-4 w-full no-wrap"):
-                ui.label(r["grade"] if r else "—").classes("text-5xl font-bold").style(
-                    f"color:{GRADE_COL.get(r['grade']) if r else '#6b7280'}")
+                ui.label(head["grade"] if head else "—").classes("text-5xl font-bold").style(
+                    f"color:{GRADE_COL.get(head['grade']) if head else '#6b7280'}")
                 with ui.column().classes("gap-0"):
                     ui.label(f"{cur['name']}, CEO since {cur['start']}").classes("text-lg font-semibold")
-                    if r:
-                        ui.label(f"{r['score']:.0f} out of 100").classes("text-sm")
-                    ui.label(f"Source: {cur['source']}" + (f" · record {m['fy0'][:4]}–{m['fy1'][:4]} "
+                    if multi:
+                        ui.label(f"Career grade {car['score']:.0f}/100: {car['n']} companies, {car['years']:.1f} years of "
+                                 "records, each weighted by its length").classes("text-sm")
+                        ui.label("Here: " + (f"{r['grade']} ({r['score']:.0f})" if r else "not rated yet")).classes(
+                            "text-sm")
+                    elif r:
+                        ui.label(f"{r['score']:.0f} out of 100" + (" (no other CEO role on record)" if not
+                                 [t for t in ten if not t["current"]] else "")).classes("text-sm")
+                    ui.label(f"Source: {cur['source']}" + (f" · record here {m['fy0'][:4]}–{m['fy1'][:4]} "
                              f"({m['years']:.1f} fiscal years)" if m.get("fy1") else "")).classes("oe-small")
+            others = [t for t in ten if not t["current"]]
+            if others:
+                wts = {id(t): w for t, w in zip([t for t in ten if t.get("rating") and t.get("years")],
+                                                (car or {}).get("weights") or [])}
+                rows_ = "".join(
+                    f"<tr><td style='padding:2px 10px 2px 0'>{html.escape(t['label'] if not t['current'] else 'This company')}"
+                    f"{' (' + t['ticker'] + ')' if t.get('ticker') and not t['current'] else ''}</td>"
+                    f"<td style='padding:2px 10px'>{t['start'][:4]}–{(t.get('end') or 'now')[:4]}</td>"
+                    f"<td style='padding:2px 10px;text-align:right'>"
+                    f"{(t['rating']['grade'] + ' (' + format(t['rating']['score'], '.0f') + ')') if t.get('rating') else '—'}</td>"
+                    f"<td style='padding:2px 10px;text-align:right'>{(format(t['years'], '.1f') + ' yrs') if t.get('years') else ''}</td>"
+                    f"<td style='padding:2px 0;text-align:right;color:#6b7280'>"
+                    f"{format(wts[id(t)] * 100, '.0f') + '% of grade' if id(t) in wts else html.escape(t.get('why') or '')}</td></tr>"
+                    for t in ten)
+                ui.html("<table style='width:100%;font-size:13px'><tr style='color:#6b7280'><th style='text-align:left'>"
+                        "CEO role</th><th style='text-align:left'>Years</th><th style='text-align:right'>Grade</th><th "
+                        "style='text-align:right'>Record</th><th style='text-align:right'>Weight</th></tr>" + rows_ +
+                        "</table>", sanitize=False).classes("w-full")
             if not r:
-                ui.label("Not rated yet: " + (m.get("note") or "fewer than two fiscal years in office, so the "
+                ui.label("Not rated here yet: " + (m.get("note") or "fewer than two fiscal years in office, so the "
                          "record would be mostly luck.")).classes("oe-muted")
-            else:
-                rows = "".join(f"<tr><td style='padding:2px 10px 2px 0'>{PART_NAMES[k]}</td>"
+            if head:
+                rows = "".join(f"<tr><td style='padding:2px 10px 2px 0'>{PART_NAMES[k]}"
+                               f"{' (career)' if multi else ''}</td>"
                                f"<td style='width:55%'>{_bar(v / 100, _pcol(v / 100))}</td></tr>"
-                               for k, v in r["parts"].items())
+                               for k, v in head["parts"].items())
                 ui.html("<table style='width:100%;font-size:13px'>" + rows + "</table>", sanitize=False).classes("w-full")
+            if m:
+                ui.label("The record here").classes("font-semibold pt-1")
             for line in _rec_lines(m):
                 ui.label("• " + line).classes("text-sm")
             if m.get("note"):
@@ -390,9 +435,6 @@ def _ceo_card(s: dict) -> None:
             for h, end, r in res["prev"]:
                 ui.label(f"{h['name']}, {h['start'][:4]}–{end[:4]}: " + (f"{r['grade']} ({r['score']:.0f})" if r else
                          "not rated (under two fiscal years of data)")).classes("text-sm")
-        for c, t, r in res.get("other") or []:
-            ui.label(f"Also ran {c['label']} ({t}) {c['start'][:4]}–{(c.get('end') or 'now')[:4]}: " +
-                     (f"{r['grade']} ({r['score']:.0f})" if r else "not rated")).classes("text-sm")
         with ui.expansion("Correct the CEO or start date", icon="edit").classes("w-full"):
             mm = ceo.manual(s["cik"]) or {}
             nm = ui.input("CEO name", value=mm.get("name") or (cur or {}).get("name") or "").props("dense outlined")
@@ -438,6 +480,52 @@ def _c(field, header, fmt=None, width=110, tip=None, **kw):
     return {k: v for k, v in c.items() if v is not None}
 
 
+def checklist(prof) -> dict[int, dict]:
+    """The Oracle checklist (Quality) from each company's latest annual score: quality, passes, and why not."""
+    bar = float(prof.settings.get("quality_min", 70))
+    fmts = {r["id"]: r.get("fmt", "") for r in prof.all_rules()}
+    mins = {r["id"]: r["min_year"] for r in prof.all_rules() if r.get("min_year") is not None}
+    out = {}
+    for r in db.rows("SELECT s.cik, s.quality, s.gates_passed, s.failed_gates FROM snapshots s JOIN (SELECT cik, MAX(filed) f "
+                     "FROM snapshots WHERE profile_id=? AND profile_version=? GROUP BY cik) m ON s.cik=m.cik AND "
+                     "s.filed=m.f WHERE s.profile_id=? AND s.profile_version=?", (*prof.snap, *prof.snap)):
+        if r["quality"] is None:
+            continue
+        failed = []
+        for f in json.loads(r["failed_gates"] or "[]"):
+            if f.get("id") == "u1" or not f.get("name"):
+                continue
+            v, fmt_ = f.get("value"), fmts.get(f.get("id"), "")
+            val = ("" if v is None else f" {v * 100:.0f}%" if fmt_ in ("pct", "ratio") else
+                   f" {v:.1f} yrs" if fmt_ == "years" and v < 90 else " (losses)" if fmt_ == "years" else f" {v:.2f}")
+            my = mins.get(f.get("id"))
+            if my is not None and v is not None and v >= my:  # the average is fine; one year fell below the floor
+                failed.append(f"{f['name']}: a year under {my * 100:.0f}% (average{val})")
+            else:
+                failed.append(f"{f['name']}{val}")
+        why = ", ".join(failed)
+        if not why and r["quality"] < bar:
+            why = f"Quality {r['quality']:.0f} < {bar:.0f}"
+        out[r["cik"]] = {"quality": r["quality"], "passes": bool(r["gates_passed"]) and r["quality"] >= bar, "why": why}
+    return out
+
+
+def price_status(prof) -> dict[int, dict]:
+    """Where today's price stands for the live profile: Buy Zone, or how far above the buy-below price."""
+    rid = db.scalar("SELECT id FROM runs WHERE kind='live' AND profile_id=? ORDER BY id DESC LIMIT 1", (prof.id,)) or \
+        db.scalar("SELECT id FROM runs WHERE kind='live' ORDER BY id DESC LIMIT 1")
+    if not rid:
+        return {}
+    d = db.scalar("SELECT MAX(date) FROM evaluations WHERE run_id=?", (rid,))
+    out = {}
+    for r in db.rows("SELECT cik, list, price, buy_below FROM evaluations WHERE run_id=? AND date=?", (rid, d)):
+        if r["list"] == "buy":
+            out[r["cik"]] = {"status": "Buy Zone", "buyable": True}
+        elif r["price"] and r["buy_below"] and r["buy_below"] > 0:
+            out[r["cik"]] = {"status": f"{r['price'] / r['buy_below'] - 1:+.0%} above buy price", "buyable": False}
+    return out
+
+
 def ranking_rows(prof) -> list[dict]:
     wonderful.ensure(prof)
     sec = {r["cik"]: r for r in db.rows("SELECT cik, ticker, name, sic_desc, is_foreign FROM securities")}
@@ -446,6 +534,8 @@ def ranking_rows(prof) -> list[dict]:
                      "ON q.cik=m.cik AND q.filed=m.f"):
         fl = json.loads(r["flags_json"] or "[]")
         flags[r["cik"]] = fl
+    checks = checklist(prof)
+    evs = price_status(prof)
     out = []
     for r in db.rows("SELECT cik, score, rank, n, as_of, pillars_json, feats_json FROM wonder WHERE profile_id=? AND "
                      "cohort='now' ORDER BY score DESC", (prof.snap[0],)):
@@ -455,7 +545,14 @@ def ranking_rows(prof) -> list[dict]:
         p = json.loads(r["pillars_json"])
         f = json.loads(r["feats_json"])["f"]
         fl = flags.get(r["cik"], [])
+        q = checks.get(r["cik"], {})
+        e = evs.get(r["cik"], {})
         out.append({"ticker": s["ticker"], "name": s["name"], "industry": s["sic_desc"], "score": r["score"],
+                    "quality": q.get("quality"), "passes": q.get("passes", False), "why_fail": q.get("why", ""),
+                    "checklist": ("✓ passes" if q.get("passes") else ("✗ " + q["why"] if q.get("why") else "✗"))
+                    if q else "—",
+                    "combined": ((r["score"] + q["quality"]) / 2) if q.get("quality") is not None else None,
+                    "price_status": e.get("status", "—"), "buyable": e.get("buyable", False),
                     "tier": wonderful.tier(r["score"]), "rank": r["rank"], "as_of": r["as_of"],
                     "moat": p.get("moat"), "growth": p.get("growth"), "strength": p.get("strength"),
                     "allocation": p.get("allocation"), "mcap": f.get("mcap"), "roic_med": f.get("roic_med"),
@@ -467,69 +564,158 @@ def ranking_rows(prof) -> list[dict]:
     return out
 
 
+VIEWS = {  # key -> (button label, one-line explanation, filter(row, bar), sort field)
+    "both": ("Best of both", "Wonderful or better (70+) AND passes the Oracle checklist; sorted by the average of the two "
+             "scores.", lambda r: r["score"] >= 70 and r["passes"], "combined"),
+    "wonderful": ("Most wonderful", "Every company, best Wonderfulness first.", lambda r: True, "score"),
+    "quality": ("Highest Quality", "Every company, best Quality (checklist score) first.", lambda r: r["quality"] is not None,
+                "quality"),
+    "nocheck": ("Wonderful, fails checklist", "Wonderful or better, but failing a checklist rule: see why in the "
+                "Checklist column (often heavy R&D or capital spending, or one weak year).",
+                lambda r: r["score"] >= 70 and not r["passes"], "score"),
+    "notwonder": ("Passes checklist, not wonderful", "Pass the Oracle's rules but rank below 70 on Wonderfulness: "
+                  "solid, but slower or less profitable than the best.", lambda r: r["passes"] and r["score"] < 70,
+                  "quality"),
+}
+QUAD_COL = {"both": "#1f6f4a", "nocheck": "#2c5d8f", "notwonder": "#c9a227", "neither": "#c7ccc9"}
+
+
+def _quad(r) -> str:
+    w, q = r["score"] >= 70, r["passes"]
+    return "both" if w and q else "nocheck" if w else "notwonder" if q else "neither"
+
+
 @ui.page("/wonderful")
-def wonderful_page(compare: str = ""):
+def wonderful_page(compare: str = "", view: str = "both"):
     prof = rules.default_profile()
+    view = view if view in VIEWS else "both"
     with frame("Wonderful companies"):
-        ui.label("Wonderful companies, ranked").classes("oe-h1")
-        ui.label("Every operating business with enough annual reports, scored only on how wonderful the business is: "
-                 "returns on capital and pricing power, growth record, financial strength, and what management does "
-                 "with the money. The price plays no part. Banks, lenders and insurers aren't scored.").classes("oe-muted")
+        ui.label("The best businesses").classes("oe-h1")
+        ui.label("Two views of the same company, side by side. Wonderfulness ranks every business against all the "
+                 "others on what predicted lasting high returns and growth. Quality is the Oracle checklist: does it "
+                 "pass Buffett's rules of thumb (the bar the model needs before it may buy)? The best businesses score "
+                 "well on both. The price plays no part here; the Price column only tells you where it stands today.").classes(
+            "oe-muted")
         rows = ranking_rows(prof)
         if not rows:
             empty("No scores yet. They are computed from the annual-report scores after the first data load.")
             return
-        n_ex = sum(1 for r in rows if r["score"] >= 80)
-        n_w = sum(1 for r in rows if 70 <= r["score"] < 80)
-        with ui.grid(columns=4).classes("w-full gap-3 oe-kpis"):
-            kpi(f"{len(rows):,}", "Companies scored", f"profile: {prof.name}")
-            kpi(f"{n_ex:,}", "Exceptional (80+)", "the cream of the crop", TIER_COL["Exceptional"])
-            kpi(f"{n_w:,}", "Wonderful (70–80)", None, TIER_COL["Wonderful"])
-            kpi(f"{sum(1 for r in rows if r['warnings'] and r['score'] >= 70):,}", "Wonderful but slipping now",
-                "a health warning in the latest 10-Q", "#a33a2b")
+        bar = float(prof.settings.get("quality_min", 70))
+        st = {"view": view}
+        # ---- controls
+        with ui.row().classes("items-center gap-2 w-full"):
+            btns = {}
+            for k, (label, _tip, _f, _s) in VIEWS.items():
+                btns[k] = ui.button(label, on_click=lambda k=k: set_view(k)).props("no-caps")
+        tip = ui.label("").classes("oe-small")
         with ui.row().classes("items-center gap-3 w-full"):
-            q = ui.input(placeholder="Filter by ticker, name or industry").props("dense outlined clearable").classes("w-80")
+            q = ui.input(placeholder="Filter by ticker, name or industry").props("dense outlined clearable").classes("w-72")
             size = ui.select({0: "Any size", 2e9: "$2B+", 10e9: "$10B+", 50e9: "$50B+"}, value=2e9,
-                             label="Market value").props("dense outlined").classes("w-40")
+                             label="Market value").props("dense outlined").classes("w-36")
             healthy = ui.switch("Hide companies slipping now", value=False)
+            buyable = ui.switch("Only in the Buy Zone today", value=False)
+
+        def base():
+            return [r for r in rows if ((r["mcap"] or 0) >= size.value if size.value else True)
+                    and not (healthy.value and r["warnings"]) and not (buyable.value and not r["buyable"])]
+
+        def current():
+            label, t, f, key = VIEWS[st["view"]]
+            xs = [r for r in base() if f(r)]
+            xs.sort(key=lambda r: -(r.get(key) if r.get(key) is not None else -1))
+            for i, r in enumerate(xs):
+                r["pos"] = i + 1
+            return xs
+        # ---- the map
+        with ui.card().classes("oe-card w-full"):
+            with ui.row().classes("w-full items-center justify-between"):
+                ui.label("Quality vs Wonderfulness").classes("oe-h2")
+                counts = ui.label("").classes("oe-small")
+            ui.label(f"Each dot is a company. Right of the dashed line = passes the Oracle checklist (Quality {bar:.0f}+ and "
+                     "every must-pass rule); above it = wonderful (70+). The top-right corner is the best of both. Click a "
+                     "dot to open the company; click a legend entry to hide a group.").classes("oe-small")
+            chart = ui.echart({}, on_point_click=lambda e: ui.navigate.to(f"/stock/{e.name}") if e.name else None).classes(
+                "w-full").style("height:430px")
+
+        def chart_opts(view_rows):
+            inview = {r["ticker"] for r in view_rows}
+            groups = {"both": [], "nocheck": [], "notwonder": [], "neither": []}
+            for r in base():
+                if r["quality"] is None:
+                    continue
+                groups[_quad(r)].append(r)
+            names = {"both": "Best of both", "nocheck": "Wonderful, fails checklist", "notwonder":
+                     "Passes checklist, not wonderful", "neither": "Neither"}
+            series = []
+            for g, xs in groups.items():
+                series.append({
+                    "type": "scatter", "name": f"{names[g]} ({len(xs)})", "symbolSize": 7,
+                    "itemStyle": {"color": QUAD_COL[g]},
+                    "data": [{"name": r["ticker"], "value": [round(r["quality"], 1), round(r["score"], 1), r["name"]],
+                              "itemStyle": {"opacity": 0.95 if r["ticker"] in inview else 0.18}} for r in xs]})
+            series[0]["markLine"] = {"silent": True, "symbol": "none", "lineStyle": {"type": "dashed", "color": "#6b7280"},
+                                     "label": {"show": False}, "data": [{"xAxis": bar}, {"yAxis": 70}]}
+            return {"tooltip": {":formatter": "p => `<b>${p.name}</b> ${p.value[2]}<br>Wonderfulness ${p.value[1]} · "
+                                              "Quality ${p.value[0]}`"},
+                    "legend": {"top": 0}, "grid": {"left": 50, "right": 20, "top": 40, "bottom": 40},
+                    "xAxis": {"name": "Quality (Oracle checklist)", "nameLocation": "middle", "nameGap": 26,
+                              "min": 20, "max": 100},
+                    "yAxis": {"name": "Wonderfulness", "nameLocation": "middle", "nameGap": 34, "min": 0, "max": 100},
+                    "series": series}
+        # ---- the table
         cols = [
-            _c("rank", "#", _NUM0, 70, "Rank by Wonderfulness among all scored companies.", pinned="left", sort="asc"),
+            _c("pos", "#", _NUM0, 64, "Position in this view.", pinned="left"),
             _c("ticker", "Ticker", None, 90, pinned="left", cellClass="font-bold"),
-            _c("name", "Company", None, 200, pinned="left"),
-            _c("score", "Wonderfulness", _NUM0, 120, "0–100: the weighted pillars."),
-            _c("tier", "Tier", None, 110),
+            _c("name", "Company", None, 190, pinned="left"),
+            _c("score", "Wonderfulness", _NUM0, 120, "How it ranks among all businesses (0–100)."),
+            _c("tier", "Tier", None, 105),
+            _c("quality", "Quality", _NUM0, 90, f"The Oracle checklist score; the model needs {bar:.0f}+ and every "
+                                               "must-pass rule to buy."),
+            _c("checklist", "Checklist", None, 190, "Passes, or the rule it fails."),
+            _c("combined", "Average of both", _NUM0, 110, "(Wonderfulness + Quality) ÷ 2: the sort order of Best of both."),
+            _c("price_status", "Price today", None, 150, "Buy Zone, or how far the price is above the buy-below price "
+                                                         "(live profile)."),
             {"headerName": "Pillars (100 = best)", "children": [
-                _c("moat", "Moat", _NUM0, 80, "Returns on capital and pricing power."),
-                _c("growth", "Growth", _NUM0, 85, "Sales and earnings growth and how steady it was."),
-                _c("strength", "Strength", _NUM0, 90, "Debt, interest, steadiness, cash."),
-                _c("allocation", "Capital allocation", _NUM0, 105, "$1 test and share count.")]},
+                _c("moat", "Moat", _NUM0, 80), _c("growth", "Growth", _NUM0, 85), _c("strength", "Strength", _NUM0, 90),
+                _c("allocation", "Capital allocation", _NUM0, 105)]},
             {"headerName": "Key measures", "children": [
-                _c("roic_med", "ROIC 10-yr median", _PCT, 110), _c("roic_last", "ROIC latest", _PCT, 95),
-                _c("gm_med", "Gross margin", _PCT, 95), _c("rev_g5", "Sales growth 5 yrs", _PCT, 105),
-                _c("rev_up", "Years sales grew", None, 95), _c("debt_payback", "Debt payback", _YRS, 95),
-                _c("dollar_test", "$1 test", _X, 80), _c("share_change", "Share count / yr", _PCT, 105)]},
+                _c("roic_med", "ROIC 10-yr median", _PCT, 110), _c("gm_med", "Gross margin", _PCT, 95),
+                _c("rev_g5", "Sales growth 5 yrs", _PCT, 105), _c("rev_up", "Years sales grew", None, 95),
+                _c("debt_payback", "Debt payback", _YRS, 95), _c("dollar_test", "$1 test", _X, 80)]},
             _c("mcap", "Market value", _BIL, 105),
             _c("warnings", "Latest 10-Q", None, 200, "Business-health or hard warnings in the latest quarterly report."),
             _c("industry", "Industry", None, 200),
         ]
-
-        def view():
-            return [r for r in rows if (r["mcap"] or 0) >= (size.value or 0) or (not size.value)
-                    if not (healthy.value and r["warnings"])]
-        g = ui.aggrid({"columnDefs": cols, "rowData": view(),
+        g = ui.aggrid({"columnDefs": cols, "rowData": [],
                        "defaultColDef": {"sortable": True, "resizable": True, "filter": True, "wrapHeaderText": True,
                                          "autoHeaderHeight": True},
                        "rowHeight": 36, "suppressCellFocus": True, "tooltipShowDelay": 300, "multiSortKey": "shift",
                        "rowSelection": {"mode": "multiRow", "checkboxes": True, "headerCheckbox": False},
-                       "selectionColumnDef": {"pinned": "left", "width": 48, "maxWidth": 48, "suppressHeaderMenuButton": True,
-                                              "sortable": False, "filter": False}},
-                      theme="quartz").classes("w-full").style("height:62vh")
+                       "selectionColumnDef": {"pinned": "left", "width": 48, "maxWidth": 48,
+                                              "suppressHeaderMenuButton": True, "sortable": False, "filter": False}},
+                      theme="quartz").classes("w-full").style("height:60vh")
 
-        def refilter():
-            g.options["rowData"] = view()
+        def refresh():
+            xs = current()
+            for k, b in btns.items():
+                b.props("unelevated" if k == st["view"] else "outline")
+            label, t, _f, _k = VIEWS[st["view"]]
+            tip.text = f"{label}: {t} {len(xs):,} companies."
+            allx = base()
+            n = {k: sum(1 for r in allx if r["quality"] is not None and _quad(r) == k) for k in QUAD_COL}
+            counts.text = (f"{n['both']:,} best of both · {n['nocheck']:,} wonderful but fail the checklist · "
+                           f"{n['notwonder']:,} pass the checklist but aren't wonderful")
+            g.options["rowData"] = xs
             g.update()
-        size.on_value_change(lambda e: refilter())
-        healthy.on_value_change(lambda e: refilter())
+            chart.options.clear()
+            chart.options.update(chart_opts(xs))
+            chart.update()
+
+        def set_view(k):
+            st["view"] = k
+            refresh()
+        for el in (size, healthy, buyable):
+            el.on_value_change(lambda e: refresh())
         q.on_value_change(lambda e: g.run_grid_method("setGridOption", "quickFilterText", e.value or ""))
         g.on("cellClicked", lambda e: ui.navigate.to(f"/stock/{e.args['data']['ticker']}")
              if e.args.get("colId") not in (None, "ag-Grid-SelectionColumn") and e.args.get("data") else None)
@@ -547,8 +733,9 @@ def wonderful_page(compare: str = ""):
         with ui.row().classes("items-center gap-3"):
             ui.button("Compare ticked companies", icon="compare_arrows", on_click=do_compare).props("unelevated")
             ui.button("Export CSV", icon="download",
-                      on_click=lambda: g.run_grid_method("exportDataAsCsv", {"fileName": "wonderful-companies.csv"})
+                      on_click=lambda: g.run_grid_method("exportDataAsCsv", {"fileName": f"best-businesses-{st['view']}.csv"})
                       ).props("flat dense")
+        refresh()
         if compare:
             with comp:
                 _compare([t.strip().upper() for t in compare.split(",") if t.strip()][:5], prof)
@@ -578,6 +765,12 @@ def _compare(tickers: list[str], prof) -> None:
             f"<td style='text-align:right;padding:4px 10px'><b>{w['score']:.0f}</b> ({w['tier']})</td>" for _, w in ws)
             + "</tr>", "<tr><td style='padding:4px 10px 4px 0'>Rank</td>" + "".join(
             f"<td style='text-align:right;padding:4px 10px'>#{w['rank']:,} of {w['n']:,}</td>" for _, w in ws) + "</tr>"]
+        chk = checklist(prof)
+        body.append("<tr><td style='padding:4px 10px 4px 0'><b>Quality (Oracle checklist)</b></td>" + "".join(
+            f"<td style='text-align:right;padding:4px 10px'>"
+            + (f"<b>{chk[w['cik']]['quality']:.0f}</b> " + ("✓ passes" if chk[w['cik']]['passes'] else
+                                                             "✗ " + html.escape(chk[w['cik']]['why'])) if w["cik"] in chk else "—")
+            + "</td>" for _, w in ws) + "</tr>")
         for p, items in wonderful.PILLARS.items():
             body.append(f"<tr><td colspan='{len(ws) + 1}' style='padding:8px 0 2px;font-weight:600'>"
                         f"{wonderful.PILLAR_NAMES[p]}</td></tr>")
