@@ -858,7 +858,11 @@ sign-in.</td></tr>
 <tr><td>"Connection unexpectedly closed"</td><td>The server hung up before signing in, so the password was never checked. Usual causes:
 the port and security don't match (465 = SSL, 587 = STARTTLS; now corrected automatically), or <b>antivirus "email protection"</b>
 (Avast, AVG, Norton, Kaspersky, ESET, Bitdefender) or a <b>VPN</b> intercepting outgoing mail. Turn off the antivirus's mail
-scanning or disconnect the VPN and test again; the step-by-step check shows which port gets through.</td></tr>
+scanning or disconnect the VPN and test again; the step-by-step check shows which port gets through.<br>
+If it fails at <b>sign-in</b>, the connection worked and the server refused the account. Oracle Edge now shows the server's own
+reason (for example "535 5.7.8" = wrong address or password, "534 5.7.9" = an app password is required, "454 4.7.0" = too many
+attempts, wait an hour). For Google, the password must be a 16-letter <b>app password</b>, not your normal Google password, even
+if that one is correct.</td></tr>
 <tr><td>"Another job is already running"</td><td>Only one long job (daily update, backtest, holdings test, rebuild) runs at a time.
 Progress shows in the top bar; start the next one when it finishes.</td></tr>
 <tr><td>A stock shows "pending"</td><td>It can't be valued yet: usually a missing price, exchange rate or ADR ratio. The stock page says
