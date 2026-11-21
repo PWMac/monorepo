@@ -308,7 +308,7 @@ and insurers aren't scored: their returns and debt aren't comparable with an ope
 brokers, and many service businesses (restaurants, hospitals, trucking, consultancies) report operating expenses but no
 cost-of-goods line. Gross margin doesn't apply: the gross-margin rules (and those measured against gross profit) are skipped,
 not counted against the company, Wonderfulness's moat pillar uses the other measures, and since 0.17.4 there's no data-confidence
-deduction for it either.</li>
+deduction for it either. Compare the margins every company has instead (below).</li>
 <li><b>Cost of sales reported in pieces</b> (shown as <b>pending</b> until filled): some companies, Cadence among them since
 2016, show "cost of product" and "cost of services" as separate lines with no total. The SEC's company data file the app reads
 carries only undivided figures, so the total is missing. For these companies only (those that reported a total in earlier
@@ -316,6 +316,12 @@ years), the daily update takes Yahoo Finance's yearly cost of revenue, checks Ya
 (within 3%; otherwise it's not used), and stores it dated with that year's annual report. Yahoo covers about the last four
 years, so the "10-year" median uses those years.</li>
 </ul>
+<p><b>Margins every company has</b> (version 0.17.4): the Screener's Key measures also show the <b>operating margin</b>
+(operating income ÷ sales), the <b>net margin</b> (net income ÷ sales) and the <b>cash flow margin</b> (operating cash flow ÷
+sales), each as a 10-year median with the yearly history on hover, a trend arrow and an Add filter entry. On the app's data 94%
+of scored companies have all three, against 76% with a gross margin: Mastercard's operating margin, for example, is about 54%.
+Collapsed, Key measures shows ROIC, gross margin and operating margin. They are shown, not scored: Wonderfulness and Quality are
+unchanged.</p>
 <h4>Tiers, and what they predicted</h4>
 <table>
 <tr><th>Tier</th><th>Share of companies today</th><th>Went on to compound*</th><th>Still passed the Quality bar 3 years later</th><th>Median ROIC next 3 years</th><th>Median sales growth next 3 years</th></tr>
@@ -426,7 +432,7 @@ industries). Active filters show as chips above the map: click ✕ to remove one
 to the map and the table and are remembered next time.</li>
 <li><b>The table</b>: columns sit in groups (Scores, CEO, Pillars, Key measures, Price &amp; size, Company info). A group header
 with › or ‹ opens or closes the group: closed, Scores shows Wonderfulness, Quality and their average; Pillars shows four mini bars
-(M G S A); Key measures shows ROIC and gross margin. <i>Expand groups</i> and <i>Collapse groups</i> do all at once, and the
+(M G S A); Key measures shows ROIC, gross margin and operating margin. <i>Expand groups</i> and <i>Collapse groups</i> do all at once, and the
 <b>Columns</b> menu hides whole groups (remembered). Click a <b>ticker or company name</b> to open the stock in a new tab; click the
 Trend sparkline for the full score history. Tick 2–5 rows and press <b>Compare</b> for a side-by-side view, or export the view to
 CSV. Links like <code>/screener?view=nocheck</code> open a view directly (old <code>/wonderful</code> links still work).</li>

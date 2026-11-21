@@ -734,6 +734,7 @@ def ranking_rows(prof) -> list[dict]:
                     "moat": p.get("moat"), "growth": p.get("growth"), "strength": p.get("strength"),
                     "allocation": p.get("allocation"), "mcap": f.get("mcap"), "roic_med": f.get("roic_med"),
                     "roic_last": f.get("roic_last"), "gm_med": f.get("gm_med"), "rev_g5": f.get("rev_g5"),
+                    "om_med": f.get("om_med"), "nm_med": f.get("nm_med"), "ocfm_med": f.get("ocfm_med"),
                     "rev_up": (f"{f['rev_up']}/{f['rev_years']}" if f.get("rev_years") else None),
                     "debt_payback": f.get("debt_payback"), "dollar_test": f.get("dollar_test"),
                     "share_change": f.get("share_change"),

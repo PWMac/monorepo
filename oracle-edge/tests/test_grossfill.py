@@ -58,3 +58,30 @@ def test_no_confidence_penalty_for_a_business_without_cost_of_sales():
     gap = {**base, "gross_profit": [0.5, None], "cogs": [0.5, None]}
     assert confidence(none, [], 10, 10) == 1.0
     assert confidence(gap, [], 10, 10) == pytest.approx(0.97)
+
+
+def test_operating_net_and_cash_flow_margins_are_measured_for_every_company():
+    from oracle_edge import wonderful
+
+    rj = [{"id": "r23", "value": 0.02, "series": [0.50, 0.55, None, 0.60]},
+          {"id": "r7", "value": 0.4, "series": [0.40, 0.42, 0.44]}]
+    rev = {"2022-12-31": 100.0, "2023-12-31": 120.0, "2024-12-31": 150.0}
+    ocf = {"2022-12-31": 50.0, "2023-12-31": 54.0, "2024-12-31": 60.0}
+    f = wonderful.features(rj, {}, "2024-12-31", rev, ocf)
+    assert f["om_last"] == 0.60 and f["om_med"] == pytest.approx(0.55)
+    assert f["nm_last"] == 0.44 and f["nm_med"] == pytest.approx(0.42)
+    assert f["ocfm_last"] == pytest.approx(0.40) and f["ocfm_med"] == pytest.approx(0.45)
+    # a margin is never scored: Wonderfulness weights only the pillar measures
+    assert not {"om_med", "nm_med", "ocfm_med"} & {k for items in wonderful.PILLARS.values() for k, _ in items}
+    g = wonderful.features(rj, {}, "2025-12-31", rev, ocf)
+    assert "ocfm_last" not in g  # no cash flow for that year: no latest figure (the median still stands)
+    assert g["ocfm_med"] == pytest.approx(0.45)
+
+
+def test_margin_filters():
+    from oracle_edge.ui import wonder_page as wp
+
+    r = {"om_med": 0.30, "nm_med": 0.20, "ocfm_med": 0.25, "gm_med": None}
+    assert wp.passes(r, {"om_med": {"min": 25}, "ocfm_med": {"min": 20, "max": 30}})
+    assert not wp.passes(r, {"nm_med": {"min": 25}})
+    assert not wp.passes(r, {"gm_med": {"min": 10}})  # no gross margin: a gross-margin filter excludes it

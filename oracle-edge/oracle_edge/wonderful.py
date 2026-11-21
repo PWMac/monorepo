@@ -67,6 +67,12 @@ FEATURES = {
     "share_change": ("Share count change a year", "pct", "flat or falling"),
     "share_cagr": ("Diluted shares, 10-year change a year", "pct", "flat or falling"),
 }
+# shown, not scored (the Screener's margins)
+SHOWN = {
+    "om_med": ("Operating margin, 10-year median", "pct", "operating income ÷ sales"),
+    "nm_med": ("Net margin, 10-year median", "pct", "net income ÷ sales"),
+    "ocfm_med": ("Operating cash flow margin, 10-year median", "pct", "operating cash flow ÷ sales"),
+}
 RULE_MAP = {  # feature -> (rule id, field)
     "gm_last": ("r1", "last"),  # stored for the ranking page's trends (not scored)
     "roic_last": ("r20", "last"), "roic_med": ("r20", "value"), "roic_years": ("r20", "consistency"),
@@ -100,8 +106,9 @@ def _near(series: dict[str, float], fy: str, years: float):
     return best
 
 
-def features(rules_json: list | str, val_inputs: dict | str, fy: str, revenue: dict[str, float]) -> dict:
-    """The measures for one company at one annual report. revenue: fy_end -> annual revenue (any filing)."""
+def features(rules_json: list | str, val_inputs: dict | str, fy: str, revenue: dict[str, float],
+             ocf: dict[str, float] | None = None) -> dict:
+    """The measures for one company at one annual report. revenue, ocf: fy_end -> annual figure (any filing)."""
     rj = {r["id"]: r for r in (json.loads(rules_json) if isinstance(rules_json, str) else rules_json or [])}
     vi = json.loads(val_inputs) if isinstance(val_inputs, str) else (val_inputs or {})
     f: dict[str, float | None] = {}
@@ -116,6 +123,20 @@ def features(rules_json: list | str, val_inputs: dict | str, fy: str, revenue: d
             f[k] = min(ser) if len(ser) >= 4 else None
         else:
             f[k] = r.get(field)
+    # margins, shown on the Screener beside gross margin (not scored): operating and net from the rules' yearly
+    # series, operating cash flow from the filings; latest year and the median of up to 10
+    for k, rid in (("om", "r23"), ("nm", "r7")):
+        ser = [v for v in ((rj.get(rid) or {}).get("series") or []) if v is not None]
+        if ser:
+            f[k + "_last"] = ser[-1]
+            f[k + "_med"] = _median(ser[-10:])
+    if ocf:
+        yrs = [k for k in sorted(revenue) if k <= fy and k in ocf and revenue[k]][-10:]
+        ser = [ocf[k] / revenue[k] for k in yrs if revenue[k] > 0]
+        if ser:
+            f["ocfm_med"] = _median(ser)
+        if fy in ocf and (revenue.get(fy) or 0) > 0:
+            f["ocfm_last"] = ocf[fy] / revenue[fy]
     f["roic_incr"] = vi.get("incr_roic")
     f["share_cagr"] = vi.get("share_cagr")
     r0 = revenue.get(fy)
@@ -163,11 +184,19 @@ def score_cross_section(feats: dict[int, dict]) -> dict[int, dict]:
     return out
 
 
-def _revenue_by_cik() -> dict[int, dict[str, float]]:
+def _revenue_by_cik(item: str = "revenue") -> dict[int, dict[str, float]]:
     rev: dict[int, dict[str, float]] = defaultdict(dict)
-    for r in db.rows("SELECT cik, fy_end, value FROM facts WHERE item='revenue' AND value IS NOT NULL ORDER BY filed"):
+    for r in db.rows("SELECT cik, fy_end, value FROM facts WHERE item=? AND value IS NOT NULL ORDER BY filed", (item,)):
         rev[r["cik"]][r["fy_end"]] = r["value"]
     return rev
+
+
+def _median(xs: list[float]) -> float | None:
+    xs = sorted(xs)
+    if not xs:
+        return None
+    m = len(xs) // 2
+    return xs[m] if len(xs) % 2 else (xs[m - 1] + xs[m]) / 2
 
 
 _FIN_NAME = re.compile(r"\b(bank|banco|bancorp|bancshares|bankshares|banca|financial group|insurance|assurance)\b",
@@ -190,10 +219,12 @@ def financial_ciks() -> set[int]:
     return out
 
 
-HISTORY_VERSION = 3
+HISTORY_VERSION = 4
 """Bumped when the year-by-year scores need recomputing. v2 (0.15.0): years ending in the first week of January
 (52/53-week fiscal years) are labelled with the year they mostly cover, so two years no longer share a label.
-v3 (0.17.0): each year also keeps that year's gross margin (for the ranking page's trends)."""
+v3 (0.17.0): each year also keeps that year's gross margin (for the ranking page's trends).
+v4 (0.17.4): operating, net and operating-cash-flow margins."""
+FEATURES_VERSION = 2  # today's scores are recomputed (quickly) when the stored ones lack newer measures
 
 
 def fy_label(fy_end: str) -> str:
@@ -208,6 +239,7 @@ def compute(profile=None, history: bool = True, progress=None) -> int:
     p = profile or rules.default_profile()
     pid, ver = p.snap
     rev = _revenue_by_cik()
+    ocf = _revenue_by_cik("ocf")
     rows = db.rows("SELECT cik, filed, fy_end, rules_json, val_inputs, routed FROM snapshots WHERE profile_id=? AND "
                    "profile_version=? AND fy_end IS NOT NULL ORDER BY cik, filed", (pid, ver))
     fin = financial_ciks()
@@ -224,7 +256,7 @@ def compute(profile=None, history: bool = True, progress=None) -> int:
     groups: dict[str, dict[int, dict]] = {"now": {}}
     filed: dict[tuple[str, int], tuple[str, str]] = {}
     for cik, s in latest.items():
-        f = features(s["rules_json"], s["val_inputs"], s["fy_end"], rev.get(cik, {}))
+        f = features(s["rules_json"], s["val_inputs"], s["fy_end"], rev.get(cik, {}), ocf.get(cik, {}))
         if f:
             groups["now"][cik] = f
             filed[("now", cik)] = (s["fy_end"], s["filed"])
@@ -237,7 +269,7 @@ def compute(profile=None, history: bool = True, progress=None) -> int:
                 c = fy_label(fy)
                 if (c, cik) in filed:  # two reports for one fiscal year (a changed year end): keep the first
                     continue
-                f = features(s["rules_json"], s["val_inputs"], fy, rev.get(cik, {}))
+                f = features(s["rules_json"], s["val_inputs"], fy, rev.get(cik, {}), ocf.get(cik, {}))
                 if f:
                     groups.setdefault(c, {})[cik] = f
                     filed[(c, cik)] = (fy, s["filed"])
@@ -258,6 +290,7 @@ def compute(profile=None, history: bool = True, progress=None) -> int:
                 progress((k + 1) / len(groups))
     if history:
         db.set_cfg("wonder_history_version", HISTORY_VERSION)
+    db.set_cfg("wonder_features_version", FEATURES_VERSION)
     return n
 
 
@@ -299,8 +332,10 @@ def market_caps(latest: dict[int, dict]) -> dict[int, float]:
 
 def ensure(profile=None) -> None:
     p = profile or rules.default_profile()
-    if not db.scalar("SELECT COUNT(*) FROM wonder WHERE profile_id=? AND cohort='now'", (p.snap[0],), 0):
+    if not db.scalar("SELECT COUNT(*) FROM wonder WHERE profile_id=? AND cohort='now'", (p.snap[0],), 0) or \
+            int(db.cfg("wonder_features_version", 1) or 1) < FEATURES_VERSION:
         compute(p, history=False)  # quick; the year-by-year history comes with the next daily update
+        db.set_cfg("wonder_features_version", FEATURES_VERSION)
 
 
 def get(cik: int, profile=None) -> dict | None:
@@ -406,6 +441,8 @@ HIST_FIELDS = {
     "roic_med": ("feat", "roic_last", 0.02, 1), "gm_med": ("feat", "gm_last", 0.015, 1),
     "rev_g5": ("feat", "rev_g1", 0.03, 1), "debt_payback": ("feat", "debt_payback", 0.5, -1),
     "dollar_test": ("feat", "dollar_test", 0.3, 1),
+    "om_med": ("feat", "om_last", 0.015, 1), "nm_med": ("feat", "nm_last", 0.015, 1),
+    "ocfm_med": ("feat", "ocfm_last", 0.02, 1),
 }
 _HIST_CACHE: dict = {}
 
@@ -442,7 +479,7 @@ def metric_histories(profile=None, years: int = 8) -> dict[int, dict]:
         f = json.loads(r["feats_json"] or "{}").get("f", {})
         by[r["cik"]][lab] = {"score": r["score"], "_now": r["cohort"] == "now", **json.loads(r["pillars_json"] or "{}"),
                              **{k: f.get(k) for k in ("roic_last", "gm_last", "gm_med", "rev_g1", "debt_payback",
-                                                      "dollar_test")}}
+                                                      "dollar_test", "om_last", "nm_last", "ocfm_last")}}
     qual = _quality_by_year(p)
     out = {}
     for cik, lab_now in nowlab.items():
