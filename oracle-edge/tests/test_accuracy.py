@@ -83,6 +83,41 @@ def test_splits_inferred_from_restated_filings():
     assert from_filings(facts) == [("2024-02-12", 4)]
 
 
+def test_a_split_the_filings_contradict_is_ignored():
+    """A price source listed a 0.374 'split' for a company whose share count didn't change: ignored. A real 10:1
+    split (shares x10 in the next annual report) and one with no report after it yet are kept."""
+    from oracle_edge.splits import observed_change
+
+    with db.tx() as con:
+        con.execute("DELETE FROM splits WHERE ticker IN ('ZZA','ZZB','ZZC')")
+        con.execute("DELETE FROM facts WHERE cik IN (9801,9802,9803)")
+        con.executemany("INSERT OR REPLACE INTO securities(cik,ticker,name) VALUES(?,?,?)",
+                        [(9801, "ZZA", "A"), (9802, "ZZB", "B"), (9803, "ZZC", "C")])
+        con.executemany("INSERT INTO splits(ticker,date,ratio,source) VALUES(?,?,?,'yahoo')",
+                        [("ZZA", "2025-10-24", 0.374), ("ZZB", "2026-06-12", 10.0), ("ZZC", "2026-10-01", 2.0)])
+        con.executemany("INSERT INTO facts(cik,item,fy_end,value,filed) VALUES(?,?,?,?,?)",
+                        [(9801, "shares_diluted", "2024-12-31", 17.27e6, "2025-02-19"),
+                         (9801, "shares_diluted", "2025-12-31", 16.24e6, "2026-03-02"),
+                         (9802, "shares_diluted", "2025-06-30", 133.75e6, "2025-08-08"),
+                         (9802, "shares_diluted", "2026-06-30", 1319.6e6, "2026-08-06"),
+                         (9803, "shares_diluted", "2025-12-31", 50e6, "2026-02-20")])
+    sp = Splits(["ZZA", "ZZB", "ZZC"])
+    assert not sp.has("ZZA") and sp.factor("ZZA", "2020-01-01") == 1.0
+    assert [r[:3] for r in sp.rejected] == [("ZZA", "2025-10-24", 0.374)]
+    assert sp.factor("ZZB", "2025-01-01") == 10.0 and sp.factor("ZZC", "2025-01-01") == 2.0
+    assert abs(observed_change([("2024-12-31", "2025-02-19", 17.27e6), ("2025-12-31", "2026-03-02", 16.24e6)],
+                               "2025-10-24") - 16.24 / 17.27) < 1e-12
+
+
+def test_share_count_and_eps_a_power_of_ten_off_are_rescaled_together():
+    """A filing with 225,840 shares and EPS 50.0 (net income agrees with both) for a company with ~23 million
+    shares: both are off by 100."""
+    s = {"years": ["2022", "2023", "2024", "2025"], "shares_diluted": [25.6e6, 25.0e6, 23.7e6, 225_840.0],
+         "net_income": [37.4e6, 31.8e6, 24.7e6, 11.3e6], "eps_diluted": [1.46, 1.27, 1.04, 50.0]}
+    assert fix_share_scale(s) == 1
+    assert abs(s["shares_diluted"][3] - 22_584_000.0) < 1 and abs(s["eps_diluted"][3] - 0.50) < 1e-9
+
+
 # ------------------------------------------------------------------ stored price history
 def _bars(t, rows):
     return pd.DataFrame([{"ticker": t, "date": d, "open": c, "high": c, "low": c, "close": c, "adj_close": a,
@@ -304,3 +339,49 @@ def test_us_buffett_indicator_nowcast_between_releases():
     with db.tx() as con:
         con.execute("INSERT INTO macro(series,date,value) VALUES('NCBEILQ027S',?,?)", (prev_q.isoformat(), 71_000_000.0))
     assert Macro().us_components(t)["equities_q"] == 71e12
+
+
+# ------------------------------------------------------------------ business health, fair price, too cheap
+def test_business_health_flags():
+    from oracle_edge import quarterly
+
+    st = quarterly._State()
+    for item, s0, e0, v in [("revenue", "2025-01-01", "2025-09-30", 900.0), ("revenue", "2024-01-01", "2024-09-30", 1000.0),
+                            ("revenue", "2023-01-01", "2023-09-30", 990.0),
+                            ("net_income", "2025-01-01", "2025-09-30", 60.0), ("net_income", "2024-01-01", "2024-09-30", 100.0),
+                            ("net_income", "2023-01-01", "2023-09-30", 95.0)]:
+        st.put_q(item, s0, e0, v)
+    for item, fe, v in [("revenue", "2024-12-31", 1350.0), ("revenue", "2023-12-31", 1300.0),
+                        ("net_income", "2024-12-31", 130.0), ("net_income", "2023-12-31", 125.0)]:
+        st.put_a(item, fe, v)
+    m = {}
+    flags = {f["id"]: f for f in quarterly.health(st, "2025-09-30", "bank", m)}
+    # TTM revenue 900 + 1350 - 1000 = 1250 vs 990 + 1300 - ... (a year earlier: 1000 + 1300 - 990 = 1310)
+    assert m["ttm_revenue"] == pytest.approx(1250.0)
+    assert m["ttm_revenue_growth"] == pytest.approx(1250 / 1310 - 1)
+    assert flags["rev_decline"]["severe"] is False and flags["rev_decline"]["health"] is True
+    # net income 60 + 130 - 100 = 90 vs 100 + 125 - 95 = 130: -31% (severe)
+    assert m["ttm_net_income_growth"] == pytest.approx(90 / 130 - 1) and flags["profit_decline"]["severe"] is True
+
+
+def test_health_flags_only_count_for_profiles_that_use_them():
+    from oracle_edge.engine import _profile_flags
+
+    fl = [{"id": "rev_decline", "hard": False, "health": True, "severe": True}, {"id": "ttm_loss", "hard": True}]
+    assert [f["id"] for f in _profile_flags(fl, {})] == ["ttm_loss"]
+    on = _profile_flags(fl, {"health_check": True})
+    assert on[0]["hard"] is True and on[1]["hard"] is True
+
+
+def test_fair_pe_price_test():
+    from types import SimpleNamespace
+
+    from oracle_edge.engine import fair_pe_test
+
+    v = SimpleNamespace(pe_median=20.0)
+    st = {"price_test": "fair_pe", "fair_pe_mult": 1.5}
+    bb, score = fair_pe_test(40.0, v, {"eps_last": 2.0}, st)  # P/E 20 = its median
+    assert bb == pytest.approx(60.0)                         # buy below a P/E of 30 (1.5 x 20)
+    assert score == pytest.approx(50.0)                      # halfway between 1.5x and 0.5x the median
+    assert fair_pe_test(40.0, v, {"eps_last": 2.0}, {"price_test": "dcf"}) is None
+    assert fair_pe_test(40.0, SimpleNamespace(pe_median=None), {"eps_last": 2.0}, st) is None

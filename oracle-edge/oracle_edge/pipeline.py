@@ -351,7 +351,7 @@ def finish_setup(job, lo=0.5) -> None:
 
 
 # ================================================================== daily run
-CALC_VERSION = 2
+CALC_VERSION = 3
 """Bumped when a fix changes stored results (snapshots, live histories). v2 (0.12.0): stock splits, share-count
 scale errors, fiscal-year grouping, buy-below consistency, point-in-time Buffett Indicator."""
 
@@ -388,7 +388,11 @@ def apply_calc_fixes(job) -> str:
     fetch_prices_for(price_tickers(cands), job.sub(0.50, 0.53, "Prices for the shortlist"))
     pb = PriceBook(price_tickers(cands))
     for p in profs:
-        build_snapshots(p, cands, since=since, prices=pb, progress=job.sub(0.53, 0.56, "Price-based checks ($1 test)"))
+        build_snapshots(p, cands, since=since, prices=pb, progress=job.sub(0.53, 0.55, "Price-based checks ($1 test)"))
+    if profs:  # quarterly checks, including the business-health flags (calculation version 3)
+        with db.tx() as con:
+            con.execute("DELETE FROM qsnaps")
+        quarterly.build(profs[0], cands, since=since, progress=job.sub(0.55, 0.56, "Quarterly checks"))
     end = completed_session()
     for k, p in enumerate(profs):
         r = db.one("SELECT id FROM runs WHERE kind='live' AND profile_id=?", (p.id,))
