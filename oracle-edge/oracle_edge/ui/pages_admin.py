@@ -540,13 +540,16 @@ def data_page():
                           on_change=lambda e: db.set_cfg("prices_all", bool(e.value)))
                 ui.button("Download missing price histories now", icon="download",
                           on_click=lambda: _launch("prices_all")).props("flat")
+                ui.button("Rate CEOs now (Wonderfulness 60+)", icon="badge",
+                          on_click=lambda: _launch("ceo_grades")).props("flat")
                 ui.switch("Analyst estimates for holdings and the shortlist (daily)",
                           value=bool(db.cfg("analyst_estimates", True)),
                           on_change=lambda e: db.set_cfg("analyst_estimates", bool(e.value)))
             ui.label("Every company's prices make research and backtests complete and give new candidates a full "
                      "history; the first download is a few thousand tickers (the daily update does it on its own "
                      "if you don't). Estimates come from Yahoo Finance, one copy a day, so the app builds its own "
-                     "record of how they change.").classes("oe-small")
+                     "record of how they change. CEO grades for the Wonderful page are worked out 40 a day in the daily update; "Rate CEOs "
+                     "now" does them all (a few Wikidata and Yahoo look-ups each, so allow a while).").classes("oe-small")
             jl = db.rows("SELECT * FROM jobs ORDER BY id DESC LIMIT 8")
             for r in jl:
                 ui.label(f"#{r['id']} {r['kind']} · {r['status']} · {(r['started_at'] or '')[:16]} → "

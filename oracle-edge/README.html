@@ -74,7 +74,7 @@ footer { color:var(--muted); font-size:12.5px; margin-top:50px; border-top:1px s
   <h1><img src="brand/logo/oracle-edge-header-tagline.png" srcset="brand/logo/oracle-edge-header-tagline@2x.png 2x"
      alt="Oracle Edge: Screen, Rank, Signal"></h1>
   <p>A local stock screener that thinks like the Oracle. This guide explains <b>what</b> the app does,
-  <b>how</b> it decides, and <b>why</b> it was built this way. Version 0.16.0.</p>
+  <b>how</b> it decides, and <b>why</b> it was built this way. Version 0.17.0.</p>
   <p style="font-size:14px">Two documents: this <b>guide</b> is the user manual, kept current with every release and opened from
   "Guide" in the app. The <b>plan</b> (<code>docs/Value-Picker-Plan.html</code> with the source code) is the design record: the research, architecture,
   database layout and the decision log behind the app.</p>
@@ -393,14 +393,36 @@ one year in the decade fell under 10%, even for companies whose average is 25% o
 <li><b>Passes checklist, not wonderful</b>: solid, but slower or less profitable than the best.</li>
 </ul></li>
 <li><b>The map</b>: every company as a dot, Quality across and Wonderfulness up, with dashed lines at the checklist bar and at 70.
-The top-right corner is the best of both; dots outside the current view fade. Hover for the name and scores, click to open the
-stock, click a legend entry to hide a group.</li>
-<li><b>Filters</b> that apply to the map and the table: text search, market value ($2B+ by default), the Wonderfulness trend
-(rising, steady, falling, or 70+ in each of the last 5 years), hide companies slipping now (a business-health or hard warning
-in the latest 10-Q), and only those in the Buy Zone today.</li>
-<li><b>The table</b>: position in the view, both scores, tier, the <b>Trend</b> and <b>Years at 70+</b> (see Score history
-below), checklist result (or the failing rule), the average, where the price stands today, the four pillars and the key measures. Tick 2–5 rows and press <b>Compare</b> for a side-by-side view (now
-including Quality and the companies' Wonderfulness over time on one chart), or export the view to CSV. Links like <code>/wonderful?view=nocheck</code> open a view directly.</li>
+The top-right corner is the best of both; dots outside the current view fade. Each dot also shows:
+<ul>
+<li><b>Colour</b>: the group (best of both, wonderful but fails the checklist, passes but not wonderful, neither).</li>
+<li><b>Shape</b>: Wonderfulness over the last 3 fiscal years: ▲ rising (+5 or more), ▼ falling (−5 or more), ● steady, ◆ new.</li>
+<li><b>Size</b>: how many years in a row it has been 70+ (the longer, the bigger). On the app's history, consistency predicted
+staying on top better than a rising score, so the big dots are the proven ones.</li>
+</ul>
+<b>Zoom</b> with the sliders under and beside the chart, the box tool (top right; ⟲ resets) or Shift + mouse wheel. Hover a dot
+for the details; <b>click it to open the company in a new tab</b>; click a legend entry to hide a group.</li>
+<li><b>Quick filters</b>: text search, market value ($2B+ by default), hide companies slipping now (a business-health or hard
+warning in the latest 10-Q), and only those in the Buy Zone today.</li>
+<li><b>Add filter</b> (version 0.17.0): pick any column from the menu. Numbers get an "at least" and "at most" box in the units
+shown (percent for margins and growth, $B for market value, years for debt payback) with the range the companies span; lists
+(industry, tier, CEO grade, checklist, Wonderfulness trend) get a pick-list where you can choose one or many (type to search
+industries). Active filters show as chips above the map: click ✕ to remove one, <i>Clear all</i> to start over. Filters apply
+to the map and the table and are remembered next time.</li>
+<li><b>The table</b>: columns sit in groups (Scores, CEO, Pillars, Key measures, Price &amp; size, Company info). A group header
+with › or ‹ opens or closes the group: closed, Scores shows Wonderfulness, Quality and their average; Pillars shows four mini bars
+(M G S A); Key measures shows ROIC and gross margin. <i>Expand groups</i> and <i>Collapse groups</i> do all at once, and the
+<b>Columns</b> menu hides whole groups (remembered). Click a <b>ticker or company name</b> to open the stock in a new tab; click the
+Trend sparkline for the full score history. Tick 2–5 rows and press <b>Compare</b> for a side-by-side view, or export the view to
+CSV. Links like <code>/wonderful?view=nocheck</code> open a view directly.</li>
+<li><b>Trends in every cell</b>: a small ▲ or ▼ next to a number shows its direction over recent years (the last two years
+against the three before, so one odd year doesn't count), <span style="color:#1f6f4a">green</span> when that's an improvement
+and <span style="color:#a33a2b">red</span> when it isn't (falling debt payback is green); no arrow means steady. Hover the
+cell for its yearly history. For ROIC, gross margin and sales growth the column shows the 10-year median (or 5-year growth)
+while the arrow and history follow each year's figure. The Columns menu turns the arrows off.</li>
+<li><b>CEO grade</b>: the CEO's track-record grade (A–F, with the score; career-weighted when they ran other companies; see
+CEO track record). Hover for the name and since when. Grades are worked out in the background, 40 a day, best companies
+first, and immediately when you open a stock's Wonderful? tab; "—" means not rated yet or not enough data.</li>
 </ul>
 
 <h4>CEO track record</h4>
@@ -1423,7 +1445,7 @@ their old results until you recalculate them.</p>
 <tr><td><b>XBRL</b></td><td>The tagged data format companies use to file financial statements with the SEC</td></tr>
 </table>
 
-<footer>Oracle Edge v0.16.0 · research tool, not financial advice · MIT license. The full design plan, with research sources,
+<footer>Oracle Edge v0.17.0 · research tool, not financial advice · MIT license. The full design plan, with research sources,
 is in <code>docs/Value-Picker-Plan.html</code> with the source code.</footer>
 </main>
 </div>

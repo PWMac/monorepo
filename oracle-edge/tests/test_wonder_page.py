@@ -1,0 +1,101 @@
+"""The Wonderful page (0.17): column histories and directions, filters, the map's encoding, CEO grades."""
+
+from __future__ import annotations
+
+import json
+
+import pytest
+
+from oracle_edge import ceo, db, rules, wonderful
+from oracle_edge.ui import wonder_page as wp
+from oracle_edge.ui.wonder import _aligned
+
+
+@pytest.fixture(scope="module", autouse=True)
+def _db():
+    db.get()
+    rules.seed_profiles()
+
+
+def test_direction_compares_the_last_two_years_with_the_three_before():
+    assert wonderful.direction([50, 50, 50, 56, 58], 4) == "up"
+    assert wonderful.direction([60, 61, 59, 54, 53], 4) == "down"
+    assert wonderful.direction([60, 62, 58, 61, 60], 4) == "flat"
+    assert wonderful.direction([60, 70], 4) is None
+    assert wonderful.summarize([("FY2020", 65.0), ("FY2021", 72.0), ("FY2022", 75.0), ("FY2023", 81.0)])["streak_70"] == 3
+
+
+def test_histories_follow_each_column_and_end_on_todays_figures():
+    p = rules.default_profile()
+    pid, ver = p.snap
+    cik = 990002
+    with db.tx() as con:
+        con.execute("DELETE FROM wonder WHERE cik=?", (cik,))
+        con.execute("DELETE FROM snapshots WHERE cik=?", (cik,))
+        for k, (cohort, as_of, score, gm, dp) in enumerate([("FY2020", "2020-12-31", 70, 0.40, 2.0),
+                                                            ("FY2021", "2021-12-31", 71, 0.41, 2.1),
+                                                            ("FY2022", "2022-12-31", 72, 0.40, 2.0),
+                                                            ("FY2023", "2023-12-31", 74, 0.46, 1.0),
+                                                            ("now", "2023-12-31", 75, 0.47, 0.9)]):
+            con.execute("INSERT INTO wonder(cik,profile_id,cohort,as_of,filed,score,rank,n,pillars_json,feats_json) "
+                        "VALUES(?,?,?,?,?,?,?,?,?,?)",
+                        (cik, pid, cohort, as_of, as_of, score, 1, 10, json.dumps({"moat": 80}),
+                         json.dumps({"f": {"gm_last": gm, "debt_payback": dp, "roic_last": 0.2}, "pct": {}})))
+    wonderful._HIST_CACHE.clear()
+    h = wonderful.metric_histories(p)[cik]
+    assert h["hist"]["gm_med"][-1] == ["FY2023", 0.47]  # today's figures stand for the latest year
+    assert len(h["hist"]["gm_med"]) == 4
+    assert h["tr"]["gm_med"] == "up"
+    assert h["tr"]["debt_payback"] == "down"  # falling debt payback; the page colours it green (lower is better)
+    al, y0 = _aligned({"a": [["FY2020", 1.0], ["FY2023", 2.0]], "b": [["FY2021", 3.0]]})
+    assert y0 == 2020 and al["a"] == [1.0, None, None, 2.0] and al["b"] == [None, 3.0, None, None]
+    with db.tx() as con:
+        con.execute("DELETE FROM wonder WHERE cik=?", (cik,))
+    wonderful._HIST_CACHE.clear()
+
+
+def _row(**kw):
+    r = {"industry": "Software", "tier": "Wonderful", "ceo_grade": "B", "passes": True, "trend_dir": "up",
+         "score": 75.0, "quality": 80.0, "gm_med": 0.55, "mcap": 20e9, "debt_payback": 1.5, "ceo_score": 70.0}
+    r.update(kw)
+    return r
+
+
+def test_filters_by_list_and_by_range_in_display_units():
+    assert wp.passes(_row(), {"industry": ["Software", "Retail"], "gm_med": {"min": 50, "max": None}})
+    assert not wp.passes(_row(), {"gm_med": {"min": 60}})  # 60% in the box = 0.60
+    assert wp.passes(_row(), {"mcap": {"min": 10, "max": 50}})  # $B
+    assert not wp.passes(_row(mcap=None), {"mcap": {"min": 10}})  # a missing value fails a number filter
+    assert wp.passes(_row(), {"gm_med": {"min": None, "max": None}, "tier": []})  # empty filters do nothing
+    assert not wp.passes(_row(ceo_grade=None), {"ceo_grade": ["A", "B"]})
+    assert wp.passes(_row(ceo_grade=None), {"ceo_grade": ["none"]})
+    assert not wp.passes(_row(passes=False), {"checklist": ["pass"]})
+    assert wp.passes(_row(trend_dir=None), {"wtrend": ["new"]})
+    assert wp.chip_text("gm_med", {"min": 40, "max": None}) == "Gross margin ≥ 40%"
+    assert wp.chip_text("mcap", {"min": 10, "max": 50}) == "Market value ($B): 10–50 $B"
+    assert wp.chip_text("industry", ["A", "B", "C", "D"], {}) == "Industry: A, B, C +1"
+
+
+def test_the_map_shows_direction_by_shape_and_time_at_the_top_by_size():
+    rows = [_row(ticker="AAA", name="A", quality=80.0, score=85.0, trend_dir="up", streak70=8, trend=6.0),
+            _row(ticker="BBB", name="B", quality=60.0, score=50.0, trend_dir="down", streak70=0, trend=-7.0, passes=False)]
+    o = wp.map_options(rows, {"AAA"}, 70)
+    a = o["series"][0]["data"][0]
+    b = next(d for s in o["series"] for d in s["data"] if d["name"] == "BBB")
+    assert a["symbol"] == "triangle" and a["symbolRotate"] == 0 and a["symbolSize"] == 17
+    assert b["symbol"] == "triangle" and b["symbolRotate"] == 180 and b["symbolSize"] == 6
+    assert b["itemStyle"]["opacity"] < a["itemStyle"]["opacity"]  # outside the current view: faded
+    assert any(z["type"] == "slider" for z in o["dataZoom"]) and "dataZoom" in o["toolbox"]["feature"]
+
+
+def test_ceo_grades_are_saved_for_the_ranking_page():
+    ceo.save_grade(990003, {"current": {"name": "Pat Example", "start": "2015-01-01"},
+                            "career": {"grade": "A", "score": 86.0, "years": 9.0, "n": 2},
+                            "record": {"rating": {"grade": "B", "score": 70.0}, "years": 9.0}})
+    g = ceo.grades()[990003]
+    assert g["grade"] == "A" and g["basis"] == "career" and g["name"] == "Pat Example"
+    ceo.save_grade(990003, {"current": {"name": "New Person", "start": "2025-06-01"}, "record": {"years": 1.0}})
+    g = ceo.grades()[990003]
+    assert g["grade"] is None and "under two" in g["note"]
+    with db.tx() as con:
+        con.execute("DELETE FROM ceo_grades WHERE cik=990003")

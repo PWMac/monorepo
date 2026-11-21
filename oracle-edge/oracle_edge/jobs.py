@@ -148,7 +148,8 @@ def execute(job_id: int) -> None:
               "rebuild": pipeline.rebuild_profile, "backup": pipeline.backup_job,
               "recalc": pipeline.recalc_backtest, "sweep": pipeline.run_sweep,
               "recalc_all": pipeline.recalc_all, "experiments": pipeline.run_experiments,
-              "calc_fixes": pipeline.apply_calc_fixes, "prices_all": pipeline.prices_all_job}[r["kind"]]
+              "calc_fixes": pipeline.apply_calc_fixes, "prices_all": pipeline.prices_all_job,
+              "ceo_grades": pipeline.ceo_grades_job}[r["kind"]]
         msg = fn(job, **args)
         db.get().execute("UPDATE jobs SET status='done', progress=1, finished_at=?, message=? WHERE id=?",
                          (db.now(), msg or "Done", job_id))

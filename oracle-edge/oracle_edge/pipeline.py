@@ -113,6 +113,24 @@ def price_universe(cands: list[int]) -> list[int]:
     return cands
 
 
+def ceo_grades_job(job, limit: int | None = None) -> str:
+    """Grade the CEO of every company with Wonderfulness 60+ that has no grade (or one older than 30 days), best
+    first. Each needs a few Wikidata and Yahoo look-ups, so the daily update does at most 40 a day."""
+    from . import ceo
+
+    todo = ceo.to_rate()[: limit or None]
+    n = 0
+    for i, (cik, t) in enumerate(todo):
+        try:
+            ceo.assess(cik, t)
+            n += 1
+        except Exception as e:
+            db.log("ceo", "grade", False, f"{t}: {e}"[:200])
+        if i % 5 == 0:
+            job.update(i / max(len(todo), 1), f"Rating CEOs: {i:,} of {len(todo):,}")
+    return f"Rated the CEOs of {n:,} companies." if todo else "Every company with Wonderfulness 60+ has a recent CEO grade."
+
+
 def prices_all_job(job) -> str:
     """Download the full price history of every company that has none yet (the daily update then keeps them
     current). Large the first time: a few thousand tickers."""
@@ -512,6 +530,11 @@ def daily_run(job, force: bool = False, send_email: bool = True, do_backup: bool
     cands = candidate_ciks([p.id for p in profs])
     res = fetch_prices_for(price_tickers(price_universe(cands)), job.sub(0.25, 0.50, "Updating prices"))
     db.set_cfg("last_price_fetch", {"at": db.now(), "missing": res["missing"][:200]})
+    if db.cfg("ceo_grades_daily", True):
+        try:  # CEO grades for the ranking page, a few a day (Wikidata look-ups)
+            ceo_grades_job(job, limit=40)
+        except Exception as e:
+            db.log("ceo", "grades", False, str(e)[:200])
     if db.cfg("analyst_estimates", True):
         try:  # analysts' estimates for holdings and the shortlist (the value-driver model's first two years)
             from . import estimates
