@@ -99,3 +99,27 @@ def test_ceo_grades_are_saved_for_the_ranking_page():
     assert g["grade"] is None and "under two" in g["note"]
     with db.tx() as con:
         con.execute("DELETE FROM ceo_grades WHERE cik=990003")
+
+
+def test_every_module_imports():
+    """A syntax error in a page module must fail the tests, not the app (pages aren't otherwise loaded here)."""
+    import importlib
+    import pkgutil
+
+    import oracle_edge
+    import oracle_edge.ui
+
+    for pkg in (oracle_edge, oracle_edge.ui):
+        for m in pkgutil.iter_modules(pkg.__path__):
+            if m.name not in ("app", "__main__"):
+                importlib.import_module(f"{pkg.__name__}.{m.name}")
+
+
+def test_value_filters_and_the_value_pass():
+    from oracle_edge import values
+
+    assert wp.passes(_row(v_buy=True, v_mos=0.30), {"v_buy": ["yes"], "v_mos": {"min": 25}})
+    assert not wp.passes(_row(v_buy=None), {"v_buy": ["yes", "no"]})
+    assert wp.passes(_row(v_buy=None), {"v_buy": ["none"]})
+    n = values.compute_all()  # runs on whatever the test database holds
+    assert n == len(values.all_values())

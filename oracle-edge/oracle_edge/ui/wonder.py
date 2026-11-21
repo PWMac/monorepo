@@ -1,4 +1,4 @@
-"""Wonderfulness: the stock page's "Wonderful?" tab and the ranking page (/wonderful)."""
+"""Wonderfulness: the stock page's "Wonderful?" tab and the data behind the Screener (/screener)."""
 
 from __future__ import annotations
 
@@ -670,6 +670,9 @@ def ranking_rows(prof) -> list[dict]:
     trs = wonderful.trends(prof)
     mh = wonderful.metric_histories(prof)
     cg = ceo.grades()
+    from .. import values
+
+    vals = values.all_values()
     out = []
     for r in db.rows("SELECT cik, score, rank, n, as_of, pillars_json, feats_json FROM wonder WHERE profile_id=? AND "
                      "cohort='now' ORDER BY score DESC", (prof.snap[0],)):
@@ -685,6 +688,7 @@ def ranking_rows(prof) -> list[dict]:
         h = mh.get(r["cik"], {})
         hist, hy0 = _aligned(h.get("hist") or {})
         g = cg.get(r["cik"], {})
+        v = vals.get(r["cik"], {})
         w10 = (t.get("w") or [])[-10:]
         qd = dict(t.get("q") or [])
         last5 = [v for _, v in w10[-5:]]
@@ -697,6 +701,13 @@ def ranking_rows(prof) -> list[dict]:
                     "ceo_grade": g.get("grade"), "ceo_score": g.get("score"), "ceo_name": g.get("name") or "",
                     "ceo_since": (g.get("start") or "")[:4], "ceo_basis": g.get("basis") or "",
                     "ceo_note": g.get("note") or ("" if g else "not rated yet"),
+                    "v_price": v.get("price"), "v_iv": v.get("iv"), "v_low": v.get("low"), "v_high": v.get("high"),
+                    "v_er": v.get("er"), "v_mos": v.get("mos"), "v_required": v.get("required"),
+                    "v_buy": (v["price"] <= v["buy_below"]) if v.get("buy_below") else None,
+                    "v_implied": v.get("implied"), "v_supports": v.get("supports"),
+                    "v_gap": (v["implied"] - v["supports"]) if v.get("implied") is not None and v.get("supports") is not None
+                    else None,
+                    "v_pe_rel": (v["pe_now"] / v["pe_med"]) if v.get("pe_now") and v.get("pe_med") else None,
                     "ticker": s["ticker"], "name": s["name"], "industry": s["sic_desc"], "score": r["score"],
                     "quality": q.get("quality"), "passes": q.get("passes", False), "why_fail": q.get("why", ""),
                     "checklist": ("✓ passes" if q.get("passes") else ("✗ " + q["why"] if q.get("why") else "✗"))

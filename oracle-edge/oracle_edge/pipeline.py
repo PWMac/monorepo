@@ -113,6 +113,47 @@ def price_universe(cands: list[int]) -> list[int]:
     return cands
 
 
+def restatements_job(job) -> str:
+    """Re-read every company's SEC statements from the SEC's bulk file (one download, then read offline), so every
+    company has the line items added in 0.16 (leases, pensions, minority interests), then re-score them and
+    re-value them. Prices and live histories are left alone; nothing else needs rebuilding."""
+    zp = sec.bulk_zip_path()
+    fresh = zp.exists() and (datetime.now().timestamp() - zp.stat().st_mtime) < 3 * 86400
+    if not fresh:
+        sec.download_bulk(job.sub(0.0, 0.30, "Downloading SEC financial data (large file)"))
+    n = sec.ingest_bulk(zp, job.sub(0.30, 0.60, "Reading every company's statements"))
+    profs = rules.active_profiles()
+    since = (date.fromisoformat(backfill_start()) - timedelta(days=400)).isoformat()
+    all_ciks = [r["cik"] for r in db.rows("SELECT DISTINCT cik FROM facts")]
+    for k, p in enumerate(profs):
+        a = 0.60 + 0.25 * k / max(len(profs), 1)
+        build_snapshots(p, all_ciks, since=since, progress=job.sub(a, a + 0.25 / max(len(profs), 1),
+                                                                    f"Re-scoring every company ({p.name})"))
+    cands = candidate_ciks([p.id for p in profs])
+    pb = PriceBook(price_tickers(cands))
+    for p in profs:
+        build_snapshots(p, cands, since=since, prices=pb, progress=job.sub(0.85, 0.88, "Price-based checks ($1 test)"))
+    if profs:
+        quarterly.build(profs[0], cands, since=since, progress=job.sub(0.88, 0.90, "Quarterly checks"))
+    from . import values, wonderful
+
+    try:
+        wonderful.compute(rules.default_profile(), history=True)
+    except Exception as e:
+        db.log("wonderful", "compute", False, str(e)[:300])
+    job.update(0.95, "Valuing every company")
+    m = values.compute_all()
+    db.set_cfg("statements_v16_all", db.now())
+    return (f"Re-read {n:,} companies' statements, re-scored them and valued {m:,}. Live histories and backtests "
+            "are unchanged (only the value-driver model uses the new line items).")
+
+
+def values_job(job) -> str:
+    from . import values
+
+    return f"Valued {values.compute_all(progress=job.sub(0, 1, 'Valuing every company')):,} companies."
+
+
 def ceo_grades_job(job, limit: int | None = None) -> str:
     """Grade the CEO of every company with Wonderfulness 60+ that has no grade (or one older than 30 days), best
     first. Each needs a few Wikidata and Yahoo look-ups, so the daily update does at most 40 a day."""
@@ -466,6 +507,12 @@ def apply_calc_fixes(job) -> str:
         job.update(a, f"Replaying {backfill_start()} → {end} for {p.name}")
         replay(rid, p, end, "daily", job, a, a + span)
     scan_targets(profs)
+    try:
+        from . import values
+
+        values.compute_all()
+    except Exception as e:
+        db.log("values", "compute", False, str(e)[:200])
     db.set_cfg("calc_version", CALC_VERSION)
     db.set_cfg("calc_fixed_at", db.now())
     n_splits = len([1 for t in Splits().d.values() for _ in t[0]])
@@ -542,6 +589,13 @@ def daily_run(job, force: bool = False, send_email: bool = True, do_backup: bool
             estimates.refresh_watchlist(job.sub(0.50, 0.55, "Analyst estimates for the shortlist"))
         except Exception as e:
             db.log("yahoo", "estimates", False, str(e)[:200])
+    try:  # every company's value at today's price (the Screener's Value columns)
+        from . import values
+
+        job.update(0.55, "Valuing every company (Screener)")
+        values.compute_all()
+    except Exception as e:
+        db.log("values", "compute", False, str(e)[:200])
     if annual:
         pb = PriceBook(price_tickers(sorted(annual)))
         for p in profs:

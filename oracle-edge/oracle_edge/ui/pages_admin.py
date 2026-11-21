@@ -540,16 +540,30 @@ def data_page():
                           on_change=lambda e: db.set_cfg("prices_all", bool(e.value)))
                 ui.button("Download missing price histories now", icon="download",
                           on_click=lambda: _launch("prices_all")).props("flat")
-                ui.button("Rate CEOs now (Wonderfulness 60+)", icon="badge",
-                          on_click=lambda: _launch("ceo_grades")).props("flat")
                 ui.switch("Analyst estimates for holdings and the shortlist (daily)",
                           value=bool(db.cfg("analyst_estimates", True)),
                           on_change=lambda e: db.set_cfg("analyst_estimates", bool(e.value)))
+                ui.button("Rate CEOs now (Wonderfulness 60+)", icon="badge",
+                          on_click=lambda: _launch("ceo_grades")).props("flat")
             ui.label("Every company's prices make research and backtests complete and give new candidates a full "
-                     "history; the first download is a few thousand tickers (the daily update does it on its own "
-                     "if you don't). Estimates come from Yahoo Finance, one copy a day, so the app builds its own "
-                     "record of how they change. CEO grades for the Wonderful page are worked out 40 a day in the daily update; "Rate CEOs "
-                     "now" does them all (a few Wikidata and Yahoo look-ups each, so allow a while).").classes("oe-small")
+                     "history; the first download is a few thousand tickers (the daily update does it on its own if "
+                     "you don't). Estimates come from Yahoo Finance, one copy a day, so the app builds its own record "
+                     "of how they change. CEO grades for the Screener are worked out 40 a day in the daily update; "
+                     "'Rate CEOs now' does them all (a few Wikidata and Yahoo look-ups each, so allow a while)."
+                     ).classes("oe-small")
+            with ui.row().classes("items-center gap-4 pt-2"):
+                ui.button("Re-read every company's SEC statements", icon="sync",
+                          on_click=lambda: _launch("restatements")).props(
+                    "outline" if db.cfg("statements_v16_all") else "unelevated")
+                ui.button("Re-value every company now", icon="calculate",
+                          on_click=lambda: _launch("values")).props("flat")
+            ui.label(("Every company's statements were re-read on " + str(db.cfg("statements_v16_all"))[:10] + ". "
+                      if db.cfg("statements_v16_all") else
+                      "Recommended once after installing 0.16 or later: the rebuild re-read only the shortlist's "
+                      "statements, so companies off it lack the lease, pension and minority-interest figures the "
+                      "value-driver model subtracts, and their values on the Screener run high until they next file. ")
+                     + "It downloads the SEC's bulk file (about 1.3 GB), reads every company again and re-scores them: "
+                       "allow 30–60 minutes. Prices, live histories and backtests are untouched.").classes("oe-small")
             jl = db.rows("SELECT * FROM jobs ORDER BY id DESC LIMIT 8")
             for r in jl:
                 ui.label(f"#{r['id']} {r['kind']} · {r['status']} · {(r['started_at'] or '')[:16]} → "

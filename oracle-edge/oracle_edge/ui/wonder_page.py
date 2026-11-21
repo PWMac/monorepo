@@ -1,4 +1,5 @@
-"""The Wonderful page (/wonderful): the best businesses on Wonderfulness and Quality.
+"""The Screener (/screener; /wonderful redirects here): screen and rank every business on Wonderfulness, Quality and
+value.
 
 - The map: Quality across, Wonderfulness up. Colour = group, shape = direction of Wonderfulness (▲ rising,
   ▼ falling, ● steady, ◆ new), size = years in a row at 70+. Zoom with the sliders or the box tool; a click opens
@@ -16,9 +17,9 @@ from collections import Counter
 
 from nicegui import app, ui
 
-from .. import rules, wonderful
+from .. import db, rules, wonderful
 from .layout import empty, frame
-from .wonder import (_BIL, _NUM0, _SPARK, _TREND_TIP, _Y70, _c, _compare, history_chart,
+from .wonder import (_BIL, _NUM0, _SPARK, _X, _TREND_TIP, _Y70, _c, _compare, history_chart,
                      ranking_rows, trend_facts)
 
 VIEWS = {  # key -> (button label, one-line explanation, filter(row), sort field)
@@ -195,6 +196,31 @@ _CEO_TIP = """p => { const r = p.data || {}; if (!r.ceo_name) return r.ceo_note 
      ` · ${r.ceo_note || 'not rated'}`); }"""
 
 
+_USD = "p => p.value == null ? '' : '$' + p.value.toLocaleString(undefined, {maximumFractionDigits: p.value >= 100 ? 0 : 2})"
+_MOS = """p => { if (p.value == null) return '';
+  const g = (p.context && p.context.mos) || 0.25, v = p.value;
+  const c = v >= g ? '#1f6f4a' : v < 0 ? '#a33a2b' : '#374151';
+  const t = v <= -9.99 ? '< −999%' : (v * 100).toFixed(0) + '%';
+  return `<span style="color:${c};font-weight:${v >= g ? 700 : 400}">${t}</span>`; }"""
+_ER = """p => { if (p.value == null) return ''; const ok = p.data && p.data.v_required != null && p.value >= p.data.v_required;
+  return `<span style="color:${ok ? '#1f6f4a' : '#374151'};font-weight:${ok ? 700 : 400}">${(p.value * 100).toFixed(1)}%</span>`; }"""
+_RANGE = """p => { const r = p.data || {}; if (r.v_low == null) return '';
+  const f = v => '$' + v.toLocaleString(undefined, {maximumFractionDigits: v >= 100 ? 0 : 2});
+  return `${f(r.v_low)} – ${f(r.v_high)}`; }"""
+_IMPLIED = """p => { const r = p.data || {}; if (p.value == null) return '';
+  const gap = r.v_gap, c = gap == null ? '#374151' : gap > 0.03 ? '#A8741F' : gap < -0.03 ? '#1f6f4a' : '#374151';
+  const t = p.value >= 0.595 ? '60%+' : (p.value * 100).toFixed(0) + '%';
+  return `<span style="color:${c};font-weight:600">${t}</span> <span style="color:#6b7280;font-size:11px">record ` +
+    `${r.v_supports == null ? '—' : (r.v_supports * 100).toFixed(0) + '%'}</span>`; }"""
+_IMPLIED_TIP = """p => { const r = p.data || {}; if (r.v_implied == null) return null;
+  return `Today's price assumes about ${(r.v_implied * 100).toFixed(0)}% a year growth for five years (then fading) at a ` +
+    `${(r.v_required * 100).toFixed(0)}% required return; the record supports ${(r.v_supports * 100).toFixed(0)}%. ` +
+    (r.v_gap > 0.03 ? 'The price expects more than the record supports.' : r.v_gap < -0.03 ?
+     'The price expects less than the record supports.' : 'In line with the record.'); }"""
+_BUY = """p => p.value == null ? '' : p.value ? '<span style="color:#1f6f4a;font-weight:700">✓ below</span>' :
+  '<span style="color:#6b7280">above</span>'"""
+
+
 def _tc(field, header, fmt, better, width, tip, title, kind, note=None, **kw):
     """A column that shows its direction (arrow) and its yearly history on hover."""
     c = _c(field, header, None, width, tip, **kw)
@@ -259,18 +285,40 @@ def columns(bar: float) -> tuple[list[dict], dict[str, list[str]]]:
             "Lower is better.", columnGroupShow="open"),
         _tc("dollar_test", "$1 test", F_X, 1, 90, None, "$1 test as known each year", "x", columnGroupShow="open"),
     ]
-    price = [
-        _c("price_status", "Price today", None, 150, "Buy Zone, or how far the price is above the buy-below price "
-                                                     "(live profile)."),
-        _c("mcap", "Market value", _BIL, 105),
+    value = [
+        {**_c("v_mos", "Margin of safety", None, 104, "1 − price ÷ likely value (value-driver model, at your required "
+                                                     "return). Green = at least the profile's margin of safety."),
+         ":cellRenderer": _MOS, "type": "rightAligned", "filter": "agNumberColumnFilter"},
+        {**_c("v_er", "Expected return", None, 100, "The yearly return at which the value equals today's price. Green "
+                                                    "= at least your required return."),
+         ":cellRenderer": _ER, "type": "rightAligned", "filter": "agNumberColumnFilter"},
+        {**_c("v_price", "Price", _USD, 90, "Latest close.", columnGroupShow="open")},
+        {**_c("v_iv", "Likely value", _USD, 100, "What the business is worth per share at your required return "
+                                                "(value-driver model).", columnGroupShow="open")},
+        {**_c("v_low", "Value range", None, 140, "Low: growth 3 points lower and the required return 1 point higher; "
+                                                "high: the reverse.", columnGroupShow="open"),
+         ":cellRenderer": _RANGE},
+        {**_c("v_implied", "Price assumes", None, 130, "The growth today's price assumes (reverse DCF), and the growth the "
+                                                      "record supports. Amber = the price expects more.",
+              columnGroupShow="open"),
+         ":cellRenderer": _IMPLIED, ":tooltipValueGetter": _IMPLIED_TIP, "filter": "agNumberColumnFilter"},
+        {**_c("v_pe_rel", "P/E vs its usual", _X, 96, "P/E on last year's EPS ÷ the company's own 10-year median P/E "
+                                                     "(1.00× = its usual).", columnGroupShow="open")},
+        {**_c("v_buy", "Below buy price", None, 96, "Price at or below the value-driver buy-below price (likely value "
+                                                    "less the margin of safety).", columnGroupShow="open"),
+         ":cellRenderer": _BUY},
+        _c("price_status", "Live profile", None, 150, "Buy Zone, or how far the price is above the buy-below price, "
+                                                      "for the live profile's own valuation model.",
+           columnGroupShow="open"),
     ]
     info = [
+        _c("mcap", "Market value", _BIL, 105),
         _c("warnings", "Latest 10-Q", None, 200, "Business-health or hard warnings in the latest quarterly report."),
         _c("industry", "Industry", None, 200),
     ]
     groups = [("scores", "Scores", scores, True), ("mgmt", "CEO", mgmt, False),
               ("pillars", "Pillars", pillars, False), ("measures", "Key measures", measures, False),
-              ("price", "Price & size", price, True), ("info", "Company info", info, True)]
+              ("value", "Value", value, True), ("info", "Company info", info, True)]
     cols = [
         _c("pos", "#", _NUM0, 64, "Position in this view.", pinned="left"),
         {**_c("ticker", "Ticker", None, 90, "Click to open the stock in a new tab.", pinned="left"),
@@ -283,8 +331,8 @@ def columns(bar: float) -> tuple[list[dict], dict[str, list[str]]]:
     return cols, G
 
 
-GROUP_LABELS = {"scores": "Scores", "mgmt": "Management (CEO)", "pillars": "Pillars", "measures": "Key measures",
-                "price": "Price & size", "info": "Company info (10-Q, industry)"}
+GROUP_LABELS = {"scores": "Scores", "mgmt": "CEO", "pillars": "Pillars", "measures": "Key measures",
+                "value": "Value (price vs worth)", "info": "Company info (size, 10-Q, industry)"}
 
 # ---------------------------------------------------------------- filters
 TIERS = ["Exceptional", "Wonderful", "Good", "Average", "Weak"]
@@ -312,12 +360,19 @@ FILTERS = {
     "debt_payback": ("Debt payback (years)", "range", "debt_payback", "yrs"),
     "dollar_test": ("$1 test", "range", "dollar_test", "x"),
     "mcap": ("Market value ($B)", "range", "mcap", "bil"),
+    "v_mos": ("Margin of safety", "range", "v_mos", "pct"),
+    "v_er": ("Expected return", "range", "v_er", "pct"),
+    "v_implied": ("Growth the price assumes", "range", "v_implied", "pct"),
+    "v_gap": ("Price assumes minus record (points)", "range", "v_gap", "pct"),
+    "v_pe_rel": ("P/E vs its usual (×)", "range", "v_pe_rel", "x"),
+    "v_buy": ("Below the buy price", "multi", "v_buy", None),
 }
 FILTER_GROUPS = [("Company", ["industry", "tier", "checklist", "mcap"]),
                  ("Scores", ["score", "quality", "combined", "wtrend", "trend", "y70", "streak70"]),
                  ("Management", ["ceo_grade", "ceo_score"]),
                  ("Pillars", ["moat", "growth", "strength", "allocation"]),
-                 ("Key measures", ["roic_med", "gm_med", "rev_g5", "debt_payback", "dollar_test"])]
+                 ("Key measures", ["roic_med", "gm_med", "rev_g5", "debt_payback", "dollar_test"]),
+                 ("Value", ["v_mos", "v_er", "v_buy", "v_implied", "v_gap", "v_pe_rel"])]
 SCALE = {"num": 1.0, "pct": 0.01, "yrs": 1.0, "x": 1.0, "bil": 1e9}
 SUFFIX = {"num": "", "pct": "%", "yrs": " yrs", "x": "×", "bil": " $B"}
 TREND_OPTS = {"up": "Rising ▲", "flat": "Steady ▬", "down": "Falling ▼", "new": "New"}
@@ -335,6 +390,8 @@ def multi_options(key: str, rows: list[dict]) -> dict:
         return {"pass": "Passes", "fail": "Fails"}
     if key == "wtrend":
         return TREND_OPTS
+    if key == "v_buy":
+        return {"yes": "Below the buy price", "no": "Above it", "none": "Not valued"}
     return {}
 
 
@@ -354,6 +411,8 @@ def passes(r: dict, flt: dict) -> bool:
                 x = x or "none"
             elif k == "wtrend":
                 x = x or "new"
+            elif k == "v_buy":
+                x = "none" if x is None else "yes" if x else "no"
             if x not in v:
                 return False
         else:
@@ -389,17 +448,37 @@ def chip_text(k: str, v, opts: dict | None = None) -> str:
 
 # ---------------------------------------------------------------- the page
 @ui.page("/wonderful")
-def wonderful_page(compare: str = "", view: str = "both"):
+def _old_address(compare: str = "", view: str = "both"):
+    """The page's name before 0.17: keep old links and bookmarks working."""
+    from urllib.parse import urlencode
+
+    from fastapi.responses import RedirectResponse
+
+    q = {k: v for k, v in (("view", view), ("compare", compare)) if v}
+    return RedirectResponse("/screener" + ("?" + urlencode(q) if q else ""))
+
+
+@ui.page("/screener")
+def screener_page(compare: str = "", view: str = "both"):
     prof = rules.default_profile()
     view = view if view in VIEWS else "both"
     store = app.storage.user
-    with frame("Wonderful companies"):
-        ui.label("The best businesses").classes("oe-h1")
-        ui.label("Two views of the same company, side by side. Wonderfulness ranks every business against all the "
-                 "others on what predicted lasting high returns and growth. Quality is the Oracle checklist: does it "
-                 "pass Buffett's rules of thumb (the bar the model needs before it may buy)? The best businesses score "
-                 "well on both. The price plays no part here; the Price column only tells you where it stands today.").classes(
-            "oe-muted")
+    with frame("Screener"):
+        ui.label("Screener: every business, screened and ranked").classes("oe-h1")
+        ui.label("Screen and rank every company on three things. Wonderfulness: how it ranks against all the others on "
+                 "what predicted lasting high returns and growth. Quality: does it pass the Oracle checklist (the bar the "
+                 "model needs before it may buy)? Value: what it's worth at your required return against today's price. "
+                 "The views below start from the best businesses; Add filter narrows by any column.").classes("oe-muted")
+        from .. import jobs
+
+        if not db.scalar("SELECT COUNT(*) FROM vd_values", default=0):
+            if not jobs.running():
+                try:
+                    jobs.launch("values", {})
+                except Exception:
+                    pass
+            ui.label("The Value columns are being worked out for every company (about half a minute); refresh the page "
+                     "when the job in the top bar finishes.").classes("oe-small text-amber-800")
         rows = ranking_rows(prof)
         if not rows:
             empty("No scores yet. They are computed from the annual-report scores after the first data load.")
@@ -547,6 +626,7 @@ def wonderful_page(compare: str = "", view: str = "both"):
                 if c.get("groupId") in hidden:
                     ch["hide"] = True
         arrows = {"on": bool(store.get("wonder_arrows", True))}
+        ctx = {"arrows": arrows["on"], "mos": float(prof.settings.get("mos_gate", 0.25))}
         with ui.row().classes("w-full items-center justify-between pt-2"):
             ui.label("").classes("oe-small")
             with ui.row().classes("items-center gap-1"):
@@ -563,7 +643,7 @@ def wonderful_page(compare: str = "", view: str = "both"):
                         ui.separator()
                         ui.switch("Trend arrows in cells", value=arrows["on"],
                                   on_change=lambda e: set_arrows(e.value)).classes("px-3 pb-2")
-        g = ui.aggrid({"columnDefs": cols, "rowData": [], "context": {"arrows": arrows["on"]},
+        g = ui.aggrid({"columnDefs": cols, "rowData": [], "context": ctx,
                        "defaultColDef": {"sortable": True, "resizable": True, "filter": True, "wrapHeaderText": True,
                                          "autoHeaderHeight": True},
                        "rowHeight": 36, "suppressCellFocus": True, "tooltipShowDelay": 300, "multiSortKey": "shift",
@@ -588,7 +668,8 @@ def wonderful_page(compare: str = "", view: str = "both"):
 
         def set_arrows(on):
             store["wonder_arrows"] = bool(on)
-            g.run_grid_method("setGridOption", "context", {"arrows": bool(on)})
+            ctx["arrows"] = bool(on)
+            g.run_grid_method("setGridOption", "context", ctx)
             g.run_grid_method("refreshCells", {"force": True})
 
         def refresh():
@@ -653,7 +734,7 @@ def wonderful_page(compare: str = "", view: str = "both"):
         with ui.row().classes("items-center gap-3"):
             ui.button("Compare ticked companies", icon="compare_arrows", on_click=do_compare).props("unelevated")
             ui.button("Export CSV", icon="download",
-                      on_click=lambda: g.run_grid_method("exportDataAsCsv", {"fileName": f"best-businesses-{st['view']}.csv"})
+                      on_click=lambda: g.run_grid_method("exportDataAsCsv", {"fileName": f"screener-{st['view']}.csv"})
                       ).props("flat dense")
         draw_filters()
         ui.timer(0.1, refresh, once=True)

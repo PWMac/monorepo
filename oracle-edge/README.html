@@ -270,7 +270,7 @@ the second.</div>
 <h3 id="wonder">Wonderfulness: ranking the best businesses</h3>
 <p>Quality answers "does this business pass the Oracle's tests?". <b>Wonderfulness</b> answers a different question: <b>among all
 businesses, which are the very best, and most likely to keep earning high returns and growing?</b> It ignores the share price
-completely. Find it on the <b>Wonderful</b> page (Analysis menu) and on every stock's <b>Wonderful?</b> tab.</p>
+completely. Find it on the <b>Screener</b> (Analysis menu) and on every stock's <b>Wonderful?</b> tab.</p>
 
 <h4>What the evidence says makes a business stay wonderful</h4>
 <ul>
@@ -319,7 +319,7 @@ it says nothing about whether the price is right.</p>
 <p>Every fiscal year is scored against the companies reporting that same year, from that year's annual report, so you can see when
 a business became wonderful and whether it is holding there. The last point is always today's score.</p>
 <ul>
-<li><b>Wonderful page, Trend column</b>: a small line of up to 10 years of Wonderfulness and the change over the last 3 fiscal
+<li><b>Screener, Trend column</b>: a small line of up to 10 years of Wonderfulness and the change over the last 3 fiscal
 years: ▲ up 5 or more, ▼ down 5 or more, ▬ in between. <b>Hover</b> it for both scores year by year, the years at 70+, the first
 exceptional year and the 3-year changes; <b>click</b> it for the full chart (other cells still open the stock). Sort by it to
 find the biggest risers and fallers.</li>
@@ -378,7 +378,7 @@ steady growth. On your data, 140 companies pass the checklist and 338 rate wonde
 </table>
 <p>Every stock page shows both under the ticker ("Wonderfulness 87 · Exceptional" and "Checklist ✓ · Quality 86").</p>
 
-<h4>The Wonderful page: the best businesses on both measures</h4>
+<h4>The Screener: screen and rank every business (formerly the Wonderful page)</h4>
 <p>One page answers "which are the most wonderful companies that also pass the checklist?" in one click, and shows why the
 others don't:</p>
 <ul>
@@ -414,12 +414,19 @@ with › or ‹ opens or closes the group: closed, Scores shows Wonderfulness, Q
 (M G S A); Key measures shows ROIC and gross margin. <i>Expand groups</i> and <i>Collapse groups</i> do all at once, and the
 <b>Columns</b> menu hides whole groups (remembered). Click a <b>ticker or company name</b> to open the stock in a new tab; click the
 Trend sparkline for the full score history. Tick 2–5 rows and press <b>Compare</b> for a side-by-side view, or export the view to
-CSV. Links like <code>/wonderful?view=nocheck</code> open a view directly.</li>
+CSV. Links like <code>/screener?view=nocheck</code> open a view directly (old <code>/wonderful</code> links still work).</li>
 <li><b>Trends in every cell</b>: a small ▲ or ▼ next to a number shows its direction over recent years (the last two years
 against the three before, so one odd year doesn't count), <span style="color:#1f6f4a">green</span> when that's an improvement
 and <span style="color:#a33a2b">red</span> when it isn't (falling debt payback is green); no arrow means steady. Hover the
 cell for its yearly history. For ROIC, gross margin and sales growth the column shows the 10-year median (or 5-year growth)
 while the arrow and history follow each year's figure. The Columns menu turns the arrows off.</li>
+<li><b>Value</b> (version 0.17.0): every company valued with the value-driver model at your required return and its
+latest price (worked out for every company after each daily update). Closed, the group shows the <b>margin of safety</b>
+(green = at least the profile's margin) and the <b>expected return</b> (green = at least your required return); open, it adds
+the price, the likely value and its range, <b>what the price assumes</b> (the growth today's price needs, next to the growth the
+record supports; amber when the price expects more), the P/E against the company's usual, whether the price is below the
+buy price, and the live profile's own Buy Zone status (which uses that profile's valuation model). All of these can be
+filtered with Add filter. Banks and insurers aren't valued this way and show blank.</li>
 <li><b>CEO grade</b>: the CEO's track-record grade (A–F, with the score; career-weighted when they ran other companies; see
 CEO track record). Hover for the name and since when. Grades are worked out in the background, 40 a day, best companies
 first, and immediately when you open a stock's Wonderful? tab; "—" means not rated yet or not enough data.</li>
@@ -468,7 +475,7 @@ earlier CEOs (below).</li>
 institutional ownership, insider buying and selling over six months, and ISS governance risk scores (1 = lowest risk). No
 data feed captures integrity or track record: read the proxy statement and shareholder letters too.</li>
 </ul>
-<p>On the <b>Wonderful</b> page, tick 2 to 5 companies and press <b>Compare</b> for a side-by-side view (pillar chart and every
+<p>On the <b>Screener</b>, tick 2 to 5 companies and press <b>Compare</b> for a side-by-side view (pillar chart and every
 measure, best of the group in bold). Scores update after each new annual report; the year-by-year history is rebuilt on Saturdays
 and in a full rebuild.</p>
 
