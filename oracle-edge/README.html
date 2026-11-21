@@ -74,7 +74,7 @@ footer { color:var(--muted); font-size:12.5px; margin-top:50px; border-top:1px s
   <h1><img src="brand/logo/oracle-edge-header-tagline.png" srcset="brand/logo/oracle-edge-header-tagline@2x.png 2x"
      alt="Oracle Edge: Screen, Rank, Signal"></h1>
   <p>A local stock screener that thinks like the Oracle. This guide explains <b>what</b> the app does,
-  <b>how</b> it decides, and <b>why</b> it was built this way. Version 0.14.1.</p>
+  <b>how</b> it decides, and <b>why</b> it was built this way. Version 0.15.0.</p>
   <p style="font-size:14px">Two documents: this <b>guide</b> is the user manual, kept current with every release and opened from
   "Guide" in the app. The <b>plan</b> (<code>docs/Value-Picker-Plan.html</code> with the source code) is the design record: the research, architecture,
   database layout and the decision log behind the app.</p>
@@ -315,6 +315,35 @@ and insurers aren't scored: their returns and debt aren't comparable with an ope
 Each year was scored from that year's annual report (only past sales figures may include later restatements). A high score raises the odds a lot; it doesn't guarantee anything, and
 it says nothing about whether the price is right.</p>
 
+<h4>Score history and trends (version 0.15.0)</h4>
+<p>Every fiscal year is scored against the companies reporting that same year, from that year's annual report, so you can see when
+a business became wonderful and whether it is holding there. The last point is always today's score.</p>
+<ul>
+<li><b>Wonderful page, Trend column</b>: a small line of up to 10 years of Wonderfulness and the change over the last 3 fiscal
+years: ▲ up 5 or more, ▼ down 5 or more, ▬ in between. <b>Hover</b> it for both scores year by year, the years at 70+, the first
+exceptional year and the 3-year changes; <b>click</b> it for the full chart (other cells still open the stock). Sort by it to
+find the biggest risers and fallers.</li>
+<li><b>Years at 70+</b>: how many of the last 5 fiscal years scored wonderful or better.</li>
+<li><b>Stock page, Wonderful? tab, Score history</b>: Wonderfulness, Quality and their average by year, on the exceptional
+(80+) and wonderful (70–80) bands, with each year's rank in the tooltip and the four pillars a click away in the legend. The
+chip under the ticker shows the 3-year change next to the score.</li>
+</ul>
+<p>What the history predicted, for companies scoring 70+ (fiscal years 2016–2022, three years later):</p>
+<table>
+<tr><th>Before that year</th><th>Company-years</th><th>Still 70+ three years later</th></tr>
+<tr><td>70+ in each of the 4 years before</td><td>523</td><td><b>77%</b></td></tr>
+<tr><td>70+ in 3 of the 4</td><td>204</td><td>70%</td></tr>
+<tr><td>70+ in 2 of the 4</td><td>198</td><td>63%</td></tr>
+<tr><td>70+ in 1 of the 4</td><td>189</td><td>53%</td></tr>
+<tr><td>First time at 70+</td><td>191</td><td>47%</td></tr>
+</table>
+<p><b>Consistency mattered more than direction.</b> Steady scores held 70+ 70% of the time; rising ones 62%, because a jump from
+lower down often faded (59%); falling ones 50%. The best case was a company already 70+ every year that kept rising (90%, but only
+62 cases). So a long run at the top is the stronger sign; treat a fresh riser as promising, not proven.</p>
+<p>Version 0.15.0 also fixes the year labels for companies whose fiscal year sometimes ends in the first days of January (52/53-week
+years, e.g. Cadence): two years shared one label and one was lost. The year-by-year scores are recomputed by the next daily
+update.</p>
+
 <h4>The return-on-equity floor looks at the last 5 years (version 0.14.1)</h4>
 <p>The ROE gate asks for a 10-year average of 15%+ and no year under 10%. Until 0.14.1 that "no year" covered all ten years, so one
 weak year a decade ago (often right after an IPO or a big acquisition) kept an otherwise excellent business off the list. It now
@@ -366,11 +395,12 @@ one year in the decade fell under 10%, even for companies whose average is 25% o
 <li><b>The map</b>: every company as a dot, Quality across and Wonderfulness up, with dashed lines at the checklist bar and at 70.
 The top-right corner is the best of both; dots outside the current view fade. Hover for the name and scores, click to open the
 stock, click a legend entry to hide a group.</li>
-<li><b>Filters</b> that apply to the map and the table: text search, market value ($2B+ by default), hide companies slipping
-now (a business-health or hard warning in the latest 10-Q), and only those in the Buy Zone today.</li>
-<li><b>The table</b>: position in the view, both scores, tier, checklist result (or the failing rule), the average, where the
-price stands today, the four pillars and the key measures. Tick 2–5 rows and press <b>Compare</b> for a side-by-side view (now
-including Quality), or export the view to CSV. Links like <code>/wonderful?view=nocheck</code> open a view directly.</li>
+<li><b>Filters</b> that apply to the map and the table: text search, market value ($2B+ by default), the Wonderfulness trend
+(rising, steady, falling, or 70+ in each of the last 5 years), hide companies slipping now (a business-health or hard warning
+in the latest 10-Q), and only those in the Buy Zone today.</li>
+<li><b>The table</b>: position in the view, both scores, tier, the <b>Trend</b> and <b>Years at 70+</b> (see Score history
+below), checklist result (or the failing rule), the average, where the price stands today, the four pillars and the key measures. Tick 2–5 rows and press <b>Compare</b> for a side-by-side view (now
+including Quality and the companies' Wonderfulness over time on one chart), or export the view to CSV. Links like <code>/wonderful?view=nocheck</code> open a view directly.</li>
 </ul>
 
 <h4>CEO track record</h4>
@@ -1298,7 +1328,7 @@ their old results until you recalculate them.</p>
 <tr><td><b>XBRL</b></td><td>The tagged data format companies use to file financial statements with the SEC</td></tr>
 </table>
 
-<footer>Oracle Edge v0.14.1 · research tool, not financial advice · MIT license. The full design plan, with research sources,
+<footer>Oracle Edge v0.15.0 · research tool, not financial advice · MIT license. The full design plan, with research sources,
 is in <code>docs/Value-Picker-Plan.html</code> with the source code.</footer>
 </main>
 </div>

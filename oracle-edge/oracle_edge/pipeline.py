@@ -493,7 +493,9 @@ def daily_run(job, force: bool = False, send_email: bool = True, do_backup: bool
         before = db.scalar("SELECT COUNT(*) FROM signals WHERE run_id=?", (rid,), 0)
         replay(rid, p, end, "daily", job, 0.6 + 0.3 * k / len(profs), 0.6 + 0.3 * (k + 1) / len(profs))
         total_signals += db.scalar("SELECT COUNT(*) FROM signals WHERE run_id=?", (rid,), 0) - before
-    need_hist = not db.scalar("SELECT COUNT(*) FROM wonder WHERE cohort LIKE 'FY%'", default=0)
+    from . import wonderful as _w
+
+    need_hist = not db.scalar("SELECT COUNT(*) FROM wonder WHERE cohort LIKE 'FY%'", default=0) or _w.history_stale()
     if annual or need_hist:
         try:  # new annual reports change the Wonderfulness ranking
             from . import wonderful
