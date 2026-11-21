@@ -393,6 +393,12 @@ def apply_calc_fixes(job) -> str:
         with db.tx() as con:
             con.execute("DELETE FROM qsnaps")
         quarterly.build(profs[0], cands, since=since, progress=job.sub(0.55, 0.56, "Quarterly checks"))
+    from . import wonderful
+
+    try:
+        wonderful.compute(rules.default_profile(), history=True)
+    except Exception as e:
+        db.log("wonderful", "compute", False, str(e)[:300])
     end = completed_session()
     for k, p in enumerate(profs):
         r = db.one("SELECT id FROM runs WHERE kind='live' AND profile_id=?", (p.id,))
@@ -487,6 +493,14 @@ def daily_run(job, force: bool = False, send_email: bool = True, do_backup: bool
         before = db.scalar("SELECT COUNT(*) FROM signals WHERE run_id=?", (rid,), 0)
         replay(rid, p, end, "daily", job, 0.6 + 0.3 * k / len(profs), 0.6 + 0.3 * (k + 1) / len(profs))
         total_signals += db.scalar("SELECT COUNT(*) FROM signals WHERE run_id=?", (rid,), 0) - before
+    need_hist = not db.scalar("SELECT COUNT(*) FROM wonder WHERE cohort LIKE 'FY%'", default=0)
+    if annual or need_hist:
+        try:  # new annual reports change the Wonderfulness ranking
+            from . import wonderful
+
+            wonderful.compute(rules.default_profile(), history=need_hist or date.today().weekday() == 5)
+        except Exception as e:
+            db.log("wonderful", "compute", False, str(e)[:300])
     job.update(0.90, "Checking price targets")
     n_alerts = scan_targets(profs)
     db.set_cfg("last_daily_run", {"at": db.now(), "through": end, "signals": total_signals,
