@@ -211,6 +211,15 @@ MIGRATIONS: list[str] = [
         id INTEGER PRIMARY KEY AUTOINCREMENT, date TEXT, kind TEXT, state TEXT, message TEXT,
         emailed INTEGER DEFAULT 0, created_at TEXT);
     """,
+    # ---- v11: Buy Zone entries: S&P over the same year, re-entries merged, run-start entries flagged;
+    #      bargain-market history for the opportunity settings ----
+    """
+    ALTER TABLE stints ADD COLUMN bench_fwd_1y REAL;
+    ALTER TABLE stints ADD COLUMN reentries INTEGER DEFAULT 0;
+    ALTER TABLE stints ADD COLUMN at_start INTEGER DEFAULT 0;
+    ALTER TABLE portfolios ADD COLUMN breadth_json TEXT;
+    ALTER TABLE signal_state ADD COLUMN last_trim TEXT;
+    """,
 ]
 
 

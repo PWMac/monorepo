@@ -701,6 +701,20 @@ def profiles_page(pid: int | None = None):
                 rdw = ui.switch("Extra early warnings (ROIC, margins, receivables, inventory, acquisitions, stock pay)",
                                 value=st.get("deterioration_warnings", True))
             with ui.row().classes("gap-3 items-end"):
+                bgb = ui.switch("Bargain markets: spend the whole reserve when the Buy Zone is unusually crowded",
+                                value=bool(st.get("bargain_boost"))).tooltip(
+                    "Unusually crowded = a bigger share of the wonderful companies in the Buy Zone than on most past "
+                    "days (see the next box). Needs 'Sliding reserve' as the new-money rule.")
+                bgp = ui.number("…crowded = more than on % of past days", value=100 * float(st.get("bargain_pctile", 0.8)),
+                                format="%.0f", min=50, max=99).props("outlined dense").classes("w-60")
+                tex = ui.switch("Trim holdings that trade above their value", value=bool(st.get("trim_expensive")))
+                texm = ui.number("…at price ≥ × value", value=float(st.get("trim_expensive_mult", 1.0)), format="%.2f",
+                                 min=0.8, max=3, step=0.05).props("outlined dense").classes("w-40")
+                texf = ui.number("…trim %", value=100 * float(st.get("trim_expensive_fraction", 0.25)), format="%.0f",
+                                 min=5, max=100).props("outlined dense").classes("w-28")
+                texd = ui.number("…at most every (days)", value=st.get("trim_expensive_days", 90), format="%.0f",
+                                 min=7).props("outlined dense").classes("w-44")
+            with ui.row().classes("gap-3 items-end"):
                 pfund = ui.switch("When all slots are full, trim or sell clearly weaker holdings to buy a strong buy",
                                   value=st.get("fund_strong", False))
                 pfx = ui.number("Extra slots for strong buys", value=st.get("fund_extra_slots", 1), format="%.0f",
@@ -757,7 +771,11 @@ def profiles_page(pid: int | None = None):
                     "overlay_caution_buy": round(float(rocb.value if rocb.value is not None else 35) / 100, 6),
                     "overlay_stress_buy": round(float(rosb.value if rosb.value is not None else 10) / 100, 6),
                     "valuation_model": rvm.value, "predictability_mos": rpm.value,
-                    "deterioration_warnings": rdw.value})
+                    "deterioration_warnings": rdw.value,
+                    "bargain_boost": bgb.value, "bargain_pctile": round(float(bgp.value or 80) / 100, 4),
+                    "trim_expensive": tex.value, "trim_expensive_mult": float(texm.value or 1.0),
+                    "trim_expensive_fraction": round(float(texf.value or 25) / 100, 4),
+                    "trim_expensive_days": int(texd.value or 90)})
                 for book, idx, mode, fl, tg, ex, wt, scale in rows_ui:
                     rr = b[book][idx]
                     rr["mode"] = mode.value

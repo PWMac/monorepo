@@ -182,6 +182,11 @@ def describe(body: dict) -> str:
         extra.append("enhanced valuation")
     if st.get("predictability_mos"):
         extra.append("bigger margin of safety for less predictable earnings")
+    if st.get("bargain_boost"):
+        extra.append("spends the whole reserve when the Buy Zone is unusually crowded")
+    if st.get("trim_expensive"):
+        extra.append(f"trims {_pct(st.get('trim_expensive_fraction', 0.25))} of a holding above "
+                     f"{float(st.get('trim_expensive_mult', 1.0)):g}× its value")
     if st.get("min_rank_score"):
         extra.append(f"Oracle Rank of {st['min_rank_score']:.0f}+ to buy")
     if extra:
@@ -200,7 +205,8 @@ _DIFF_KEYS = [  # (setting, label, format)
     ("regime_modifier", "bigger margin when expensive", "bool"), ("valuation_model", "valuation", "txt"),
     ("min_rank_score", "minimum Oracle Rank", "num"), ("include_foreign", "foreign filers", "bool"),
     ("initial_capital", "starting money", "usd"), ("weekly_contribution", "weekly amount", "usd"),
-    ("trade_cost_bps", "trading cost (bps)", "num"),
+    ("trade_cost_bps", "trading cost (bps)", "num"), ("rank_quality_weight", "Quality weight in rank", "num"),
+    ("bargain_boost", "spend reserve in bargain markets", "bool"), ("trim_expensive", "trim above value", "bool"),
 ]
 
 

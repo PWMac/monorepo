@@ -78,6 +78,14 @@ settings:
   overlay_vix_stress: 30
   overlay_caution_buy: 0.35     # share of normal new-money buying while SPY is below its 200-day average
   overlay_stress_buy: 0.10      # ...and while the VIX is also above overlay_vix_stress
+  # ---- bargain markets (off; test with Backtest -> Experiments before turning on) ----
+  bargain_boost: false          # when the Buy Zone is unusually crowded, spend the whole reserve and all new money
+  bargain_pctile: 0.80          # "unusually crowded": a bigger share of wonderful companies in the Buy Zone than on 80% of past days
+  bargain_min_days: 60          # ...judged only once there are this many signal days of history
+  trim_expensive: false         # trim a holding that trades above its value; with the reserve rule the cash waits for bargains
+  trim_expensive_mult: 1.0      # ...when the price is at least this many times intrinsic value
+  trim_expensive_fraction: 0.25 # ...sell this share of the holding
+  trim_expensive_days: 90       # ...at most once per holding in this many days
   trade_cost_bps: 0             # trading cost per buy or sell, in basis points (backtests; 10 = 0.10%)
   # ---- valuation ----
   valuation_model: classic      # classic | enhanced (incremental ROIC, normalized earnings, dilution,

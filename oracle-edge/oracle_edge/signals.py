@@ -21,6 +21,7 @@ from .engine import Eval, PriceBook
 from .rules import Profile
 
 BENCH = "SPY"
+REENTRY_DAYS = 30  # a Buy Zone re-entry within this many days of leaving continues the earlier entry
 
 BADGE_LABEL = {
     "STRONG_BUY": "▲▲ STRONG BUY", "BUY": "▲ BUY", "ADD": "＋ ADD", "HOLD": "● HOLD", "WATCH": "◎ WATCH",
@@ -103,18 +104,25 @@ class PortfolioSim:
         self.bench_units = pr["bench_units"]
         self.last_deploy = pr["last_deploy"]
         self.reserve = pr["reserve"] or 0.0 if "reserve" in pr.keys() else 0.0  # cash set aside for strong buys
+        # bargain markets: share of wonderful companies in the Buy Zone on each past signal day (no look-ahead)
+        self.breadth_hist: list[float] = json.loads(pr["breadth_json"]) if (
+            "breadth_json" in keys and pr["breadth_json"]) else []
+        self._breadth_dirty = False
+        self.breadth: float | None = None
+        self.bargain = False
         self.last_date = pr["last_date"]
         self.positions = {r["cik"]: dict(r) for r in db.rows("SELECT * FROM positions WHERE portfolio_id=?", (portfolio_id,))}
         self.state = {r["cik"]: dict(r) for r in db.rows(
             "SELECT * FROM signal_state WHERE run_id=? AND portfolio_id=?", (run_id, portfolio_id))}
         self.open_stints = {r["cik"]: dict(r) for r in db.rows(
             "SELECT * FROM stints WHERE run_id=? AND status='open'", (run_id,))}
+        self._first_stint_day: str | None = None
 
     # ------------------------------------------------------------ helpers
     def _st(self, cik):
         return self.state.setdefault(cik, {"run_id": self.run_id, "portfolio_id": self.pid, "cik": cik, "buy_streak": 0,
                                            "nose_streak": 0, "review": 0, "review_filed": None, "last_add": None,
-                                           "review_reason": None, "adds": 0})
+                                           "review_reason": None, "adds": 0, "last_trim": None})
 
     def value_on(self, d):
         return sum(p["units"] * (self.pb.adj(self.tk.get(c), d) or 0) for c, p in self.positions.items())
@@ -410,6 +418,25 @@ class PortfolioSim:
         res.badges[e.cik] = (typ, why)
         return cash_avail - size, n_owned
 
+    def _update_breadth(self, evals: list[Eval]) -> None:
+        """A bargain market: more of the wonderful companies are in the Buy Zone today than on bargain_pctile of
+        past signal days (judged only against earlier days, so no look-ahead). Only tracked when a setting uses it."""
+        st = self.st
+        if not (st.get("bargain_boost") or st.get("trim_expensive")):
+            return
+        n_buy = sum(1 for e in evals if e.list == "buy")
+        n_won = n_buy + sum(1 for e in evals if e.list == "pricey")
+        b = n_buy / n_won if n_won else 0.0
+        hist = self.breadth_hist
+        self.bargain = False
+        if len(hist) >= int(st.get("bargain_min_days", 60)):
+            srt = sorted(hist)
+            cut = srt[min(int(float(st.get("bargain_pctile", 0.80)) * len(srt)), len(srt) - 1)]
+            self.bargain = b > cut
+        self.breadth = b
+        hist.append(b)
+        self._breadth_dirty = True
+
     def buy_strength(self, e) -> float:
         """0 at an ordinary Buy Zone price, 1 at a strong-buy price (Quality and extra margin of safety)."""
         st = self.st
@@ -481,6 +508,8 @@ class PortfolioSim:
             tap = 1.0 if best >= 1.0 else 0.0  # the reserve itself only goes into strong buys
             if _days(self.last_deploy, d) // 7 >= int(st.get("reserve_max_weeks", 26)):
                 tap = 1.0  # waited long enough for a strong buy: spend the reserve on the best of what's here
+            if self.bargain and st.get("bargain_boost"):
+                tap, base = 1.0, 1.0  # a bargain market: put the reserve and all new money to work
             R = min(self.reserve, cash_avail)
             new = cash_avail - R
             spend_new = new * (base + (1 - base) * best)
@@ -563,7 +592,10 @@ class PortfolioSim:
                 why = (f"put {_money(amt)} into it: "
                        + {"best_rank": f"highest Oracle Rank you own in the Buy Zone (#{e.rank})",
                           "spread": "new money split across the Buy Zone",
-                          "reserve": (f"strong-buy price, reserve put to work (MOS {(e.mos or 0):.0%})"
+                          "reserve": (f"bargain market ({(self.breadth or 0):.0%} of wonderful companies are in the "
+                                      f"Buy Zone): reserve put to work (MOS {(e.mos or 0):.0%})"
+                                      if self.bargain and st.get("bargain_boost") else
+                                      f"strong-buy price, reserve put to work (MOS {(e.mos or 0):.0%})"
                                       if self.buy_strength(e) >= 1 else
                                       f"part of new money; the rest waits for a better price (MOS {(e.mos or 0):.0%})")}.get(
                            policy, f"best value you own (exp. 10-yr return {(e.er or 0):.1%}, MOS {(e.mos or 0):.0%})"))
@@ -596,6 +628,7 @@ class PortfolioSim:
 
         if not signal_day:
             return res
+        self._update_breadth(evals)
 
         def pos_value(cik):
             p = self.positions.get(cik)
@@ -608,6 +641,7 @@ class PortfolioSim:
 
         # ---- owned positions
         weakest = None
+        to_reserve = 0.0  # trims of expensive holdings: kept for the next bargain market
         for cik, pos in list(self.positions.items()):
             e = by.get(cik)
             stt = self._st(cik)
@@ -673,6 +707,19 @@ class PortfolioSim:
                 stt["nose_streak"] = 0
                 res.badges[cik] = ("TRIM", why)
                 cash_avail += pos_value(cik) * st["trim_fraction"]
+                continue
+            if st.get("trim_expensive") and not self.bargain and e.iv and e.price and \
+                    e.price >= float(st.get("trim_expensive_mult", 1.0)) * e.iv and \
+                    (not stt.get("last_trim") or _days(stt["last_trim"], d) >= int(st.get("trim_expensive_days", 90))):
+                frac = float(st.get("trim_expensive_fraction", 0.25))
+                why = (f"above its value ({e.price / e.iv:.2f}× intrinsic value): trim {frac:.0%} and keep the cash "
+                       "for the next bargain market")
+                sig(cik, "TRIM", why, frac, {"to_reserve": True})
+                stt["last_trim"] = d
+                res.badges[cik] = ("TRIM", why)
+                amt = pos_value(cik) * frac
+                cash_avail += amt
+                to_reserve += amt
                 continue
             n_pos = len(self.positions)
             mp = self._max_pos()
@@ -801,6 +848,8 @@ class PortfolioSim:
         # ---- focused: put cash to work (new money, sales, trims) according to the profile's policy
         if self.focused:
             self.reserve = min(self.reserve, max(cash_avail, 0.0))  # a strong buy may have used the reserve
+            if to_reserve and self.policy == "reserve":
+                self.reserve = min(self.reserve + to_reserve, max(cash_avail, 0.0))
             cash_avail = self._allocate(d, V, cash_avail, ready, add_ok, leaving, n_owned, limit, pos_value, sig, res)
             self.reserve = min(self.reserve, max(cash_avail, 0.0))
 
@@ -815,16 +864,32 @@ class PortfolioSim:
         return res
 
     def stints(self, d: str, evals: list[Eval]) -> None:
+        """Buy Zone entries ("stints"), for the 'Is the ranking working?' table. A stock that leaves the Buy Zone
+        and comes back within REENTRY_DAYS continues its earlier entry instead of starting a new one, so a price
+        hovering around the buy line counts once. Entries on the run's first day are flagged: those stocks were
+        already in the Buy Zone when the history began, so they didn't 'enter' with a rank of their own."""
         con = db.get()
+        if self._first_stint_day is None:
+            self._first_stint_day = db.scalar("SELECT MIN(entered_on) FROM stints WHERE run_id=?", (self.run_id,)) or d
         in_zone = {e.cik: e for e in evals if e.list == "buy"}
         for cik, e in in_zone.items():
-            if cik not in self.open_stints:
-                px = self.pb.adj(self.tk.get(cik), d)
-                cur = con.execute(
-                    "INSERT INTO stints(run_id,cik,entered_on,entry_px,entry_rank,status) VALUES(?,?,?,?,?, 'open')",
-                    (self.run_id, cik, d, px, e.rank),
-                )
-                self.open_stints[cik] = {"id": cur.lastrowid, "cik": cik, "entered_on": d, "entry_px": px}
+            if cik in self.open_stints:
+                continue
+            last = db.one("SELECT id, entered_on, entry_px, left_on FROM stints WHERE run_id=? AND cik=? "
+                          "AND status='closed' ORDER BY left_on DESC LIMIT 1", (self.run_id, cik))
+            if last and last["left_on"] and _days(last["left_on"], d) <= REENTRY_DAYS:
+                con.execute("UPDATE stints SET left_on=NULL, exit_px=NULL, return_pct=NULL, bench_return_pct=NULL, "
+                            "status='open', reentries=COALESCE(reentries,0)+1 WHERE id=?", (last["id"],))
+                self.open_stints[cik] = {"id": last["id"], "cik": cik, "entered_on": last["entered_on"],
+                                         "entry_px": last["entry_px"]}
+                continue
+            px = self.pb.adj(self.tk.get(cik), d)
+            cur = con.execute(
+                "INSERT INTO stints(run_id,cik,entered_on,entry_px,entry_rank,status,at_start) "
+                "VALUES(?,?,?,?,?, 'open', ?)",
+                (self.run_id, cik, d, px, e.rank, int(d == self._first_stint_day)),
+            )
+            self.open_stints[cik] = {"id": cur.lastrowid, "cik": cik, "entered_on": d, "entry_px": px}
         for cik in list(self.open_stints):
             if cik not in in_zone:
                 s = self.open_stints.pop(cik)
@@ -857,9 +922,9 @@ class PortfolioSim:
         )
         con.executemany(
             "INSERT OR REPLACE INTO signal_state(run_id,portfolio_id,cik,buy_streak,nose_streak,review,review_filed,"
-            "last_add,review_reason,adds) VALUES(?,?,?,?,?,?,?,?,?,?)",
+            "last_add,review_reason,adds,last_trim) VALUES(?,?,?,?,?,?,?,?,?,?,?)",
             [(self.run_id, self.pid, c, s["buy_streak"], s["nose_streak"], s["review"], s["review_filed"], s["last_add"],
-              s.get("review_reason"), s.get("adds") or 0)
+              s.get("review_reason"), s.get("adds") or 0, s.get("last_trim"))
              for c, s in self.state.items() if s["buy_streak"] or s["nose_streak"] or s["review"] or s["last_add"]
              or c in self.positions],
         )
@@ -871,6 +936,10 @@ class PortfolioSim:
             "bench_units=?, last_deploy=?, reserve=?, traded=?, costs=? WHERE id=?",
             (self.last_value, self.last_nav, self.last_bench, d, self.cash, self.contributed, self.bench_units,
              self.last_deploy, self.reserve, self.traded, self.costs, self.pid))
+        if self._breadth_dirty:
+            db.get().execute("UPDATE portfolios SET breadth_json=? WHERE id=?",
+                             (json.dumps([round(x, 4) for x in self.breadth_hist]), self.pid))
+            self._breadth_dirty = False
 
 
 def _money(v: float) -> str:
