@@ -74,7 +74,7 @@ footer { color:var(--muted); font-size:12.5px; margin-top:50px; border-top:1px s
   <h1><img src="brand/logo/oracle-edge-header-tagline.png" srcset="brand/logo/oracle-edge-header-tagline@2x.png 2x"
      alt="Oracle Edge: Screen, Rank, Signal"></h1>
   <p>A local stock screener that thinks like the Oracle. This guide explains <b>what</b> the app does,
-  <b>how</b> it decides, and <b>why</b> it was built this way. Version 0.12.0.</p>
+  <b>how</b> it decides, and <b>why</b> it was built this way. Version 0.13.0.</p>
   <p style="font-size:14px">Two documents: this <b>guide</b> is the user manual, kept current with every release and opened from
   "Guide" in the app. The <b>plan</b> (<code>docs/Value-Picker-Plan.html</code> with the source code) is the design record: the research, architecture,
   database layout and the decision log behind the app.</p>
@@ -99,7 +99,7 @@ footer { color:var(--muted); font-size:12.5px; margin-top:50px; border-top:1px s
   <a href="#targets">12. Price targets and alerts</a>
   <a href="#portfolio">13. Model portfolio: how many, new money</a>
   <a href="#newmoney" style="padding-left:22px">Where new money goes</a>
-  <a href="#chosen" style="padding-left:22px">Why Buffettology 15% · best 7</a>
+  <a href="#rebuild" style="padding-left:22px">Rebuilding the strategy</a>
   <a href="#risk" style="padding-left:22px">Risk controls</a>
   <a href="#market">14. Market temperature</a>
   <a href="#backtest">15. Backtests and profiles</a>
@@ -559,8 +559,8 @@ share. If no strong buy comes within 26 weeks, the reserve goes into the best of
 profile.</td><td>A middle road between investing right away and waiting: most money works now, and there's dry powder when something
 gets really cheap.</td></tr>
 </table>
-<div class="why"><b>Chosen setup:</b> Buffettology 15%, at most 7 holdings, new money by the sliding reserve, strong-buy funding off.
-The tests behind that choice are in <a href="#chosen">Why "Buffettology 15% · best 7"</a>.</div>
+<div class="why"><b>Live setup:</b> Buffettology 15%, at most 7 holdings, new money by the sliding reserve, strong-buy funding off.
+On corrected data this setup trailed the S&amp;P 500 badly; see <a href="#rebuild">Rebuilding the strategy</a>.</div>
 <h3 id="fundstrong">When every slot is full and a strong buy appears</h3>
 <p>Turn on <b>"trim or sell clearly weaker holdings to buy a strong buy"</b> in the profile (it works with any rule). When a stock you
 don't own reaches a strong-buy price and all N slots are taken, the app funds it from holdings whose expected 10-year return is at least
@@ -605,60 +605,90 @@ own portfolios. On your own data (2019–2026), 5–12 holdings beat 20–30 und
 <div class="note"><b>Neighboring sizes can differ a lot</b> (in one test 12 stocks earned 20% a year and 20 stocks 7%). That mostly reflects
 which particular stocks happened to fill the slots, so treat the recommendation as a range rather than an exact number. Fewer holdings
 also means bumpier results.</div>
-<h3 id="chosen">Why "Buffettology 15% · best 7" was chosen</h3>
-<p>The profile that runs the app was chosen in November 2026 from holdings tests on real data. Every test replayed
-<b>2019-01-01 to 2026-11-19</b> with point-in-time data, starting with <b>$10,000</b> and adding <b>$250 a week</b> ($112,750 put in).
-Over the same dates the S&amp;P 500 returned about <b>16% a year</b>, the same money in it ended near <b>$215,000–$219,000</b>
-(price data was refreshed between tests), its <b>worst drop was −34%</b> and its <b>worst 12 months −20%</b>.</p>
+<h3 id="rebuild">Rebuilding the strategy (November 2026)</h3>
+<div class="note"><b>The earlier choice of "best 7" no longer stands.</b> It was picked from tests that returned about 27% a year, on
+data with the stock-split error fixed in version 0.12.0 (section 20a). On corrected data the same setup returned <b>5.4% a year
+against 15.4% for the S&amp;P 500</b> (2019–2026), with a worst drop of −49% (S&amp;P −34%). The live profile hasn't been changed;
+that is your decision.</div>
 
-<h4>1. The bar: 15% beat 17% and 20%</h4>
-<table>
-<tr><th>Profile (expected 10-yr return ≥)</th><th>Best setup in its test</th><th>Yearly return</th><th>Worst drop</th><th>What happened</th></tr>
-<tr><td><b>15%</b></td><td>6–7 holdings, spread evenly or sliding reserve</td><td>27–28%</td><td>−28% to −30%</td><td>Enough qualifying companies to fill the slots. Several setups fell <i>less</i> than the S&amp;P.</td></tr>
-<tr><td>17%</td><td>8, spread evenly</td><td>26.3%</td><td>−36.8%</td><td>Every portfolio fell further than the S&amp;P (−32% to −46%).</td></tr>
-<tr><td>20%</td><td>6, spread evenly</td><td>16.9%</td><td>−44.2%</td><td>Too few qualifiers: about 4–7 stocks held, 15–28% idle cash, worst 12 months −39%.</td></tr>
-</table>
-<p>A stricter bar sounds safer, but it left fewer stocks, so the portfolio leaned harder on a few names and fell further when they fell.</p>
-
-<h4>2. The number of holdings: 7, within a 4–8 range</h4>
-<table>
-<tr><th>Sliding reserve, holdings</th><th>Yearly return</th><th>Ends with</th><th>Worst drop</th><th>Worst 12 months</th><th>vs S&amp;P in each third (pts)</th></tr>
-<tr><td>4</td><td>16.8%</td><td>$234,484</td><td>−30.5%</td><td>−25.7%</td><td>+2.3 / −5.1 / +6.3</td></tr>
-<tr><td>5</td><td>23.0%</td><td>$337,555</td><td>−27.7%</td><td>−21.6%</td><td>−2.4 / +0.0 / +25.0</td></tr>
-<tr><td>6</td><td>27.3%</td><td>$398,574</td><td>−29.6%</td><td>−24.6%</td><td>+8.9 / +6.7 / +19.0</td></tr>
-<tr><td><b>7</b></td><td><b>27.0%</b></td><td><b>$385,462</b></td><td><b>−27.8%</b></td><td><b>−22.9%</b></td><td><b>+10.5 / +5.2 / +18.0</b></td></tr>
-<tr><td>8</td><td>23.1%</td><td>$317,064</td><td>−32.3%</td><td>−20.1%</td><td>+6.9 / +4.1 / +10.6</td></tr>
-</table>
-<p>Six and 7 were close on return. Seven was picked because it had the <b>smallest worst drop</b> of the sizes that beat the S&amp;P in every
-third, and one more holding means one bad pick hurts a little less. Four was weak: with so few stocks, a single disappointment dominated.</p>
-
-<h4>3. Where new money goes: sliding reserve</h4>
-<table>
-<tr><th>7 holdings, new-money rule</th><th>Yearly return</th><th>Ends with</th><th>Worst drop</th><th>Worst 12 months</th><th>vs S&amp;P in each third (pts)</th></tr>
-<tr><td>Spread evenly (the app's pick)</td><td>28.1%</td><td>$411,086</td><td>−28.1%</td><td>−21.8%</td><td>+10.2 / +5.3 / +21.7</td></tr>
-<tr><td><b>Sliding reserve (chosen)</b></td><td><b>27.0%</b></td><td><b>$385,462</b></td><td><b>−27.8%</b></td><td><b>−22.9%</b></td><td><b>+10.5 / +5.2 / +18.0</b></td></tr>
-<tr><td>Best value</td><td>27.9%</td><td>$398,449</td><td>−33.1%</td><td>−13.2%</td><td>+8.4 / +6.4 / +21.5</td></tr>
-<tr><td>Patient</td><td>20.2%</td><td>$281,045</td><td>−42.1%</td><td>−26.7%</td><td>+1.0 / +10.5 / +0.8</td></tr>
-<tr><td>Best Rank</td><td>15.9%</td><td>$192,885</td><td>−27.4%</td><td>−16.2%</td><td>+7.7 / +4.0 / −10.6</td></tr>
-</table>
-<p>Spread evenly, sliding reserve and best value finished within about one point of each other, so on this history the rule mattered less
-than the bar and the number of holdings. The <b>sliding reserve</b> was chosen for <b>caution while starting in a falling market</b>: at ordinary
-Buy Zone prices only half of each week's money goes in, and the rest waits for strong-buy prices, which come more often when prices fall.
-It gave up about one point a year and about $26,000 against spread evenly in the test, and had the smaller worst drop. Patient was
-rejected: it was the worst rule at 17% and 20% too, which suggests its good 15% result at 8 holdings was luck.</p>
-
-<h4>4. Selling to fund strong buys: off</h4>
-<p>With 7 holdings, turning on "sell weaker holdings to fund strong buys" cut the return from 28.1% to 22.1% (spread evenly) and from 27.0%
-to 21.4% (sliding reserve). It trimmed stocks whose prices had risen, which were mostly the winners, and they kept rising. That matches the Oracle's
-habit of rarely selling a wonderful business to chase a cheaper one. The model also ignores taxes, which would make it worse.</p>
-
-<h4>What the test can't tell you</h4>
+<h4>What Buffett does, and what the research says</h4>
 <ul>
-<li><b>One period.</b> 2019–2026 is about 7 years with one sharp crash (2020) and one bear market (2022). Gaps of 1–3 points a year
-between setups are within luck.</li>
-<li><b>Survivorship bias.</b> Free price sources leave out delisted stocks, so results are probably optimistic. A paid source removes this.</li>
-<li><b>No taxes, fees or slippage.</b> Real returns will be somewhat lower.</li>
-<li><b>Re-check yearly.</b> Run the holdings test again each year (or after a big market move) and keep the setup if it still holds up.</li>
+<li><b>Wonderful company, fair price.</b> "It's far better to buy a wonderful company at a fair price than a fair company at a wonderful
+price" (1989 letter). Cheapness alone isn't the goal.</li>
+<li><b>Hold outstanding businesses</b> as long as they stay outstanding; the "forever" holding period applies to outstanding businesses
+with outstanding managements (1988 letter).</li>
+<li><b>Concentrate only if you truly understand the businesses.</b> Five to ten sensibly priced companies with durable advantages for the
+"know-something" investor; an index fund, bought regularly, for everyone else (1993 letter). His own instructions for his wife's trust:
+90% in a low-cost S&amp;P 500 index fund, 10% in short-term government bonds (2013 letter).</li>
+<li><b>Management must earn its keep:</b> each dollar kept in the business should create at least a dollar of market value
+(Owner's Manual).</li>
+<li><b>What explains his returns:</b> the "Buffett's Alpha" study (Frazzini, Kabiller, Pedersen, 2018) found that his edge comes from
+buying cheap, safe, high-quality stocks, held with about 1.7 times borrowed money. Profitable, growing companies have earned
+higher returns in general (Novy-Marx 2013; Asness, Frazzini, Pedersen, "Quality Minus Junk").</li>
+</ul>
+
+<h4>How it was tested</h4>
+<p>The company scores were rebuilt on corrected data back to 2015. Every company the app rated wonderful or near-wonderful was
+then followed for the next 12 and 24 months, every month from 2015 to 2026, and compared with the S&amp;P 500, separately for
+<b>2015 to mid-2020</b> and <b>mid-2020 to 2026</b>. A trait only counted if it worked in both periods. The most promising rules
+were then replayed in the app's own portfolio engine (weekly decisions, $10,000 plus $250 a week, 0.1% trading cost).</p>
+
+<h4>What the tests found</h4>
+<ul>
+<li><b>Deep discounts were traps.</b> Wonderful companies priced 40% or more below the app's value estimate had the worst typical
+results in both periods: over 24 months, the median trailed the S&amp;P by 15 to 25 points when the business was healthy and by
+19 to 42 points when it was slipping.</li>
+<li><b>Business health mattered most.</b> Wonderful companies whose sales, profits or return on equity were slipping did worse than
+healthy ones, by far in 2020–2026 (3 to 14 points a year behind the S&amp;P over the next 12 months, depending on price).
+Their 10-year record still looked excellent, which is why they looked cheap.</li>
+<li><b>The DCF margin of safety and expected return didn't pick winners.</b> Among wonderful companies, ranking by them told nothing
+about the next year in either period. The P/E against the company's own usual P/E did slightly better.</li>
+<li><b>Seven stocks is luck.</b> Small changes moved the 7-stock result by 5 to 10 points a year.</li>
+<li><b>The S&amp;P was carried by its giants.</b> The equal-weight S&amp;P 500 made 12.9% a year in 2019–2026 against 15.4% for the
+normal index, so any portfolio of equal slices started behind.</li>
+</ul>
+
+<h4>The results</h4>
+<table>
+<tr><th>2019–2026</th><th>Yearly return</th><th>Worst drop</th><th>Worst 12 months</th></tr>
+<tr><td>S&amp;P 500</td><td>15.4%</td><td>−34%</td><td>−20%</td></tr>
+<tr><td>Buffettology 15% · best 7 (live)</td><td>5.4%</td><td>−49%</td><td>−34%</td></tr>
+<tr><td>Same, plus the health check and the too-cheap guard</td><td>10.2%</td><td>−40%</td><td>−37%</td></tr>
+<tr><td><b>Buffettology Quality Core</b></td><td><b>10.6%</b></td><td><b>−35%</b></td><td><b>−21%</b></td></tr>
+<tr><td>Quality Core without the health check</td><td>12.2%</td><td>−36%</td><td>−23%</td></tr>
+</table>
+<table>
+<tr><th>2015–2026</th><th>Yearly return</th><th>Worst drop</th><th>Worst 12 months</th></tr>
+<tr><td>S&amp;P 500</td><td>12.6%</td><td>−34%</td><td>−20%</td></tr>
+<tr><td>Buffettology 15% · best 7</td><td>2.8%</td><td>−49%</td><td>−35%</td></tr>
+<tr><td><b>Buffettology Quality Core</b></td><td><b>10.9%</b></td><td><b>−34%</b></td><td><b>−20%</b></td></tr>
+<tr><td>Quality Core without the health check</td><td>11.1%</td><td>−32%</td><td>−17%</td></tr>
+</table>
+<p><b>No rule set beat the S&amp;P 500</b> on return, and none gave clearly better protection in a crash. The guards about doubled the
+concentrated portfolio's return; the Quality Core fell no further than the S&amp;P but trailed it by 2 to 5 points a year. In the
+25-stock portfolio the health check slightly lowered the return (by 0.2 to 1.6 points a year); it mainly matters when a few stocks
+carry the result. A simplified monthly test that owned every qualifying company, weighted by company size (at most 10% each), came
+out about 1 point a year ahead of the S&amp;P (2 with a 15% limit) with the same worst drop, but the same idea in the app's own engine ("size" sizing)
+trailed by 4 points. Results that flip with the method are within luck for this period.</p>
+<p><b>What this means.</b> On this history, the app finds wonderful businesses reliably but can't show that buying them by a price rule
+beats simply owning the index, which is also Buffett's advice for anyone who isn't analyzing each business personally. The most
+useful way to use it is as a <b>shortlist of wonderful, healthy companies at fair prices</b> for your own judgment, next to an index
+core. These are backtests of one period with survivorship bias (section 20); they are not a forecast.</p>
+
+<h4>What was built</h4>
+<ul>
+<li><b>Business health check</b> (profile setting). Uses the trailing 12 months from the latest 10-Q: sales below a year earlier,
+net income more than 10% below a year earlier, or return on equity more than 3 points below the company's 10-year median.
+Any of these blocks a new buy ("WATCH: the business isn't healthy right now"). A severe slide (sales −5% or worse, profits −25%
+or worse) opens a REVIEW that becomes a SELL when the next filing confirms it.</li>
+<li><b>Too cheap to trust</b> (profile setting, e.g. 40%): no buy when the price is further below the estimated value than this;
+the badge asks you to find out why first.</li>
+<li><b>Fair-price test</b> (profile setting, instead of the DCF test): the Buy Zone means the P/E on the latest annual earnings is at
+most a set multiple (1.5) of the company's own median P/E over its record; the buy-below price is that P/E times the earnings. The
+cheaper against its own history, the higher its Value score.</li>
+<li><b>Size sizing</b> (portfolio setting): bigger companies get bigger slices, from half to twice an equal slice.</li>
+<li><b>The Buffettology Quality Core profile</b> (inactive, editable): the Buffettology rules with the health check, the 40% too-cheap
+guard, the fair-price test at 1.5×, 25 equal holdings, new money spread evenly, at most 10% in one stock.</li>
 </ul>
 
 <h3 id="risk">Risk controls (the "Oracle Edge 15% · Risk Optimized" profile)</h3>
@@ -801,7 +831,8 @@ how each rank bucket performed afterwards.</li>
   <li><i>Buffettology 15%</i>;</li>
   <li><i>Relaxed backfill (5y)</i>, with shorter lookbacks so tests can start earlier;</li>
   <li><i>Oracle Classic + timing</i>;</li>
-  <li><i>Oracle Edge 15% · Risk Optimized</i> (editable), with the risk controls above.</li>
+  <li><i>Oracle Edge 15% · Risk Optimized</i> (editable), with the risk controls above;</li>
+  <li><i>Buffettology Quality Core</i> (editable), from the November 2026 rebuild (section 13).</li>
 </ul>
 Use <b>Save as</b> to make an editable copy. Each profile card shows three things: what the profile is <b>for</b> (a description you
 can write in the editor; the built-in ones come with one), for a copy <b>what differs</b> from the profile it was copied from
@@ -1040,7 +1071,7 @@ Indicators are estimates (market value moved by an ETF's price, GDP grown at its
 until the official figures arrive.</li>
 </ul>
 
-<h2 id="audit"><span class="n">20a</span>Accuracy audit (version 0.12.0)</h2>
+<h2 id="audit"><span class="n">20a</span>Accuracy audit (versions 0.12.0 and 0.13.0)</h2>
 <p>Every calculation in the app was reviewed line by line and checked against independently worked answers: the financial
 metrics, quality scoring, both valuation models and the bank/insurer model, the rank, the signal ladder, portfolio accounting
 (fills, cash, time-weighted returns, CAGR, drawdowns, Sharpe), the Buy Zone records, the quarterly checks, price targets and
@@ -1066,6 +1097,12 @@ rescaled</td></tr>
 <td>Dividends included; buy-below is the exact Buy Zone test for every model</td></tr>
 <tr><td><b>Buffett Indicator history</b></td><td>Used quarters before they were published; points dated at the quarter's start;
 scaled by VTI including dividends</td><td>Backtests use only published quarters, estimated forward to each day; quarter-end dates; price-only scaling</td></tr>
+<tr><td><b>A split the company's filings contradict</b> (version 0.13.0)</td><td>A price source listed a 0.374 "split" for RGR
+that its share count never showed, so its earnings looked 2.7 times bigger and it sat in the Buy Zone at a P/E near 2</td><td>A split is
+ignored when the diluted share count between the annual reports around it moved closer to "no change" than to the split ratio</td></tr>
+<tr><td><b>A share count a power of ten off</b> (version 0.13.0)</td><td>NRC's latest report gave 225,840 shares and EPS of $50
+(about 23 million shares and $0.50)</td><td>A year a whole power of ten off the company's other years is rescaled, with its EPS when the
+two agree with each other</td></tr>
 <tr><td><b>Smaller items</b></td><td>CAGR assumed the curve started at exactly 1; holding weights ignored cash; a sale of a delisted stock
 never filled; the value score saturated below a 20%+ hurdle; the quarterly rebuild could treat two quarters as one; wording said
 "average of the two models" (it's the lower) and "10% return" on a 15% profile</td><td>Each corrected</td></tr>
@@ -1102,7 +1139,7 @@ their old results until you recalculate them.</p>
 <tr><td><b>XBRL</b></td><td>The tagged data format companies use to file financial statements with the SEC</td></tr>
 </table>
 
-<footer>Oracle Edge v0.12.0 · research tool, not financial advice · MIT license. The full design plan, with research sources,
+<footer>Oracle Edge v0.13.0 · research tool, not financial advice · MIT license. The full design plan, with research sources,
 is in <code>docs/Value-Picker-Plan.html</code> with the source code.</footer>
 </main>
 </div>

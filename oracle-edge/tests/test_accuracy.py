@@ -339,3 +339,49 @@ def test_us_buffett_indicator_nowcast_between_releases():
     with db.tx() as con:
         con.execute("INSERT INTO macro(series,date,value) VALUES('NCBEILQ027S',?,?)", (prev_q.isoformat(), 71_000_000.0))
     assert Macro().us_components(t)["equities_q"] == 71e12
+
+
+# ------------------------------------------------------------------ business health, fair price, too cheap
+def test_business_health_flags():
+    from oracle_edge import quarterly
+
+    st = quarterly._State()
+    for item, s0, e0, v in [("revenue", "2025-01-01", "2025-09-30", 900.0), ("revenue", "2024-01-01", "2024-09-30", 1000.0),
+                            ("revenue", "2023-01-01", "2023-09-30", 990.0),
+                            ("net_income", "2025-01-01", "2025-09-30", 60.0), ("net_income", "2024-01-01", "2024-09-30", 100.0),
+                            ("net_income", "2023-01-01", "2023-09-30", 95.0)]:
+        st.put_q(item, s0, e0, v)
+    for item, fe, v in [("revenue", "2024-12-31", 1350.0), ("revenue", "2023-12-31", 1300.0),
+                        ("net_income", "2024-12-31", 130.0), ("net_income", "2023-12-31", 125.0)]:
+        st.put_a(item, fe, v)
+    m = {}
+    flags = {f["id"]: f for f in quarterly.health(st, "2025-09-30", "bank", m)}
+    # TTM revenue 900 + 1350 - 1000 = 1250 vs 990 + 1300 - ... (a year earlier: 1000 + 1300 - 990 = 1310)
+    assert m["ttm_revenue"] == pytest.approx(1250.0)
+    assert m["ttm_revenue_growth"] == pytest.approx(1250 / 1310 - 1)
+    assert flags["rev_decline"]["severe"] is False and flags["rev_decline"]["health"] is True
+    # net income 60 + 130 - 100 = 90 vs 100 + 125 - 95 = 130: -31% (severe)
+    assert m["ttm_net_income_growth"] == pytest.approx(90 / 130 - 1) and flags["profit_decline"]["severe"] is True
+
+
+def test_health_flags_only_count_for_profiles_that_use_them():
+    from oracle_edge.engine import _profile_flags
+
+    fl = [{"id": "rev_decline", "hard": False, "health": True, "severe": True}, {"id": "ttm_loss", "hard": True}]
+    assert [f["id"] for f in _profile_flags(fl, {})] == ["ttm_loss"]
+    on = _profile_flags(fl, {"health_check": True})
+    assert on[0]["hard"] is True and on[1]["hard"] is True
+
+
+def test_fair_pe_price_test():
+    from types import SimpleNamespace
+
+    from oracle_edge.engine import fair_pe_test
+
+    v = SimpleNamespace(pe_median=20.0)
+    st = {"price_test": "fair_pe", "fair_pe_mult": 1.5}
+    bb, score = fair_pe_test(40.0, v, {"eps_last": 2.0}, st)  # P/E 20 = its median
+    assert bb == pytest.approx(60.0)                         # buy below a P/E of 30 (1.5 x 20)
+    assert score == pytest.approx(50.0)                      # halfway between 1.5x and 0.5x the median
+    assert fair_pe_test(40.0, v, {"eps_last": 2.0}, {"price_test": "dcf"}) is None
+    assert fair_pe_test(40.0, SimpleNamespace(pe_median=None), {"eps_last": 2.0}, st) is None

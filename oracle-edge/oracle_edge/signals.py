@@ -289,14 +289,27 @@ class PortfolioSim:
           conviction     1/N scaled with Rank score squared
           value_quality  1/N scaled up for a better business (Quality) at a better price (margin of safety above
                          the gate): Quality 100 vs 80 = x1.25, each 10 points of extra margin of safety = +20%,
-                         overall x0.5 to x2."""
+                         overall x0.5 to x2.
+          size           1/N scaled by the square root of market value vs today's median wonderful company,
+                         x0.5 to x2 (see size_factor)."""
         n = max(self.max_positions or 15, 1)
         w = 1.0 / n
         if self.sizing == "conviction" and e.rank_score:
             w *= min(1.75, max(0.5, (e.rank_score / 75.0) ** 2))
         elif self.sizing == "value_quality":
             w *= self.value_quality_factor(e)
+        elif self.sizing == "size":
+            w *= self.size_factor(e)
         return min(w, self._cap())
+
+    def size_factor(self, e) -> float:
+        """Bigger companies get bigger slices, as in a market-value-weighted index (Buffett's holdings are
+        large companies): square root of market value vs the median wonderful company today, x0.5 to x2."""
+        mc = (e.detail or {}).get("mcap")
+        ref = getattr(self, "_ref_mcap", None)
+        if not mc or not ref:
+            return 1.0
+        return min(max((mc / ref) ** 0.5, 0.5), 2.0)
 
     def value_quality_factor(self, e) -> float:
         q = min(max((e.quality or 0.0) / 80.0, 0.8), 1.25)
@@ -503,6 +516,7 @@ class PortfolioSim:
             full_deploy = tap >= 1.0
             opts.sort(key=lambda o: (-strength[id(o)], -(o[1].er or 0)))
             wts = {id(o): (0.5 + strength[id(o)]) * (self.value_quality_factor(o[1]) if self.sizing == "value_quality"
+                                                     else self.size_factor(o[1]) if self.sizing == "size"
                                                      else 1.0) for o in opts}  # stronger prices get a bigger share
             left = budget
             for _ in range(2):  # weighted split; a second pass hands what didn't fit to options with room
@@ -524,8 +538,9 @@ class PortfolioSim:
             self.reserve = max(self.reserve, 0.0)
         elif policy == "spread":
             deploy = cash_avail * f_overlay
-            if self.sizing == "value_quality":  # better business at a better price gets a bigger share
-                fw = {id(o): self.value_quality_factor(o[1]) for o in opts}
+            if self.sizing in ("value_quality", "size"):  # a bigger share for a better / bigger company
+                fw = {id(o): (self.value_quality_factor(o[1]) if self.sizing == "value_quality"
+                              else self.size_factor(o[1])) for o in opts}
                 tot = sum(fw.values()) or 1.0
                 plan = [(o, min(deploy * fw[id(o)] / tot, o[2])) for o in opts]
             else:
@@ -594,6 +609,9 @@ class PortfolioSim:
         by = {e.cik: e for e in evals}
         V = self.total_on(d) or 1.0
         buys = [e for e in evals if e.list == "buy"]
+        caps = sorted(((e.detail or {}).get("mcap") or 0) for e in evals if e.list in ("buy", "pricey"))
+        caps = [c for c in caps if c > 0]
+        self._ref_mcap = caps[len(caps) // 2] if caps else None
         if st.get("market_overlay"):
             from .market import overlay_state
 
@@ -739,6 +757,19 @@ class PortfolioSim:
                 res.badges[e.cik] = ("WATCH", "in the Buy Zone, but the latest 10-Q shows: " +
                                      "; ".join(f"{f['name']} ({f['detail']})" for f in hardq))
                 continue
+            sick = [f for f in (e.qflags or []) if f.get("health")]
+            if sick and st.get("health_check"):
+                stt["buy_streak"] = 0
+                res.badges[e.cik] = ("WATCH", "in the Buy Zone, but the business isn't healthy right now: " +
+                                     "; ".join(f"{f['name']} ({f['detail']})" for f in sick))
+                continue
+            mm = st.get("max_mos")
+            if mm is not None and e.mos is not None and e.mos > float(mm):
+                stt["buy_streak"] = 0
+                res.badges[e.cik] = ("WATCH", f"price is {e.mos:.0%} below the estimated value: discounts deeper "
+                                              f"than {float(mm):.0%} have mostly been value traps; find out why "
+                                              "before buying")
+                continue
             stt["buy_streak"] += 1
             if stt["buy_streak"] < st["buy_confirm_days"]:
                 res.badges[e.cik] = ("WATCH", f"in the Buy Zone, confirming ({stt['buy_streak']}/{st['buy_confirm_days']})")
@@ -756,7 +787,11 @@ class PortfolioSim:
                 continue
             strong = (e.quality or 0) >= st["strong_quality"] and (e.mos or 0) >= self.mos_gate + st["strong_extra_mos"]
             typ = "STRONG_BUY" if strong else "BUY"
-            why = f"Rank #{e.rank} · score {e.rank_score:.1f} · buy below ${e.buy_below:,.2f} · MOS {e.mos:.0%} · exp. return {e.er:.1%}"
+            why = (f"Rank #{e.rank} · score {(e.rank_score or 0):.1f} · buy below ${e.buy_below:,.2f}"
+                   + (f" · P/E {e.pe_now:.1f} vs its usual {e.pe_median:.1f}" if st.get("price_test") == "fair_pe"
+                      and e.pe_now and e.pe_median else "")
+                   + (f" · MOS {e.mos:.0%}" if e.mos is not None else "")
+                   + (f" · exp. return {e.er:.1%}" if e.er is not None else ""))
             rj = {"quality": e.quality, "rank": e.rank, "mos": e.mos, "er": e.er}
             if self.focused:
                 if limit and n_owned >= limit:

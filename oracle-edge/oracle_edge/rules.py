@@ -25,6 +25,7 @@ def seed_profiles() -> None:
     if db.scalar("SELECT COUNT(*) FROM profiles", default=0):
         _seed_timing()
         _seed_risk_optimized()
+        _seed_quality_core()
         refresh_notes()
         return
     classic = load_yaml_profile()
@@ -40,6 +41,7 @@ def seed_profiles() -> None:
     _insert("Relaxed backfill (5y)", relaxed, locked=True, active=False, notes=relaxed["description"])
     _seed_timing()
     _seed_risk_optimized()
+    _seed_quality_core()
     refresh_notes()
 
 
@@ -76,6 +78,26 @@ def _seed_risk_optimized() -> None:
     body["description"] = ("Buffettology 15%, 7 holdings, sliding reserve; better businesses at better prices get "
                            "more money; at most 35% in one stock, 50% in one sector, 60% in closely correlated stocks.")
     _insert(RISK_NAME, body, locked=False, active=False, notes=body["description"])
+
+
+CORE_NAME = "Buffettology Quality Core"
+CORE_SETTINGS = {
+    "health_check": True, "price_test": "fair_pe", "fair_pe_mult": 1.5, "max_mos": 0.40, "max_holdings": 25,
+    "sizing": "equal", "new_money": "spread", "max_position": 0.10, "fund_strong": False, "trade_cost_bps": 10,
+}
+
+
+def _seed_quality_core() -> None:
+    """Buffett's portfolio principles as tested in November 2026 (Guide, "Rebuilding the strategy"): wonderful
+    businesses that are still healthy now, bought at a fair price against their own history rather than at the
+    deepest discount, 25 holdings, held while the business stays wonderful and healthy."""
+    if db.scalar("SELECT COUNT(*) FROM profiles WHERE name=?", (CORE_NAME,), 0):
+        return
+    src = db.one("SELECT body_json FROM profiles WHERE name=?", ("Buffettology 15% · best 7",))
+    body = _with_defaults(json.loads(src["body_json"])) if src else load_yaml_profile()
+    body["settings"].update(CORE_SETTINGS)
+    body["description"] = PURPOSE[CORE_NAME]
+    _insert(CORE_NAME, body, locked=False, active=False, notes=PURPOSE[CORE_NAME])
 
 
 def _insert(name, body, locked=False, active=False, parent_id=None, notes=None) -> int:
@@ -116,8 +138,13 @@ PURPOSE = {
         "Oracle Classic with a timing filter: a BUY waits while the price is still sliding (below a falling "
         "50-day average), for up to 60 signal days. Backtest it against Classic to see whether waiting helps.",
     "Buffettology 15% · best 7":
-        "The live profile: Buffettology 15% concentrated in the best 7 stocks. Chosen after the backtests "
-        "(Guide, \"Why Buffettology 15% · best 7 was chosen\").",
+        "The live profile: Buffettology 15% concentrated in the best 7 stocks. Chosen on backtests that the "
+        "November 2026 audit showed were inflated; see the Guide, \"Rebuilding the strategy\".",
+    "Buffettology Quality Core":
+        "Buffett's portfolio principles, rebuilt after the November 2026 tests: wonderful businesses that are "
+        "still growing now (no value traps), bought at a fair P/E for that company rather than the deepest "
+        "discount, 25 holdings, kept while the business stays wonderful and healthy. In the tests it fell no further "
+        "than the S&P 500 but trailed it by 2 to 5 points a year; read the Guide before trading on it.",
     "Oracle Edge 15% · Risk Optimized":
         "Buffettology 15% with risk limits: 7 holdings, a cash reserve for strong buys, bigger slices for better "
         "businesses at better prices, and caps of 35% per stock, 50% per sector and 60% in stocks that move "
@@ -125,7 +152,8 @@ PURPOSE = {
 }
 _OLD_DEFAULTS = ("Copy of ", "Buffett's rules of thumb", "The Oracle's rules of thumb, 10-year",
                  "Stricter: Mary Buffett", "Stricter: the Buffettology 15%", "5-year lookbacks so backtests",
-                 "Oracle Classic, but a BUY waits", "Buffettology 15%, 7 holdings, sliding reserve")
+                 "Oracle Classic, but a BUY waits", "Buffettology 15%, 7 holdings, sliding reserve",
+                 "The live profile: Buffettology 15% concentrated in the best 7 stocks. Chosen after")
 
 
 def _is_default_note(text: str | None) -> bool:
@@ -148,7 +176,8 @@ def _pct(v) -> str:
 
 
 _SIZING = {"equal": "equal slices", "conviction": "bigger slices for a higher Oracle Rank",
-           "value_quality": "bigger slices for better businesses at better prices"}
+           "value_quality": "bigger slices for better businesses at better prices",
+           "size": "bigger slices for bigger companies"}
 _NEW_MONEY = {"best_value": "new money to the best value", "best_rank": "new money to the best Oracle Rank",
               "spread": "new money spread evenly", "patient": "new money waits for strong-buy prices",
               "reserve": "part of new money kept in reserve for strong buys"}
@@ -157,9 +186,14 @@ _NEW_MONEY = {"best_value": "new money to the best value", "best_rank": "new mon
 def describe(body: dict) -> str:
     """What a profile does, in one plain paragraph, built from its settings so it is always accurate."""
     st = body.get("settings", {})
-    out = [f"Buys when Quality is at least {st.get('quality_min', 70):.0f} on {st.get('lookback_years', 10)} years of "
-           f"results, the price is {_pct(st.get('mos_gate', 0.25))} or more below value and the expected 10-year "
-           f"return is at least {_pct(st.get('hurdle', 0.10))}."]
+    if st.get("price_test") == "fair_pe":
+        out = [f"Buys when Quality is at least {st.get('quality_min', 70):.0f} on {st.get('lookback_years', 10)} years "
+               f"of results and the P/E is at most {float(st.get('fair_pe_mult', 1.5)):g} times the company's own "
+               "usual P/E (a fair price, not a bargain hunt)."]
+    else:
+        out = [f"Buys when Quality is at least {st.get('quality_min', 70):.0f} on {st.get('lookback_years', 10)} years "
+               f"of results, the price is {_pct(st.get('mos_gate', 0.25))} or more below value and the expected "
+               f"10-year return is at least {_pct(st.get('hurdle', 0.10))}."]
     if st.get("portfolio_mode", "focused") == "focused":
         out.append(f"Holds the best {st.get('max_holdings', 15)} ({_SIZING.get(st.get('sizing'), 'equal slices')}); "
                    f"{_NEW_MONEY.get(st.get('new_money'), 'new money to the best value')}.")
@@ -182,6 +216,11 @@ def describe(body: dict) -> str:
         extra.append("enhanced valuation")
     if st.get("predictability_mos"):
         extra.append("bigger margin of safety for less predictable earnings")
+    if st.get("health_check"):
+        extra.append("skips businesses whose sales, profits or returns are slipping right now and sells when the "
+                     "slide is confirmed")
+    if st.get("max_mos") is not None:
+        extra.append(f"won't buy more than {_pct(st['max_mos'])} below the estimated value (too cheap to trust)")
     if st.get("min_rank_score"):
         extra.append(f"Oracle Rank of {st['min_rank_score']:.0f}+ to buy")
     if extra:
@@ -201,6 +240,8 @@ _DIFF_KEYS = [  # (setting, label, format)
     ("min_rank_score", "minimum Oracle Rank", "num"), ("include_foreign", "foreign filers", "bool"),
     ("initial_capital", "starting money", "usd"), ("weekly_contribution", "weekly amount", "usd"),
     ("trade_cost_bps", "trading cost (bps)", "num"), ("rank_quality_weight", "Quality weight in rank", "num"),
+    ("health_check", "business health check", "bool"), ("price_test", "price test", "txt"),
+    ("fair_pe_mult", "fair P/E (x usual)", "num"), ("max_mos", "too-cheap guard", "pct"),
 ]
 
 

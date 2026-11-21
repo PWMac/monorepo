@@ -378,6 +378,31 @@ def _pending(base, note, category="standard"):
 PER_SHARE_VI = ("oe_ps", "eps3", "eps_last", "bvps", "book_ps", "oe_norm_ps", "eps_norm")
 
 
+def fair_pe_test(price: float, v, vi: dict, st: dict) -> tuple[float, float] | None:
+    """The "fair price" test (price_test: fair_pe): the price at which the P/E on the latest annual EPS is
+    fair_pe_mult times the company's own median P/E over its record, and a value score that rises as the P/E
+    falls toward half its usual level. Returns (buy-below price, value score), or None to use the DCF test
+    (setting off, or no usable P/E history). On the app's history (2015-2026), how cheap a wonderful company was
+    against its own past P/E said a little more about the next one to two years than the DCF margin of safety did."""
+    if st.get("price_test", "dcf") != "fair_pe":
+        return None
+    eps = vi.get("eps_last")
+    if not (v.pe_median and v.pe_median > 0 and eps and eps > 0 and price):
+        return None
+    mult = float(st.get("fair_pe_mult", 1.5))
+    rel = (price / eps) / v.pe_median
+    score = 100.0 * min(max((mult - rel) / max(mult - 0.5, 1e-9), 0.0), 1.0)
+    return mult * v.pe_median * eps, score
+
+
+def _profile_flags(flags: list[dict], st: dict) -> list[dict]:
+    """Business-health flags count only for profiles that switch the check on; there a severe one acts like any
+    hard quarterly flag (blocks buying, and a sale once the next filing confirms it)."""
+    if not st.get("health_check"):
+        return [f for f in flags if not f.get("health")]
+    return [({**f, "hard": True} if f.get("health") and f.get("severe") else f) for f in flags]
+
+
 def split_scale(vi: dict, f: float) -> dict:
     """Valuation inputs restated after splits: per-share figures / f, the share count x f."""
     if f == 1.0:
@@ -445,7 +470,7 @@ def evaluate(date: str, profile: Profile, snaps: SnapshotBook, pb: PriceBook, re
             continue
         failed = json.loads(s["failed_gates"] or "[]")
         qs = snaps.quarterly(cik, date, s["filed"]) if st.get("quarterly_warnings", True) else None
-        qflags = json.loads(qs["flags_json"]) if qs else []
+        qflags = _profile_flags(json.loads(qs["flags_json"]) if qs else [], st)
         price = pb.close(t, date)
         last = pb.last_date(t, date)
         stale = last is not None and last < date and (_days_between(last, date) > 7)
@@ -483,6 +508,10 @@ def evaluate(date: str, profile: Profile, snaps: SnapshotBook, pb: PriceBook, re
         vs = value_score(v.er, {"target": hurdle})
         if category == "standard" and v.earnings_yield is not None and v.earnings_yield < regime.t30:
             vs = max(0.0, vs - 10)  # rule 26: earnings yield below the 30-yr Treasury
+        buy_below = v.buy_below
+        fair = fair_pe_test(price, v, vi, st)
+        if fair is not None:  # "fair price" test: P/E against the company's own history instead of the DCF
+            buy_below, vs = fair
         conf = s["confidence"] or 0.9
         rs = rank_score(q or 0, vs, conf, st["rank_quality_weight"]) if q is not None else None
         shares = vi.get("shares") or 0  # point-in-time diluted shares from the latest annual report
@@ -491,7 +520,10 @@ def evaluate(date: str, profile: Profile, snaps: SnapshotBook, pb: PriceBook, re
         size_ok = (mcap or 0) >= st["min_market_cap"] and (dvol or 0) >= st["min_dollar_volume"]
         # cheap enough = at or below the buy-below price, which already combines the margin of safety and the
         # price that earns the hurdle under every model used (so the Buy Zone and the price shown always agree)
-        val_ok = v.mos is not None and v.er is not None and v.buy_below is not None and price <= v.buy_below
+        if fair is not None:
+            val_ok = price <= buy_below
+        else:
+            val_ok = v.mos is not None and v.er is not None and v.buy_below is not None and price <= v.buy_below
         if gates and q is not None and q >= qmin and size_ok and val_ok:
             lst = "buy"
         elif gates and q is not None and q >= qmin and size_ok:
@@ -503,7 +535,7 @@ def evaluate(date: str, profile: Profile, snaps: SnapshotBook, pb: PriceBook, re
         note = "" if size_ok else "below size/liquidity floor"
         if foreign:
             note = (note + " · " if note else "") + f"{info.get('currency')} → US$ at ADR ratio {info.get('adr_ratio'):g}"
-        out.append(Eval(list=lst, value=vs, rank_score=rs, iv=v.iv, mos=v.mos, er=v.er, buy_below=v.buy_below,
+        out.append(Eval(list=lst, value=vs, rank_score=rs, iv=v.iv, mos=v.mos, er=v.er, buy_below=buy_below,
                         strong_buy_below=v.strong_buy_below, expensive_above=v.expensive_above, pe_now=v.pe_now,
                         pe_median=v.pe_median, note=note, category=category,
                         detail={"iv_a": v.iv_a, "iv_b": v.iv_b, "er_a": v.er_a, "er_b": v.er_b, "r": v.discount_rate,

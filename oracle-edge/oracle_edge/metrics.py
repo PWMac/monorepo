@@ -215,7 +215,7 @@ def fix_share_scale(s: dict) -> int:
         else:
             sh[i] = implied
         fixed += 1
-    good = sorted(v for v in sh if v)
+    good = sorted(v for v in sh if v and v > 0)
     if len(good) >= 3:
         med = good[len(good) // 2]
         for i in range(n):
@@ -231,6 +231,8 @@ def fix_share_scale(s: dict) -> int:
                     # income / EPS = the reported shares), the EPS carries the same slip and is corrected with it
                     import math
 
+                    if sh[i] <= 0 or med <= 0:
+                        continue
                     lg = math.log10(sh[i] / med)
                     m = round(lg)
                     if abs(m) >= 2 and abs(lg - m) <= 0.3:

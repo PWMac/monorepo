@@ -150,7 +150,8 @@ def _calc_fix_notice():
             with ui.column().classes("gap-1"):
                 ui.label("Calculation fixes are installed: rebuild your results").classes("font-semibold")
                 ui.label("This version corrects how stock splits, share-count units, fiscal years and a few other "
-                         "figures are handled (see Guide → Accuracy audit). Until the rebuild runs, the history "
+                         "figures are handled, and adds the business-health checks (see Guide → Accuracy audit). "
+                         "Until the rebuild runs, the history "
                          "on screen was calculated the old way. It re-downloads price histories with their split "
                          "dates, re-scores every company and replays the live history: allow an hour or more. The "
                          "next daily update does it automatically if you don't.").classes("text-sm")

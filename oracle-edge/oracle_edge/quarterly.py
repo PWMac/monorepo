@@ -10,6 +10,8 @@ Flags (hard = blocks new buys and can confirm a REVIEW into a SELL; soft = REVIE
   roa_ttm           hard  TTM return on assets below the bank ROA floor (banks)
   cash_vs_profit    soft  TTM operating cash flow / TTM net income below the minimum (standard companies)
   dilution          soft  diluted share count up more than the limit vs a year earlier
+Business health (used only by profiles with health_check on; see health()):
+  rev_decline, profit_decline, roe_slipping
 Deterioration checks (soft; catch businesses that still look fine on 10-year averages):
   incr_roic_decline soft  incremental ROIC (3-year windows) fell three years running, by 10+ points
   gm_decline        soft  gross margin below the same quarter a year earlier for 3+ quarters in a row
@@ -208,6 +210,54 @@ def deterioration(st: _State, E: str, s: dict) -> list[dict]:
     return flags
 
 
+HEALTH_IDS = ("rev_decline", "profit_decline", "roe_slipping")
+
+
+def health(st: _State, E: str, category: str, m: dict) -> list[dict]:
+    """Is the business still healthy right now? A company can have a superb 10-year record and cheap-looking
+    shares while it is shrinking. These flags are marked health=True; only profiles with the business health
+    check switched on use them (soft ones block new buys, severe ones also lead to a sale once the next filing
+    confirms them). Research on the app's own history (2015-2026): wonderful companies failing these checks
+    trailed the S&P 500 by far more than healthy ones, most of all when they looked cheapest.
+      rev_decline     TTM revenue below a year earlier (severe below -5%)
+      profit_decline  TTM net income more than 10% below a year earlier (severe below -25%)
+      roe_slipping    TTM return on equity more than 3 points below the company's 10-year median (standard only)"""
+    out = []
+    e0 = _year_ago(st, "revenue", E) or _year_ago(st, "net_income", E)
+    if e0:
+        r1, r0 = _ttm(st, "revenue", E), _ttm(st, "revenue", e0)
+        if r1 is not None and r0 and r0 > 0:
+            g = r1 / r0 - 1
+            m["ttm_revenue"], m["ttm_revenue_growth"] = r1, g
+            if g < 0:
+                out.append({"id": "rev_decline", "name": "Revenue shrinking", "hard": False, "health": True,
+                            "severe": g < -0.05, "detail": f"sales over the last 12 months {g:+.1%} vs a year earlier"})
+        n1, n0 = _ttm(st, "net_income", E), _ttm(st, "net_income", e0)
+        if n1 is not None and n0 and n0 > 0:
+            g = n1 / n0 - 1
+            m["ttm_net_income_growth"] = g
+            if g < -0.10:
+                out.append({"id": "profit_decline", "name": "Profits falling", "hard": False, "health": True,
+                            "severe": g < -0.25, "detail": f"net income over the last 12 months {g:+.0%} vs a year "
+                                                           f"earlier"})
+    if category == "standard" and m.get("ttm_roe") is not None:
+        ni, eq = st.a.get("net_income", {}), st.a.get("equity", {})
+        fys = sorted(ni)[-10:]
+        roes = []
+        for fy in fys:
+            prev = [f for f in eq if 330 <= _days(f, fy) <= 400]
+            e1, e_0 = eq.get(fy), (eq.get(prev[-1]) if prev else None)
+            if ni.get(fy) is not None and e1 and e_0 and e1 + e_0 > 0:
+                roes.append(ni[fy] / ((e1 + e_0) / 2))
+        if len(roes) >= 5:
+            med = sorted(roes)[len(roes) // 2]
+            m["roe_median_10y"] = med
+            if m["ttm_roe"] < med - 0.03:
+                out.append({"id": "roe_slipping", "name": "Return on equity slipping", "hard": False, "health": True,
+                            "severe": False, "detail": f"TTM ROE {m['ttm_roe']:.1%} vs a 10-year median of {med:.1%}"})
+    return out
+
+
 def check(st: _State, E: str, category: str, prof: Profile) -> tuple[list[dict], dict]:
     s = prof.settings
     rules = {r["id"]: r for r in prof.all_rules()}
@@ -257,6 +307,7 @@ def check(st: _State, E: str, category: str, prof: Profile) -> tuple[list[dict],
     if sh and sh0 and sh / sh0 - 1 > s.get("dilution_max", 0.05):
         flags.append({"id": "dilution", "name": "Sudden dilution", "hard": False,
                       "detail": f"diluted shares up {sh / sh0 - 1:.0%} vs a year earlier"})
+    flags += health(st, E, category, m)
     if category == "standard" and s.get("deterioration_warnings", True):
         try:
             flags += deterioration(st, E, s)

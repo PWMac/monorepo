@@ -543,6 +543,10 @@ def data_page():
 
 
 # ===================================================================== PROFILES
+def _pct0(v):
+    return None if v in (None, "") else round(100 * float(v), 4)
+
+
 @ui.page("/profiles")
 def profiles_page(pid: int | None = None):
     with frame("Profiles"):
@@ -631,6 +635,20 @@ def profiles_page(pid: int | None = None):
                 qw = ui.switch("Quarterly early warnings (10-Q)", value=st.get("quarterly_warnings", True))
                 qb = ui.switch("Block new buys while a hard 10-Q warning is open",
                                value=st.get("block_buy_on_quarterly_flag", True))
+            ui.label("Value-trap guards and price test").classes("oe-h2 pt-2")
+            with ui.row().classes("gap-3 items-end"):
+                hc = ui.switch("Business health check: skip companies whose sales, profits or return on equity are "
+                               "slipping now; sell when the next filing confirms a bad slide",
+                               value=bool(st.get("health_check")))
+                ptest = ui.select({"dcf": "Margin of safety + expected return (DCF)",
+                                   "fair_pe": "Fair price: P/E vs the company's own usual P/E"},
+                                  value=st.get("price_test", "dcf"), label="Price test").props(
+                    "outlined dense").classes("w-96")
+                fpm = ui.number("Fair P/E: at most x usual", value=float(st.get("fair_pe_mult", 1.5)), format="%.2f",
+                                min=0.5, max=3, step=0.1).props("outlined dense").classes("w-48")
+                mmo = ui.number("Too cheap to trust: no buy more than % below value (blank = off)",
+                                value=_pct0(st.get("max_mos")), format="%.0f", min=0, max=95).props(
+                    "outlined dense clearable").classes("w-[420px]")
             ui.label("Portfolio").classes("oe-h2 pt-2")
             with ui.row().classes("gap-3 items-end"):
                 pmode = ui.select({"focused": "Focused: hold only the best N", "variable": "Variable (old style)"},
@@ -639,7 +657,8 @@ def profiles_page(pid: int | None = None):
                 pn = ui.number("Holdings (N)", value=st.get("max_holdings", 15), format="%.0f", min=1).props(
                     "outlined dense").classes("w-32")
                 psz = ui.select({"equal": "Equal slices", "conviction": "Conviction (higher Rank, bigger slice)",
-                                 "value_quality": "Better business at a better price gets more"},
+                                 "value_quality": "Better business at a better price gets more",
+                                 "size": "Bigger company gets more (like an index)"},
                                 value=st.get("sizing", "equal"), label="Sizing").props("outlined dense").classes("w-72")
                 padds = ui.number("Max dip ADDs (variable style)", value=st.get("max_adds", 2), format="%.0f", min=0).props(
                     "outlined dense").classes("w-40")
@@ -731,6 +750,10 @@ def profiles_page(pid: int | None = None):
                 b["settings"]["include_foreign"] = inf.value
                 b["settings"]["quarterly_warnings"] = qw.value
                 b["settings"]["block_buy_on_quarterly_flag"] = qb.value
+                b["settings"]["health_check"] = hc.value
+                b["settings"]["price_test"] = ptest.value
+                b["settings"]["fair_pe_mult"] = round(float(fpm.value or 1.5), 4)
+                b["settings"]["max_mos"] = round(float(mmo.value) / 100, 6) if mmo.value not in (None, "") else None
                 b["settings"]["price_alerts"] = pal.value
                 b["settings"]["stage_in_downtrend"] = stg.value
                 b["settings"]["timing_filter"] = tmf.value
