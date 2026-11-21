@@ -74,7 +74,7 @@ footer { color:var(--muted); font-size:12.5px; margin-top:50px; border-top:1px s
   <h1><img src="brand/logo/oracle-edge-header-tagline.png" srcset="brand/logo/oracle-edge-header-tagline@2x.png 2x"
      alt="Oracle Edge: Screen, Rank, Signal"></h1>
   <p>A local stock screener that thinks like the Oracle. This guide explains <b>what</b> the app does,
-  <b>how</b> it decides, and <b>why</b> it was built this way. Version 0.17.0.</p>
+  <b>how</b> it decides, and <b>why</b> it was built this way. Version 0.17.1.</p>
   <p style="font-size:14px">Two documents: this <b>guide</b> is the user manual, kept current with every release and opened from
   "Guide" in the app. The <b>plan</b> (<code>docs/Value-Picker-Plan.html</code> with the source code) is the design record: the research, architecture,
   database layout and the decision log behind the app.</p>
@@ -1245,7 +1245,11 @@ prices, margin of safety, % above the buy price, expected 10-year return, earnin
 10-year business record the Oracle checks (ROE, ROIC, gross and net margin, EPS and owner-earnings growth, cash conversion, capex, debt
 payback, debt-to-equity, buybacks, the $1 test, predictability). Shift-click to sort by a second column, hover a header for its meaning,
 filter by text, export to CSV, click a row to open the stock.</td></tr>
-<tr><td><b>Stock page: Report card tab</b></td><td>Quality, value, rank, the price ladder, price targets and your own alerts, the price-vs-value chart,
+<tr><td><b>Stock page: Report card tab</b></td><td>Every stock gets the full report card. The daily update only tracks the
+shortlist (companies that pass the checklist, near misses and holdings); for any other company the page works the figures out on
+the spot with the same rules and valuation at the latest close, and says so ("Worked out just now for this page"); such a company
+has no signal history or price alerts until it joins the shortlist (since 0.17.1; before, these pages showed no value, ladder or
+targets, or a near miss's last, possibly years-old, evaluation). Quality, value, rank, the price ladder, price targets and your own alerts, the price-vs-value chart,
 early warnings, every rule with its 10-year history, your judgment checklist (circle of competence, management, moat) and signal
 history: the live signals and the backtests of the current profile version only (holdings tests, experiments and backtests of
 older versions are left out), newest first, with <b>Show all</b></td></tr>
@@ -1452,7 +1456,7 @@ their old results until you recalculate them.</p>
 <tr><td><b>XBRL</b></td><td>The tagged data format companies use to file financial statements with the SEC</td></tr>
 </table>
 
-<footer>Oracle Edge v0.17.0 · research tool, not financial advice · MIT license. The full design plan, with research sources,
+<footer>Oracle Edge v0.17.1 · research tool, not financial advice · MIT license. The full design plan, with research sources,
 is in <code>docs/Value-Picker-Plan.html</code> with the source code.</footer>
 </main>
 </div>

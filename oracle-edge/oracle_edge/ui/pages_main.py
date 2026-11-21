@@ -469,7 +469,7 @@ def stock_page(ticker: str):
         r = data.run(run_id) if run_id else None
         prof = rules.get_profile(r["profile_id"]) if r else rules.default_profile()
         snap = data.latest_snapshot(s["cik"], prof.id)
-        ev = data.stock_eval(run_id, s["cik"]) if run_id else None
+        ev = data.stock_eval(run_id, s["cik"], prof) if run_id else None
         bd = data.stock_badge(run_id, s["cik"]) if run_id else None
         with ui.row().classes("w-full items-end justify-between"):
             with ui.column().classes("gap-0"):
@@ -518,6 +518,13 @@ def stock_page(ticker: str):
         tabs.on_value_change(lazy)
 
 
+def _value_card(s, prof, snap, ev):
+    try:  # every stock, evaluated or not
+        valuecard.render(s, prof, snap, ev)
+    except Exception as e:  # never let the comparison card break the report card
+        db.log("ui", "valuecard", False, f"{s['ticker']}: {e}"[:200])
+
+
 def _report_card(s, r, prof, snap, ev, run_id):
     """The Oracle report card: scores, price ladder, targets, early warnings, every rule and your notes."""
     if not snap:
@@ -534,16 +541,29 @@ def _report_card(s, r, prof, snap, ev, run_id):
                       "valued on an ROE-justified price-to-book.")).classes("oe-small")
     if s["is_foreign"]:
         _adr_card(s)
+    if ev and (ev.get("detail") or {}).get("on_demand"):
+        det0 = ev["detail"]
+        why = ", ".join(f.get("name") for f in (det0.get("failed") or []) if f.get("name") and f.get("id") != "u1")
+        last = det0.get("last_tracked")
+        with ui.card().classes("oe-card w-full").style("border-left:4px solid #6b7280"):
+            ui.label("Worked out just now for this page").classes("font-semibold")
+            ui.label(("Off the shortlist" + (f" (fails: {why})" if why else "") + ", so the daily update doesn't track "
+                      f"it. These figures use {prof.name}'s rules and valuation at the {ev['date']} close, exactly as "
+                      "the daily update would, but there's no history of them, and no signals or price alerts. "
+                      + (f"It was last tracked on {last}, when it was a near miss or on the list." if last else ""))
+                     ).classes("oe-small")
     with ui.grid(columns=5).classes("w-full gap-3 oe-kpis"):
         kpi(num(snap["quality"], 0), "Quality", "business, 0–100")
         kpi(num(ev["value"], 0) if ev and ev["value"] is not None else "—", "Value", "price, 0–100")
         kpi(num(ev["rank_score"], 1) if ev and ev["rank_score"] else "—", "Rank score",
-            f"#{ev['rank']} in Buy Zone" if ev and ev["rank"] else (ev["list"] if ev else "not evaluated"))
+            f"#{ev['rank']} in Buy Zone" if ev and ev["rank"] else
+            ({"buy": "in the Buy Zone", "pricey": "wonderful, but pricey", "near": "near miss", "pending": "pending",
+              "out": "off the shortlist"}.get(ev["list"], ev["list"]) if ev else "not evaluated"))
         kpi(pct(ev["mos"]) if ev and ev["mos"] is not None else "—", "Margin of safety",
             f"needs ≥ {pct(prof.settings['mos_gate'])}")
         kpi(pct(ev["exp_return"], 1) if ev and ev["exp_return"] is not None else "—", "Expected 10-yr return",
             f"needs ≥ {pct(prof.settings['hurdle'])}")
-    tp, tech = targets.plan_for(run_id, s["cik"], prof.settings) if run_id else (None, None)
+    tp, tech = targets.plan_for(run_id, s["cik"], prof.settings, ev) if run_id else (None, None)
     if ev:
         det = ev["detail"]
         with ui.card().classes("oe-card w-full"):
@@ -563,10 +583,7 @@ def _report_card(s, r, prof, snap, ev, run_id):
                          f"{pct(det.get('g'), 1)} · exit P/E {num(det.get('exit_pe'), 1)}")
                 ui.label(f"P/E now {num(det.get('pe_now'), 1)} vs 10-yr median {num(det.get('pe_median'), 1)} · "
                          f"owner-earnings yield {pct(det.get('ey'), 1)} · PEPG {num(det.get('pepg'), 2)}")
-        try:
-            valuecard.render(s, prof, snap, ev)
-        except Exception as e:  # never let the comparison card break the report card
-            db.log("ui", "valuecard", False, f"{s['ticker']}: {e}"[:200])
+        _value_card(s, prof, snap, ev)
         owned = bool(db.scalar("SELECT 1 FROM positions p JOIN portfolios f ON f.id=p.portfolio_id "
                                "WHERE f.run_id=? AND p.cik=?", (run_id, s["cik"])) or
                      db.scalar("SELECT 1 FROM real_holdings WHERE cik=?", (s["cik"],)))
@@ -574,6 +591,7 @@ def _report_card(s, r, prof, snap, ev, run_id):
         _price_chart(s["ticker"], run_id, s["cik"], tp, tech)
     else:
         _targets_card(s, tp, tech, False)
+        _value_card(s, prof, snap, ev)
     _warnings_card(s["cik"], snap, prof)
     # ---- rules
     with ui.card().classes("oe-card w-full"):

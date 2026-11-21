@@ -63,10 +63,11 @@ def value_line_html(price, low, likely, high, buy_below=None, targets: dict | No
     rows = [("Our value", low, likely, high, GREEN, "#d6eadf", "likely")]
     if tl and th:
         rows.append(("Analysts' targets", tl, tm, th, BLUE, "#dbe6f2", "average"))
-    h = 44 + 34 * len(rows) + 14
+    top = 58  # room for two staggered labels: today's price, then buy below
+    h = top + 34 * len(rows)
     p = [f'<svg viewBox="0 0 1000 {h}" width="100%" style="max-width:1000px;font-family:inherit">']
     for k, (name, a, m, b, c, fill, mlab) in enumerate(rows):
-        y = 44 + 34 * k
+        y = top + 34 * k
         p.append(f'<text x="0" y="{y + 5}" font-size="13" fill="#374151">{name}</text>')
         p.append(f'<rect x="{x(a):.1f}" y="{y - 9}" width="{max(x(b) - x(a), 2):.1f}" height="18" rx="4" fill="{fill}"/>')
         p.append(f'<text x="{x(a) - 4:.1f}" y="{y + 4}" font-size="11" text-anchor="end" fill="{c}">${a:,.0f}</text>')
@@ -77,13 +78,13 @@ def value_line_html(price, low, likely, high, buy_below=None, targets: dict | No
                      f'{mlab} ${m:,.0f}</text>')
     if buy_below:
         bx = x(buy_below)
-        p.append(f'<line x1="{bx:.1f}" x2="{bx:.1f}" y1="22" y2="{h - 6}" stroke="{GREEN}" stroke-dasharray="4,3"/>')
-        p.append(f'<text x="{bx:.1f}" y="16" font-size="11" text-anchor="middle" fill="{GREEN}">buy below '
+        p.append(f'<line x1="{bx:.1f}" x2="{bx:.1f}" y1="34" y2="{h - 6}" stroke="{GREEN}" stroke-dasharray="4,3"/>')
+        p.append(f'<text x="{bx:.1f}" y="30" font-size="11" text-anchor="middle" fill="{GREEN}">buy below '
                  f'${buy_below:,.0f}</text>')
     px = x(price)
-    p.append(f'<line x1="{px:.1f}" x2="{px:.1f}" y1="24" y2="{h - 6}" stroke="#111827" stroke-width="2"/>')
-    p.append(f'<text x="{px:.1f}" y="{16 if not buy_below or abs(px - x(buy_below)) > 90 else 6}" font-size="12" '
-             f'font-weight="600" text-anchor="middle" fill="#111827">today ${price:,.2f}</text>')
+    p.append(f'<line x1="{px:.1f}" x2="{px:.1f}" y1="18" y2="{h - 6}" stroke="#111827" stroke-width="2"/>')
+    p.append(f'<text x="{px:.1f}" y="13" font-size="12" font-weight="600" text-anchor="middle" '
+             f'fill="#111827">today ${price:,.2f}</text>')
     p.append("</svg>")
     return "".join(p)
 

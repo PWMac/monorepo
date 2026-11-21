@@ -337,6 +337,60 @@ class SnapshotBook:
         return list(self.by_cik.keys())
 
 
+class _OneBook(SnapshotBook):
+    """SnapshotBook for a single company (the stock page's on-the-spot evaluation)."""
+
+    def __init__(self, profile: Profile, cik: int):  # noqa: D107 - deliberately skips the full load
+        from .splits import Splits
+
+        cols = ("cik, filed, fy_end, quality, gates_passed, failed_gates, near_miss, val_inputs, confidence, routed, "
+                "gate_margin, gate_margin_rule")
+        rows = db.rows(f"SELECT {cols} FROM snapshots WHERE profile_id=? AND profile_version=? AND cik=? ORDER BY filed",
+                       (*profile.snap, cik))
+        self.by_cik = {cik: ([r["filed"] for r in rows], list(rows))} if rows else {}
+        q = db.rows("SELECT cik, filed, period_end, flags_json, metrics_json FROM qsnaps WHERE cik=? ORDER BY filed",
+                    (cik,))
+        self.q = {cik: ([r["filed"] for r in q], list(q))} if q else {}
+        self.info = {r["cik"]: dict(r) for r in db.rows(
+            "SELECT cik, ticker, category, is_foreign, currency, adr_ratio, adr_source FROM securities WHERE cik=?",
+            (cik,))}
+        self.splits = Splits()
+
+
+def evaluate_one(cik: int, profile: Profile, d: str | None = None) -> dict | None:
+    """Evaluate one company exactly as the daily update would (the profile's rules and valuation model, the latest
+    price), even if it's off the shortlist. Returns a row shaped like the evaluations table's, with
+    detail.on_demand = True. None without a snapshot or a recent price."""
+    from datetime import date as _date
+
+    from .market import Macro, price_lookup
+
+    t = db.scalar("SELECT ticker FROM securities WHERE cik=?", (cik,))
+    if not t:
+        return None
+    book = _OneBook(profile, cik)
+    if not book.by_cik:
+        return None
+    pb = PriceBook([t])
+    d = d or pb.last_date(t, _date.today().isoformat())
+    if not d:
+        return None
+    m = Macro()
+    st = profile.settings
+    regime = m.regime(d, st["mos_gate"], st.get("regime_modifier", False), price_lookup("VTI"))
+    evs = evaluate(d, profile, book, pb, regime, {cik: t}, owned={cik}, macro=m)
+    if not evs:
+        return None
+    e = evs[0]
+    return {"run_id": None, "date": d, "cik": cik, "list": e.list, "quality": e.quality, "value": e.value,
+            "rank_score": e.rank_score, "rank": None, "iv": e.iv, "mos": e.mos, "exp_return": e.er,
+            "buy_below": e.buy_below, "strong_buy_below": e.strong_buy_below, "price": e.price,
+            "confidence": e.confidence,
+            "detail": {"note": e.note, "failed": e.failed, "near": e.near, "filed": e.filed,
+                       "expensive_above": e.expensive_above, "pe_now": e.pe_now, "pe_median": e.pe_median,
+                       **(e.detail or {}), "on_demand": True}}
+
+
 # ================================================================== daily evaluation
 @dataclass
 class Eval:
