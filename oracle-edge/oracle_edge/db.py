@@ -233,6 +233,11 @@ MIGRATIONS: list[str] = [
     CREATE TABLE IF NOT EXISTS company_info (
         ticker TEXT PRIMARY KEY, fetched_at TEXT, info_json TEXT);
     """,
+    # ---- v14: CEO track records (who ran the company and when; your corrections) ----
+    """
+    CREATE TABLE IF NOT EXISTS ceo_cache (key TEXT PRIMARY KEY, fetched_at TEXT, json TEXT);
+    CREATE TABLE IF NOT EXISTS ceo_manual (cik INTEGER PRIMARY KEY, name TEXT, start TEXT, updated_at TEXT);
+    """,
 ]
 
 

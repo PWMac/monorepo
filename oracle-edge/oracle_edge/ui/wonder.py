@@ -7,7 +7,7 @@ import json
 
 from nicegui import run, ui
 
-from .. import db, rules, wonderful
+from .. import ceo, db, rules, wonderful
 from ..sources import company
 from .charts import zoom_chart
 from .layout import empty, frame, kpi
@@ -53,6 +53,7 @@ def render(s: dict, prof) -> None:
                      "so their returns on capital and debt can't be compared with an operating business's. The Report "
                      "card judges them with the bank or insurer rulebook instead.").classes("oe-muted")
         _management(s)
+        _ceo_card(s)
         return
     wonderful.ensure(prof)
     w = wonderful.get(cik, prof)
@@ -66,8 +67,14 @@ def render(s: dict, prof) -> None:
         kpi(num(w["score"], 0), "Wonderfulness (0–100)", w["tier"], col)
         kpi(f"#{w['rank']:,}", f"of {w['n']:,} companies scored", f"top {max(top * 100, 0.1):.1f}%" if top < 0.5
             else f"bottom {max((1 - top) * 100, 0.1):.0f}%")
-        kpi(w["as_of"][:4], "Latest annual report", f"fiscal year ending {w['as_of']}, filed {w['filed']}")
-        kpi(_bign(w["f"].get("mcap")), "Market value", "for size; the score ignores the price")
+        snap = db.one("SELECT quality, gates_passed FROM snapshots WHERE cik=? AND profile_id=? AND profile_version=? "
+                      "ORDER BY filed DESC LIMIT 1", (cik, *prof.snap))
+        q_ok = bool(snap and snap["gates_passed"] and (snap["quality"] or 0) >= prof.settings.get("quality_min", 70))
+        kpi("Passes" if q_ok else "Fails", "Oracle checklist (Quality)",
+            (f"Quality {snap['quality']:.0f} vs the bar of {prof.settings.get('quality_min', 70):.0f}"
+             + ("" if not snap or snap["gates_passed"] else ", a must-pass rule failed")) if snap and snap["quality"]
+            is not None else "not scored", "#1f6f4a" if q_ok else "#a33a2b")
+        kpi(_bign(w["f"].get("mcap")), "Market value", f"latest annual report: fiscal {w['as_of'][:4]}")
     with ui.card().classes("oe-card w-full"):
         ui.label("The four pillars").classes("oe-h2")
         ui.label("Each measure is ranked against every scored company (100 = the best). Pillars are averages of their "
@@ -130,6 +137,7 @@ def render(s: dict, prof) -> None:
     _history(cik, prof)
     _capital(cik, w)
     _management(s)
+    _ceo_card(s)
     with ui.expansion("How to read this", icon="help_outline").classes("w-full oe-card"):
         ui.markdown(
             "- **Wonderfulness ignores the price.** It asks only how good the business is. Whether it's worth buying "
@@ -274,6 +282,140 @@ def _management(s: dict) -> None:
                      "SEC EDGAR.").classes("oe-small pt-1")
 
     ui.timer(0.2, load, once=True)
+
+
+GRADE_COL = {"A": "#1f6f4a", "B": "#3c8d5f", "C": "#8A5A12", "D": "#d9822b", "F": "#a33a2b"}
+PART_NAMES = {"owners": "Owners' return vs the S&P 500", "growth": "Growth of sales and profit per share",
+              "returns": "Returns on capital (level and change)", "capital": "Capital allocation"}
+
+
+def _rec_lines(m: dict) -> list[str]:
+    out = []
+    if m.get("excess") is not None:
+        out.append(f"Stock {m['tsr'] * 100:+.1f}% a year vs S&P 500 {m['spy'] * 100:+.1f}% "
+                   f"({m['price_from']} → {m['price_to']})")
+    if m.get("rev_cagr") is not None:
+        out.append(f"Sales {m['rev_cagr'] * 100:+.1f}% a year" + (
+            f", profit per share {m['nips_cagr'] * 100:+.1f}% a year" if m.get("nips_cagr") is not None else ""))
+    if m.get("roic_during") is not None:
+        out.append(f"ROIC averaged {m['roic_during'] * 100:.0f}% in office" + (
+            f" vs {m['roic_before'] * 100:.0f}% in the 3 years before" if m.get("roic_before") is not None else ""))
+    if m.get("dollar_test") is not None:
+        out.append(f"Each $1 kept became ${m['dollar_test']:.2f} of market value")
+    if m.get("incr_return") is not None:
+        out.append(f"Return on the capital added: {m['incr_return'] * 100:.0f}%")
+    if m.get("share_cagr") is not None:
+        out.append(f"Share count {m['share_cagr'] * 100:+.1f}% a year")
+    if m.get("acquisitions") and m.get("revenue_added") is not None:
+        out.append(f"Acquisitions {_bign(m['acquisitions'])} vs sales added {_bign(m['revenue_added'])}")
+    return out
+
+
+def ceo_data(s: dict) -> dict:
+    """Everything the CEO card shows (network and database work; run off the UI thread)."""
+    info = company.get(s["ticker"])
+    res = ceo.who(s["cik"], s["ticker"], (info or {}).get("officers"))
+    cur = res.get("current")
+    if cur and cur.get("start"):
+        res["record"] = ceo.record(s["cik"], s["ticker"], cur["start"])
+    hist = [h for h in res.get("history") or [] if h.get("start")]
+    prev = []
+    for i, h in enumerate(hist):
+        end = h.get("end") or (hist[i + 1]["start"] if i + 1 < len(hist) else None)
+        if not end or (cur and h["name"] == cur.get("name") and not h.get("end")):
+            continue
+        if end > "2010-06-30":
+            prev.append((h, end, ceo.record(s["cik"], s["ticker"], h["start"], end).get("rating")))
+    res["prev"] = prev[-4:]
+    other = []
+    if cur and cur.get("qid"):
+        from ..sources import wikidata
+
+        for c in wikidata.companies_led(cur["qid"]):
+            if not c.get("cik") or c["cik"] == s["cik"] or not c.get("start"):
+                continue
+            t = db.scalar("SELECT ticker FROM securities WHERE cik=?", (c["cik"],))
+            if t:
+                other.append((c, t, ceo.record(c["cik"], t, c["start"], c.get("end")).get("rating")))
+    res["other"] = other
+    return res
+
+
+def _ceo_card(s: dict) -> None:
+    box = ui.card().classes("oe-card w-full")
+    with box:
+        ui.label("CEO track record").classes("oe-h2")
+        msg = ui.label("Looking up who runs the company (Wikidata) and computing the record…").classes("oe-muted")
+
+    async def load():
+        res = await run.io_bound(ceo_data, s)
+        msg.delete()
+        with box:
+            draw(res)
+
+    def draw(res):
+        cur = res.get("current")
+        if res.get("conflict"):
+            ui.label(res["conflict"]).classes("text-sm text-amber-800")
+        m = res.get("record") or {}
+        if not cur or not cur.get("start"):
+            ui.label((f"The CEO is {cur['name']}, but the start date isn't known. " if cur else
+                      "No CEO history found " + ("on Wikidata" if res.get("wikidata_ok") else "(Wikidata unreachable)") +
+                      ". ") + "Enter the start date below to rate their record.").classes("oe-muted")
+        else:
+            r = m.get("rating")
+            with ui.row().classes("items-center gap-4 w-full no-wrap"):
+                ui.label(r["grade"] if r else "—").classes("text-5xl font-bold").style(
+                    f"color:{GRADE_COL.get(r['grade']) if r else '#6b7280'}")
+                with ui.column().classes("gap-0"):
+                    ui.label(f"{cur['name']}, CEO since {cur['start']}").classes("text-lg font-semibold")
+                    if r:
+                        ui.label(f"{r['score']:.0f} out of 100").classes("text-sm")
+                    ui.label(f"Source: {cur['source']}" + (f" · record {m['fy0'][:4]}–{m['fy1'][:4]} "
+                             f"({m['years']:.1f} fiscal years)" if m.get("fy1") else "")).classes("oe-small")
+            if not r:
+                ui.label("Not rated yet: " + (m.get("note") or "fewer than two fiscal years in office, so the "
+                         "record would be mostly luck.")).classes("oe-muted")
+            else:
+                rows = "".join(f"<tr><td style='padding:2px 10px 2px 0'>{PART_NAMES[k]}</td>"
+                               f"<td style='width:55%'>{_bar(v / 100, _pcol(v / 100))}</td></tr>"
+                               for k, v in r["parts"].items())
+                ui.html("<table style='width:100%;font-size:13px'>" + rows + "</table>", sanitize=False).classes("w-full")
+            for line in _rec_lines(m):
+                ui.label("• " + line).classes("text-sm")
+            if m.get("note"):
+                ui.label(m["note"]).classes("oe-small")
+        if res.get("prev"):
+            ui.label("Earlier CEOs (from 2010, as far as the data go)").classes("font-semibold pt-2")
+            for h, end, r in res["prev"]:
+                ui.label(f"{h['name']}, {h['start'][:4]}–{end[:4]}: " + (f"{r['grade']} ({r['score']:.0f})" if r else
+                         "not rated (under two fiscal years of data)")).classes("text-sm")
+        for c, t, r in res.get("other") or []:
+            ui.label(f"Also ran {c['label']} ({t}) {c['start'][:4]}–{(c.get('end') or 'now')[:4]}: " +
+                     (f"{r['grade']} ({r['score']:.0f})" if r else "not rated")).classes("text-sm")
+        with ui.expansion("Correct the CEO or start date", icon="edit").classes("w-full"):
+            mm = ceo.manual(s["cik"]) or {}
+            nm = ui.input("CEO name", value=mm.get("name") or (cur or {}).get("name") or "").props("dense outlined")
+            st = ui.input("Start date (YYYY-MM-DD)", value=mm.get("start") or (cur or {}).get("start") or "").props(
+                "dense outlined")
+
+            def save(clear=False):
+                try:
+                    ceo.set_manual(s["cik"], nm.value, None if clear else (st.value or "").strip())
+                except ValueError:
+                    ui.notify("Use a date like 2021-02-15.", type="warning")
+                    return
+                ui.notify("Saved. Reopen the tab to see the new record.", type="positive")
+            with ui.row().classes("gap-2"):
+                ui.button("Save", on_click=lambda: save()).props("unelevated dense")
+                ui.button("Use Wikidata again", on_click=lambda: save(True)).props("flat dense")
+        ui.label("How it's rated: four parts on fixed scales (owners' return vs the S&P 500, growth, returns on "
+                 "capital, capital allocation), from the last annual report before the CEO started. A CEO inherits a "
+                 "business, an industry and a market, so read the grade as how owners fared under this CEO, not as "
+                 "proof of skill; under about five years it is partly luck. See Guide → CEO track record.").classes(
+            "oe-small pt-1")
+
+    ui.timer(0.3, load, once=True)
 
 
 # ===================================================================== ranking page

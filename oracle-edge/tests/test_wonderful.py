@@ -1,5 +1,7 @@
 """Wonderfulness: measures, percentile scoring, strengths and red flags, company profile parsing."""
 
+from datetime import date
+
 import pytest
 
 from oracle_edge import db, rules, wonderful
@@ -79,3 +81,61 @@ def test_company_profile_parse_keeps_leaders_and_governance():
     assert [o["name"] for o in x["officers"]] == ["Ann Lee"] and x["officers"][0]["pay"] == 3_000_000
     assert x["governance"] == {"Board": 4, "Overall": 2} and x["insiders"] == 0.12
     assert x["insider_activity"][0]["trades"] == 3
+
+
+# ------------------------------------------------------------------ CEO track record
+def test_ceo_record_and_rating():
+    from oracle_edge import ceo
+
+    cik, t = 9901, "ZZCEO"
+    with db.tx() as con:
+        con.execute("DELETE FROM facts WHERE cik=?", (cik,))
+        con.execute("DELETE FROM prices WHERE ticker IN (?, 'SPY') AND date IN ('2020-03-02','2024-03-01')", (t,))
+        con.execute("INSERT OR REPLACE INTO securities(cik,ticker,name) VALUES(?,?,?)", (cik, t, "Zed Co"))
+        rows = []
+        for y, rev, ni, eq, sh in (("2019-12-31", 1000, 100, 500, 100), ("2020-12-31", 1100, 115, 560, 99),
+                                   ("2021-12-31", 1210, 130, 620, 98), ("2022-12-31", 1331, 150, 690, 97),
+                                   ("2023-12-31", 1464, 170, 760, 96)):
+            f = f"{int(y[:4]) + 1}-02-15"
+            rows += [(cik, "revenue", y, rev, f), (cik, "net_income", y, ni, f), (cik, "equity", y, eq, f),
+                     (cik, "shares_diluted", y, sh, f), (cik, "dividends_paid", y, -40, f)]
+        con.executemany("INSERT INTO facts(cik,item,fy_end,value,filed) VALUES(?,?,?,?,?)", rows)
+        con.executemany("INSERT OR REPLACE INTO prices(ticker,date,close,adj_close) VALUES(?,?,?,?)",
+                        [(t, "2020-03-02", 20.0, 20.0), (t, "2024-03-01", 40.0, 40.0),
+                         ("SPY", "2020-03-02", 300.0, 300.0), ("SPY", "2024-03-01", 450.0, 450.0)])
+    m = ceo.record(cik, t, "2020-03-01", "2024-03-01")
+    assert m["fy0"] == "2019-12-31" and m["fy1"] == "2023-12-31" and m["years"] == pytest.approx(4.0, abs=0.01)
+    assert m["rev_cagr"] == pytest.approx(0.10, abs=1e-3)
+    assert m["share_cagr"] == pytest.approx((96 / 100) ** (1 / 4.0) - 1, abs=1e-3)
+    t_ = (date(2024, 3, 1) - date(2020, 3, 2)).days / 365.25  # first trading day on/after the start -> end
+    assert m["excess"] == pytest.approx((2 ** (1 / t_) - 1) - (1.5 ** (1 / t_) - 1), abs=1e-9)
+    # $1 test: market value 20x100 = 2,000 -> 40x96 = 3,840 on 4 years of retained profit (115+130+150+170 - 4x40)
+    assert m["dollar_test"] == pytest.approx((3840 - 2000) / (565 - 160), rel=1e-6)
+    r = m["rating"]
+    assert r["grade"] in "AB" and set(r["parts"]) >= {"owners", "growth", "capital"}
+    assert ceo.rate({"years": 1.5}) is None  # too short to rate
+
+
+def test_ceo_who_prefers_your_correction_and_flags_a_stale_wikidata(monkeypatch):
+    from oracle_edge import ceo
+    from oracle_edge.sources import wikidata
+
+    monkeypatch.setattr(wikidata, "ceos", lambda cik, t: [
+        {"qid": "Q1", "name": "Old Boss", "start": "2010-01-01", "end": None}])
+    res = ceo.who(9902, "ZZW", [{"name": "New Person", "title": "CEO & Director"}])
+    assert res["current"]["name"] == "Old Boss" and "Yahoo lists New Person" in res["conflict"]
+    ceo.set_manual(9902, "New Person", "2025-06-01")
+    res = ceo.who(9902, "ZZW", [{"name": "New Person", "title": "CEO & Director"}])
+    assert res["current"] == {"name": "New Person", "start": "2025-06-01", "source": "you"}
+    ceo.set_manual(9902, "", None)
+
+
+def test_wikidata_ceo_parsing():
+    from oracle_edge.sources import wikidata
+
+    rows = [{"ceo": "http://www.wikidata.org/entity/Q2", "ceoLabel": "B", "start": "2015-05-01T00:00:00Z"},
+            {"ceo": "http://www.wikidata.org/entity/Q1", "ceoLabel": "A", "start": "2005-01-01T00:00:00Z",
+             "end": "2015-04-30T00:00:00Z"},
+            {"ceo": "http://www.wikidata.org/entity/Q1", "ceoLabel": "A", "start": "2005-01-01T00:00:00Z"}]
+    out = wikidata.parse_ceos(rows)
+    assert [(x["name"], x["start"], x["end"]) for x in out] == [("A", "2005-01-01", "2015-04-30"), ("B", "2015-05-01", None)]
