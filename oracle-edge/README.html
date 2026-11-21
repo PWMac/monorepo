@@ -74,7 +74,7 @@ footer { color:var(--muted); font-size:12.5px; margin-top:50px; border-top:1px s
   <h1><img src="brand/logo/oracle-edge-header-tagline.png" srcset="brand/logo/oracle-edge-header-tagline@2x.png 2x"
      alt="Oracle Edge: Screen, Rank, Signal"></h1>
   <p>A local stock screener that thinks like the Oracle. This guide explains <b>what</b> the app does,
-  <b>how</b> it decides, and <b>why</b> it was built this way. Version 0.11.4.</p>
+  <b>how</b> it decides, and <b>why</b> it was built this way. Version 0.12.0.</p>
   <p style="font-size:14px">Two documents: this <b>guide</b> is the user manual, kept current with every release and opened from
   "Guide" in the app. The <b>plan</b> (<code>docs/Value-Picker-Plan.html</code> with the source code) is the design record: the research, architecture,
   database layout and the decision log behind the app.</p>
@@ -110,6 +110,7 @@ footer { color:var(--muted); font-size:12.5px; margin-top:50px; border-top:1px s
   <a href="#folders">18. Where things live</a>
   <a href="#whys">19. Why it works this way</a>
   <a href="#limits">20. Known limits</a>
+  <a href="#audit">20a. Accuracy audit</a>
   <a href="#glossary">21. Glossary</a>
 </nav>
 
@@ -186,14 +187,29 @@ every request and allows 10 requests per second; the app stays under that.</td><
 <tr><td>Industry, ADR ratio</td><td>SEC submissions and annual-report cover pages</td><td>The industry code (SIC) routes banks and insurers to their
 own rulebooks. The ADR ratio is read from foreign filers' cover pages. When the cover page can't be read, a short list of
 checked ratios shipped with the app (<code>adr_ratios.yaml</code>) fills it. A ratio you set on a stock page always wins.</td></tr>
-<tr><td>Daily prices</td><td>Stooq, then Yahoo Finance as a fallback</td><td>If one source fails, the next is tried automatically.
-Tiingo and EODHD (paid, more reliable) can be added and reordered under <b>Data → Price sources</b> with an API key. A Schwab connection is reserved for later.</td></tr>
+<tr><td>Daily prices and stock splits</td><td>Yahoo Finance, then Stooq as a fallback</td><td>Yahoo gives the price that
+actually traded (adjusted only for splits), a total-return price that also counts dividends, and the date and ratio of every
+split. Stooq only has a dividend-adjusted price, so it is the fallback. If one source fails, the next is tried automatically.
+When a source re-adjusts its history (after a split or a dividend), the stored history is rescaled to match and holdings are
+restated so their value carries through (more shares after a split; the extra fraction after a dividend is the reinvested
+dividend). Tiingo and EODHD (paid) can be added and reordered under <b>Data → Price sources</b>.</td></tr>
 <tr><td>Rates, FX, GDP, market cap</td><td>FRED (Federal Reserve Bank of St. Louis)</td><td>30- and 10-year Treasury yields,
 exchange rates for foreign filers, the Fed's Z.1 equity market value and GDP for the Buffett Indicator, and the VIX for the market overlay.
 If FRED stops answering, the app gives up after three failed series in a row, keeps the data it already has, and tries again at the next
 daily update. The VIX then comes from Yahoo (<code>^VIX</code>), and so do exchange rates FRED doesn't publish (for example
 the Chilean and Peruvian peso).</td></tr>
+<tr><td>World market value and GDP</td><td>World Bank open data (World Federation of Exchanges)</td><td>Annual world totals for the
+global Buffett Indicator.</td></tr>
+<tr><td>News headlines</td><td>Yahoo Finance (market RSS and per-stock news), Google News as a fallback</td><td>Headlines and links
+only, cached for 30–60 minutes. Shown on Today; the articles open on the publishers' sites.</td></tr>
 </table>
+<div class="why"><b>Why stock splits need care.</b> Price sources adjust the whole price history for every split, so all stored
+prices are on today's share basis. SEC filings are not: each one states per-share figures on the basis of the day it was
+filed. Before 0.12.0 a stock that later split 10-for-1 looked ten times cheaper in the history than it was (and was bought in
+backtests for that reason), and a stock that had just split looked ten times cheaper until its next annual report. Now every
+figure is restated to one basis: older filings to the newest filing's basis when a company is scored, and that to today's
+basis when it is compared with a price. Split dates come from Yahoo; for companies without a Yahoo history they are inferred
+from the filings themselves (a later filing restating an earlier year's share count by 2-for-1, 3-for-1, 10-for-1 and so on).</div>
 <div class="why"><b>Why filing dates matter.</b> A company's 2025 results aren't known until its 10-K is filed, often in
 February or March. Every calculation uses only facts filed <i>on or before</i> the day being evaluated. That's what keeps
 the backtests honest: no peeking at numbers nobody had yet ("look-ahead bias").</div>
@@ -334,20 +350,26 @@ earnings.</div>
 <div class="card"><b>Model B: 10-year projection</b> (Buffettology)<br>
 Projects EPS 10 years out at the sustainable growth rate (ROE × retained share, capped at 20%). Multiplies by the
 company's own median P/E (capped at 20) and adds dividends. That gives the expected annual return from today's price,
-and the price that would earn exactly 10%.</div>
+and the price that would earn exactly the profile's hurdle (10% in Oracle Classic, 15% in the Buffettology profiles).</div>
 </div>
 <p>If only one model can run (for example, owner earnings are negative), its value is cut by a further 15%.</p>
 <table>
 <tr><th>Output</th><th>How</th></tr>
 <tr><td><b>Margin of safety</b></td><td>1 − price ÷ intrinsic value. At least <b>25%</b> is needed to buy.</td></tr>
-<tr><td><b>Expected 10-yr return</b></td><td>Lower of the two models. At least <b>10% a year</b> is needed to buy (the "Buffettology 15%" profile asks for 15%).</td></tr>
-<tr><td><b>Buy below</b></td><td>Lower of value × 0.75 and the price that gives a 10% return</td></tr>
-<tr><td><b>Strong buy below</b></td><td>Value × 0.60 (an extra 15% margin)</td></tr>
-<tr><td><b>Value score</b> (0–100)</td><td>Scores margin of safety, expected return and earnings yield against bonds on the same floor / target / excellent scale</td></tr>
+<tr><td><b>Expected 10-yr return</b></td><td>Lower of the two models. At least the profile's <b>hurdle</b> is needed to buy (10% a year in Oracle Classic, 15% in the Buffettology profiles).</td></tr>
+<tr><td><b>Buy below</b></td><td>The highest price that passes both tests: the lower of value × 0.75 and the price at which every model
+still earns the hurdle. <b>A stock is in the Buy Zone exactly when its close is at or below this price</b> (and it passes the
+quality checks), so the price shown and the decision always agree.</td></tr>
+<tr><td><b>Strong buy below</b></td><td>The lower of value × 0.60 (an extra 15% margin) and the hurdle price</td></tr>
+<tr><td><b>Value score</b> (0–100)</td><td>From the expected return: 0 at 5% a year, 70 at the hurdle, 100 at 20% (or at the hurdle + 5
+points when the hurdle is 15% or more), straight lines in between. Minus 10 points when the owner-earnings yield is below the
+30-year Treasury yield.</td></tr>
 </table>
 <p><b>Banks and insurers</b> are valued on book value instead. The price-to-book multiple that their return on equity justifies
 is (ROE − growth) ÷ (required return − growth), capped at 3×. Banks use tangible book. The lower of that and the
-10-year projection is used. <b>Foreign filers</b> are converted to dollars with Federal Reserve exchange rates and divided by the
+10-year projection is used. The expected return of the book-value model counts the dividend yield as well as book growth and
+the move toward the justified multiple, so a bank bought at its justified price earns its required return (before 0.12.0 the
+dividends were left out, which understated every bank's and insurer's return). <b>Foreign filers</b> are converted to dollars with Federal Reserve exchange rates and divided by the
 ADR ratio so the value matches the U.S.-traded share. If the implied P/E is implausible (under 3 or over 150), the stock
 stays <i>pending</i> rather than showing a wrong number.</p>
 <div class="why"><b>Why the Treasury rate.</b> The Oracle has said he discounts at the long-term government rate and
@@ -698,8 +720,19 @@ recommendation, and the daily email includes a market alert (sent once, when a r
 <h3>The Buffett Indicator</h3>
 <p>Total U.S. stock market value divided by GDP, which the Oracle once called "probably the best single measure of where
 valuations stand." It's built from the Fed's quarterly Z.1 market value of nonfinancial corporate equities and GDP, then
-carried forward daily using the total-market ETF (VTI). This matches the published readings (about 220–230% in 2026). Versions
-before 0.11.1 used the all-sectors series, which also counts financial companies and read about 1.7 times higher.</p>
+carried forward daily by the <b>price</b> change of the total-market ETF (VTI) since the quarter's end (dividends paid out don't
+add to market value, so the dividend-adjusted price isn't used). This matches the published readings (about 220–230% in 2026).
+Versions before 0.11.1 used the all-sectors series, which also counts financial companies and read about 1.7 times higher.</p>
+<ul>
+<li><b>Both numbers are shown</b> on the Market page: the market value (the quarter-end level and how far it has moved since) and
+GDP (the latest quarter, at a yearly rate), each charted over time.</li>
+<li><b>Point in time.</b> The Fed publishes a quarter's market value about ten weeks after the quarter ends and GDP about a month
+after. A past reading uses only the quarters already published on that day, so backtests can't see numbers nobody had yet. The
+history chart dates each point at its quarter's end.</li>
+<li><b>Global Buffett Indicator.</b> The World Bank's annual world totals (listed companies' market value ÷ world GDP). The latest
+year-end value is moved to today by the world total-market ETF (VT), over the latest published world GDP; both years are shown.
+Other markets list far fewer of their companies, so the US zones don't apply: compare the world reading with its own average.</li>
+</ul>
 <table>
 <tr><th>Ratio</th><th>Zone</th><th>Margin of safety, if "raise MOS when market is expensive" is on</th></tr>
 <tr><td>under 90%</td><td>Undervalued</td><td>20%</td></tr>
@@ -894,12 +927,22 @@ move together.</li>
 <li>On a stock's price chart, the <b>vs S&amp;P 500</b> switch shows both as % change from the start of whatever range you pick, so
 the comparison restarts at zero each time you change the timeframe.</li>
 </ul>
+<h3 id="layout">Navigation and layout</h3>
+<ul>
+<li>The menu is grouped (Daily, Analysis, Setup) and marks the page you're on. The <b>☰</b> button folds it into a narrow rail of
+icons (hover an icon for its name) and back; the app remembers your choice. On a narrow window the menu slides over the page instead.</li>
+<li>Pages use the full width of the window (up to very wide screens); rows of summary cards wrap into as many columns as fit, and long
+descriptions keep a comfortable line length.</li>
+</ul>
 <table>
 <tr><th>Screen</th><th>What it's for</th></tr>
 <tr><td><b>Today</b></td><td>The Buffett Indicator and the Bitcoin early warning, a Market temperature card when either is at an extreme,
-actions for the next open with strength ratings (and "mark done"), price alerts, the Buy Zone, pricey and near-miss lists, holdings.
-On a day with no actions but recent price alerts, it explains where each alerted stock stands (already held, still confirming, no free
-slot, not cheap enough at the close, and so on), because an alert only means a price touched a level. The summary cards are clickable: each opens its full list (below).</td></tr>
+actions for the next open with strength ratings (and "mark done"), price alerts, news, the Buy Zone, pricey and near-miss lists,
+holdings. <b>Price alerts</b> lists every alert of the last 7 days; open one (or switch on <b>Show all reasons</b>) to see why it did
+or didn't lead to a trade: it led to a signal on a given day, or the stock is already held, still confirming, has no free slot, closed
+above the buy price, failed a quality check, and so on. An alert only means a price touched a level. <b>News</b>: market headlines,
+and headlines on your holdings, the model's holdings and stocks with price alerts (filter by each); they load after the page, so a
+slow news site never holds it up. The summary cards are clickable: each opens its full list (below).</td></tr>
 <tr><td><b>Stock lists</b></td><td>Opened from the Today cards (Buy Zone, Wonderful but pricey, Model holdings), with tabs for near misses and
 all wonderful companies. One sortable table per list: rank, strength, Rank score, Quality, Value; price, intrinsic value, buy and strong-buy
 prices, margin of safety, % above the buy price, expected 10-year return, earnings yield, P/E vs its 10-year median, market cap; and the
@@ -907,7 +950,9 @@ prices, margin of safety, % above the buy price, expected 10-year return, earnin
 payback, debt-to-equity, buybacks, the $1 test, predictability). Shift-click to sort by a second column, hover a header for its meaning,
 filter by text, export to CSV, click a row to open the stock.</td></tr>
 <tr><td><b>Stock page: Report card tab</b></td><td>Quality, value, rank, the price ladder, price targets and your own alerts, the price-vs-value chart,
-early warnings, every rule with its 10-year history, your judgment checklist (circle of competence, management, moat) and signal history</td></tr>
+early warnings, every rule with its 10-year history, your judgment checklist (circle of competence, management, moat) and signal
+history: the live signals and the backtests of the current profile version only (holdings tests, experiments and backtests of
+older versions are left out), newest first, with <b>Show all</b></td></tr>
 <tr><td><b>Stock page: Chart &amp; key stats tab</b></td><td>What a Yahoo or Google Finance quote page shows, from the app's own data:
 <ul style="margin:4px 0">
 <li><b>Chart:</b> the stock's whole history as candles or a line, with volume and the 50- and 200-day averages; timeframes from
@@ -927,7 +972,9 @@ currency, and their P/E uses the valuation's US-dollar conversion.</td></tr>
 <tr><td><b>Signals</b></td><td>The full signal journal with strength ratings, scores, filters and CSV export</td></tr>
 <tr><td><b>Performance</b></td><td>Your money vs the same money in the S&amp;P 500, growth of $1, drawdowns, episodes, rank-bucket results
 against the S&amp;P over the same days, Buy Zone stints</td></tr>
-<tr><td><b>Market</b></td><td>Buffett Indicator history and its valuation zones; the Bitcoin early warning: today's reading, its
+<tr><td><b>Market</b></td><td>The US Buffett Indicator with the market value and GDP behind it (each charted), its history and
+valuation zones; the global Buffett Indicator from World Bank data with world market value and GDP; Treasury yields; the Bitcoin
+early warning: today's reading, its
 history against the cut-offs with every past call marked right or wrong, scores against the base rate, a table of every call,
 what QQQ did after each kind of reading, the live record and recent market alerts</td></tr>
 <tr><td><b>Profiles</b></td><td>A card per profile: what it is for, what differs from the one it was copied from, and what it
@@ -1029,7 +1076,46 @@ shares or use fractional-share buying where it's offered.</li>
 different decade could favor a different number, so treat its answer as a range.</li>
 <li><b>Judgment still matters.</b> Moat durability, management integrity and whether you understand the business are your call;
 use the checklist on each report card.</li>
+<li><b>Approximations by design</b> (deliberate, documented, and conservative where they matter): quarterly EPS for a fourth quarter is
+the full year minus nine months (share counts differ slightly between quarters); a missing debt line counts as no debt; Model B
+treats dividends as received at year 10 without reinvesting them (understates the return slightly); the US indicator holds GDP at
+its latest quarter between releases; the world indicator holds world GDP at its latest published year.</li>
 </ul>
+
+<h2 id="audit"><span class="n">20a</span>Accuracy audit (version 0.12.0)</h2>
+<p>Every calculation in the app was reviewed line by line and checked against independently worked answers: the financial
+metrics, quality scoring, both valuation models and the bank/insurer model, the rank, the signal ladder, portfolio accounting
+(fills, cash, time-weighted returns, CAGR, drawdowns, Sharpe), the Buy Zone records, the quarterly checks, price targets and
+alerts, both Buffett Indicators, the Bitcoin early warning and the quote page. A read-only check was also run against the real
+database. What was wrong, and is now fixed:</p>
+<table>
+<tr><th>Problem</th><th>Effect before 0.12.0</th><th>Fix</th></tr>
+<tr><td><b>Stock splits</b>: SEC per-share figures on the filing day's share basis, prices on today's</td><td>A stock that later split
+looked many times cheaper in the history (LRCX, AAPL, TSCO, CTAS and others sat in the Buy Zone for hundreds of days with P/Es
+below 4); a stock that had just split looked far cheaper until its next annual report; a split looked like share dilution</td>
+<td>All per-share figures restated to one share basis (see section 4)</td></tr>
+<tr><td><b>Price history after a split or dividend</b>: updates re-fetched only the last 10 days</td><td>Going forward, a split would
+have shown as a 50–90% one-day loss in the portfolio, and dividends would have been lost from the total return</td>
+<td>The older stored history is rescaled and holdings restated whenever a source re-adjusts</td></tr>
+<tr><td><b>Share counts tagged in thousands</b> by some filers (e.g. 273,298 for 273 million)</td><td>That year's per-share figures 1,000×
+too large (an insurer's book value per share in the thousands)</td><td>Checked against net income ÷ EPS from the same filing and
+rescaled</td></tr>
+<tr><td><b>Two fiscal years ending in one calendar year</b> (Jan 1 and Dec 31, 52/53-week calendars)</td><td>One year dropped from the
+10-year record (265 cases in 131 companies)</td><td>Fiscal years grouped by date, not by calendar year</td></tr>
+<tr><td><b>Growth rates counted years by position</b></td><td>A missing year in the record overstated a growth rate</td>
+<td>Years counted from the actual dates</td></tr>
+<tr><td><b>Bank and insurer expected return</b></td><td>Left out dividends; the buy-below price didn't include one of the tests</td>
+<td>Dividends included; buy-below is the exact Buy Zone test for every model</td></tr>
+<tr><td><b>Buffett Indicator history</b></td><td>Used quarters before they were published; points dated at the quarter's start;
+scaled by VTI including dividends</td><td>Publication lags, quarter-end dates, price-only scaling</td></tr>
+<tr><td><b>Smaller items</b></td><td>CAGR assumed the curve started at exactly 1; holding weights ignored cash; a sale of a delisted stock
+never filled; the value score saturated below a 20%+ hurdle; the quarterly rebuild could treat two quarters as one; wording said
+"average of the two models" (it's the lower) and "10% return" on a 15% profile</td><td>Each corrected</td></tr>
+</table>
+<p>Each fix has a test with a worked answer (<code>tests/test_accuracy.py</code>), including a check over 300 random companies
+that "price ≤ buy-below" gives exactly the same answer as "margin of safety ≥ the gate and expected return ≥ the hurdle". After
+updating, the app rebuilds its results once (a notice with a <b>Rebuild now</b> button appears until it has). Backtests keep
+their old results until you recalculate them.</p>
 
 <!-- ================================================================ 21 -->
 <h2 id="glossary"><span class="n">21</span>Glossary</h2>
@@ -1058,7 +1144,7 @@ use the checklist on each report card.</li>
 <tr><td><b>XBRL</b></td><td>The tagged data format companies use to file financial statements with the SEC</td></tr>
 </table>
 
-<footer>Oracle Edge v0.11.4 · research tool, not financial advice · MIT license. The full design plan, with research sources,
+<footer>Oracle Edge v0.12.0 · research tool, not financial advice · MIT license. The full design plan, with research sources,
 is in <code>docs/Value-Picker-Plan.html</code> with the source code.</footer>
 </main>
 </div>

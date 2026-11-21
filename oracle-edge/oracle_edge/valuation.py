@@ -197,8 +197,10 @@ def value_enhanced(price: float, vi: dict, st: dict, t30: float, mos_gate: float
         if not ivs:
             continue
         iv_s = min(ivs) if len(ivs) == 2 else ivs[0] * 0.85
+        hp_a = _pv(flows, flows[-1] * pe_s, hurdle) if iv_a is not None else None
+        hps = [x for x in (hp_a, iv_b) if x is not None]
         out[name] = {"iv": iv_s, "er": min(ers) if ers else None, "g": gs, "exit_pe": pe_s, "w": wt,
-                     "iv_a": iv_a, "iv_b": iv_b}
+                     "iv_a": iv_a, "iv_b": iv_b, "hp": min(hps) if hps else iv_s}
     if "base" not in out:
         return Valuation(None, None, None, None, None, None, None, None, None, None, r, g, exit_pe, pe_now, pe_med,
                          ey, pepg, "no positive owner earnings or EPS", {"model": "enhanced"})
@@ -208,7 +210,8 @@ def value_enhanced(price: float, vi: dict, st: dict, t30: float, mos_gate: float
     er = sum(e * wt for e, wt in ers) / sum(wt for _, wt in ers) if ers else None
     mos = 1 - price / iv if iv > 0 else None
     b = out["base"]
-    hp = min(x for x in (b["iv_b"], iv) if x is not None)
+    # price earning the hurdle: each scenario's own hurdle price, probability-weighted like the value itself
+    hp = sum(v["hp"] * v["w"] for v in out.values()) / tw
     buy_below = min(iv * (1 - mos_gate), hp)
     strong = min(iv * (1 - (mos_gate + st.get("strong_extra_mos", 0.15))), hp)
     extra = {"model": "enhanced", "scenarios": {k: {"iv": v["iv"], "er": v["er"], "g": v["g"], "exit_pe": v["exit_pe"]}
@@ -255,23 +258,56 @@ def value_financial(price: float, vi: dict, st: dict, t30: float, mos_gate: floa
         return Valuation(None, iv_a, vb.iv_b, None, None, vb.er_b, None, None, None, None, k, g, vb.exit_pe,
                          vb.pe_now, vb.pe_median, None, vb.pepg, "no book value or EPS")
     iv = min(ivs) if len(ivs) == 2 else ivs[0] * 0.85
+    payout = min(max(vi.get("payout") or 0.0, 0.0), 1.0)
+    div_ps = payout * roe * book if (book and book > 0 and roe > 0) else 0.0  # this year's dividend per share
+
+    def er_a_at(p: float) -> float | None:
+        """Model A's yearly return at price p over 10 years: book grows at g, the price/book catches up to the
+        justified level, plus the dividend yield (the earnings not retained are paid out)."""
+        if not (iv_a and p and p > 0):
+            return None
+        return (iv_a / p) ** 0.1 * (1 + g) - 1 + div_ps / p
+
     er = vb.er_b
-    er_a = ((iv_a / price) ** 0.1 * (1 + g) - 1) if (iv_a and price) else None  # value catch-up + growth, 10 yrs
+    er_a = er_a_at(price)
     if er is not None and er_a is not None:
         er = min(er, er_a)
+    elif er is None:
+        er = er_a
     mos = 1 - price / iv if iv > 0 else None
-    hp = vb.iv_b if vb.iv_b is not None else iv
+    # the highest price that still earns the hurdle under every model used (er_a falls as the price rises)
+    hps = [vb.iv_b] if vb.iv_b is not None else []
+    if iv_a:
+        hps.append(_solve_price(er_a_at, st["hurdle"], iv_a))
+    hp = min(hps) if hps else iv
     buy_below = min(iv * (1 - mos_gate), hp)
     strong = min(iv * (1 - (mos_gate + st.get("strong_extra_mos", 0.15))), hp)
     return Valuation(iv, iv_a, vb.iv_b, er, er_a, vb.er_b, mos, buy_below, strong, 1.5 * iv, k, g, vb.exit_pe,
                      vb.pe_now, vb.pe_median, None, vb.pepg, f"P/B justified {pb:.2f}×")
 
 
+def _solve_price(er_at, hurdle: float, scale: float) -> float:
+    """The price at which er_at(price) = hurdle, for a return that falls as the price rises (bisection)."""
+    lo, hi = scale * 1e-4, scale * 100.0
+    if (er_at(hi) or -1) >= hurdle:
+        return hi
+    if (er_at(lo) or -1) < hurdle:
+        return 0.0
+    for _ in range(100):
+        mid = (lo + hi) / 2
+        if (er_at(mid) or -1) >= hurdle:
+            lo = mid
+        else:
+            hi = mid
+    return lo
+
+
 def value_score(er: float | None, rule: dict | None = None) -> float:
-    """0 at 5%, 70 at the hurdle, 100 at 20%+."""
+    """0 at 5%, 70 at the hurdle, 100 at 20%+ (or 5 points above the hurdle when the hurdle is 15%+)."""
     if er is None:
         return 0.0
-    lo, t, hi = 0.05, (rule or {}).get("target", 0.10), 0.20
+    t = (rule or {}).get("target", 0.10)
+    lo, hi = 0.05, max(0.20, t + 0.05)
     if er <= lo:
         return 0.0
     if er >= hi:

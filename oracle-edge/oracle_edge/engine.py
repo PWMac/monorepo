@@ -144,11 +144,14 @@ def build_snapshots(profile: Profile, ciks: list[int], since: str | None = None,
     since: only store snapshots whose filing date >= since (plus the last one before it, so the
     company has a valid snapshot on `since`). latest_only: just the most recent filing (daily runs).
     """
+    from .splits import Splits
+
     st = profile.settings
     lookback, min_years = st["lookback_years"], st["min_years"]
     rules_by_id = {r["id"]: r for r in profile.all_rules()}
     weights = profile.body["category_weights"]
     sec = {r["cik"]: r for r in db.rows("SELECT cik,ticker,category,is_foreign,currency FROM securities")}
+    sp = Splits()
     con = db.get()
     n_done = 0
     con.execute("BEGIN IMMEDIATE")
@@ -161,6 +164,7 @@ def build_snapshots(profile: Profile, ciks: list[int], since: str | None = None,
             if not facts:
                 continue
             filed_dates = sorted({f["filed"] for f in facts})
+            csp = sp.for_company(info["ticker"], facts)
             if latest_only:
                 targets = filed_dates[-1:]
             elif since:
@@ -169,16 +173,17 @@ def build_snapshots(profile: Profile, ciks: list[int], since: str | None = None,
             else:
                 targets = filed_dates
             targets_set = set(targets)
-            state: dict[tuple[str, str], float] = {}
+            state: dict[tuple[str, str], tuple[float, str]] = {}
             idx = 0
             for F in filed_dates:
                 while idx < len(facts) and facts[idx]["filed"] <= F:
                     f = facts[idx]
-                    state[(f["item"], f["fy_end"])] = f["value"]
+                    state[(f["item"], f["fy_end"])] = (f["value"], f["filed"])
                     idx += 1
                 if F not in targets_set:
                     continue
-                row = _snapshot_row(cik, info, profile, rules_by_id, weights, state, lookback, min_years, F, prices)
+                row = _snapshot_row(cik, info, profile, rules_by_id, weights, on_basis(state, F, csp, info["ticker"]),
+                                    lookback, min_years, F, prices, csp)
                 if row:
                     con.execute(
                         "INSERT OR REPLACE INTO snapshots(cik,profile_id,profile_version,filed,fy_end,quality,"
@@ -200,14 +205,35 @@ def build_snapshots(profile: Profile, ciks: list[int], since: str | None = None,
 
 
 DATA_RULE_IDS = {"u1", "bu1", "iu1"}
+SHARE_ITEMS = ("shares_diluted",)   # share counts: x split factor
+PER_SHARE_ITEMS = ("eps_diluted",)  # per-share figures: / split factor
 
 
-def _snapshot_row(cik, info, profile, rules_by_id, weights, state, lookback, min_years, F, prices):
+def on_basis(state: dict, F: str, sp, ticker: str | None) -> dict:
+    """Point-in-time facts (value, filed) restated on the share basis of date F. Each filing states per-share
+    figures on the basis of the day it was filed; a later split (before F) is applied to the older filings so
+    every year of the record is comparable. Everything else passes through unchanged."""
+    out = {}
+    for (item, fy), (v, filed) in state.items():
+        if v is not None and (item in SHARE_ITEMS or item in PER_SHARE_ITEMS):
+            f = sp.factor(ticker, filed, F)
+            if f != 1.0:
+                v = v * f if item in SHARE_ITEMS else v / f
+        out[(item, fy)] = v
+    return out
+
+
+def _snapshot_row(cik, info, profile, rules_by_id, weights, state, lookback, min_years, F, prices, sp=None):
     s = build_statement(state, lookback)
     if not s["years"]:
         return None
     cat = info["category"] if info["category"] in ("bank", "insurer") else "standard"
     fyp = prices.fy_prices(info["ticker"], s["years"]) if prices else None
+    if fyp and sp is not None:
+        # stored prices are on today's share basis; this snapshot's per-share figures on the basis of date F
+        f = sp.factor(info["ticker"], F)
+        if f != 1.0:
+            fyp = {y: v * f for y, v in fyp.items()}
     m = compute(s, fyp)
     if cat == "bank":
         m.update(compute_bank(s))
@@ -282,6 +308,9 @@ class SnapshotBook:
             a[1].append(r)
         self.info = {r["cik"]: dict(r) for r in db.rows(
             "SELECT cik, ticker, category, is_foreign, currency, adr_ratio, adr_source FROM securities")}
+        from .splits import Splits
+
+        self.splits = Splits()
 
     def asof(self, cik: int, d: str):
         a = self.by_cik.get(cik)
@@ -344,6 +373,23 @@ def _pending(base, note, category="standard"):
     return Eval(list="pending", value=None, rank_score=None, iv=None, mos=None, er=None, buy_below=None,
                 strong_buy_below=None, expensive_above=None, pe_now=None, pe_median=None, note=note,
                 category=category, **base)
+
+
+PER_SHARE_VI = ("oe_ps", "eps3", "eps_last", "bvps", "book_ps", "oe_norm_ps", "eps_norm")
+
+
+def split_scale(vi: dict, f: float) -> dict:
+    """Valuation inputs restated after splits: per-share figures / f, the share count x f."""
+    if f == 1.0:
+        return vi
+    out = dict(vi)
+    for k in PER_SHARE_VI:
+        if out.get(k) is not None:
+            out[k] = out[k] / f
+    out["eps_by_fy"] = {y: e / f for y, e in (vi.get("eps_by_fy") or {}).items()}
+    if out.get("shares"):
+        out["shares"] = out["shares"] * f
+    return out
 
 
 def _foreign_scale(vi: dict, info: dict, d: str, macro, pb_fy_dates) -> tuple[dict | None, str]:
@@ -412,6 +458,8 @@ def evaluate(date: str, profile: Profile, snaps: SnapshotBook, pb: PriceBook, re
                 out.append(_pending(base, "no recent price", category))
             continue
         vi = json.loads(s["val_inputs"] or "{}")
+        # the snapshot is on the share basis of its filing date; prices on today's (every split applied)
+        vi = split_scale(vi, snaps.splits.factor(t, s["filed"]) if hasattr(snaps, "splits") else 1.0)
         if foreign:
             vi2, why = _foreign_scale(vi, info, date, macro, None)
             if vi2 is None:
@@ -441,7 +489,9 @@ def evaluate(date: str, profile: Profile, snaps: SnapshotBook, pb: PriceBook, re
         mcap = price * shares if shares else None
         dvol = pb.dollar_volume(t, date)
         size_ok = (mcap or 0) >= st["min_market_cap"] and (dvol or 0) >= st["min_dollar_volume"]
-        val_ok = v.mos is not None and v.mos >= gate_c and v.er is not None and v.er >= hurdle
+        # cheap enough = at or below the buy-below price, which already combines the margin of safety and the
+        # price that earns the hurdle under every model used (so the Buy Zone and the price shown always agree)
+        val_ok = v.mos is not None and v.er is not None and v.buy_below is not None and price <= v.buy_below
         if gates and q is not None and q >= qmin and size_ok and val_ok:
             lst = "buy"
         elif gates and q is not None and q >= qmin and size_ok:

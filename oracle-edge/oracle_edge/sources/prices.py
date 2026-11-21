@@ -83,8 +83,11 @@ class Stooq(PriceSource):
 
 
 class Yahoo(PriceSource):
-    name, label = "yahoo", "Yahoo Finance via yfinance (free, can break)"
+    name, label = "yahoo", "Yahoo Finance via yfinance (free; split-adjusted close and dividend-adjusted close)"
     supports_bulk = True
+
+    def __init__(self):
+        self.splits_found: list[tuple[str, str, float]] = []  # (ticker, date, ratio) seen in the last download
 
     def daily_bars(self, tickers, start, end):
         import yfinance as yf
@@ -94,7 +97,7 @@ class Yahoo(PriceSource):
             chunk = tickers[i : i + 80]
             data = yf.download(
                 chunk, start=str(start), end=str(end + pd.Timedelta(days=1)), auto_adjust=False,
-                group_by="ticker", threads=True, progress=False,
+                group_by="ticker", threads=True, progress=False, actions=True,
             )
             if data is None or data.empty:
                 continue
@@ -103,6 +106,11 @@ class Yahoo(PriceSource):
                     d = data[t] if isinstance(data.columns, pd.MultiIndex) else data
                 except KeyError:
                     continue
+                if "Stock Splits" in d.columns:
+                    sp = d["Stock Splits"].fillna(0)
+                    for when, ratio in sp[sp > 0].items():
+                        if float(ratio) != 1.0:
+                            self.splits_found.append((t, when.strftime("%Y-%m-%d"), float(ratio)))
                 d = d.dropna(subset=["Close"])
                 if d.empty:
                     continue
@@ -186,7 +194,10 @@ class SchwabMarketData(PriceSource):
 
 
 REGISTRY: dict[str, type[PriceSource]] = {c.name: c for c in (Stooq, Yahoo, Tiingo, EODHD, SchwabMarketData)}
-DEFAULT_ORDER = ["stooq", "yahoo"]
+DEFAULT_ORDER = ["yahoo", "stooq"]
+"""Yahoo first: its 'Close' is the price that actually traded (adjusted only for splits) and 'Adj Close' adds
+dividends, and it reports split dates. Stooq has only a dividend-adjusted close, so it is the fallback."""
+OLD_DEFAULT_ORDER = ["stooq", "yahoo"]
 
 
 def ordered_sources() -> list[PriceSource]:
@@ -194,21 +205,164 @@ def ordered_sources() -> list[PriceSource]:
     return [REGISTRY[n]() for n in order if n in REGISTRY]
 
 
+REBASE_TOL = 0.0005  # a stored price differing from the source's by more than 0.05% = the basis changed
+
+
 def store(df: pd.DataFrame, source: str) -> int:
+    """Upsert bars. Where they overlap stored bars on a different basis (the source re-adjusted its history for a
+    split or dividend), the older stored history is rescaled first, so the series stays continuous."""
     if df is None or df.empty:
         return 0
     df = df.dropna(subset=["close"])
-    recs = [
-        (r.ticker, str(r.date)[:10], r.open, r.high, r.low, r.close, r.adj_close, r.volume, source)
-        for r in df.itertuples(index=False)
-    ]
+    n = 0
+    for t, g in df.groupby("ticker", sort=False):
+        rebase_overlap(t, g)
+        recs = [(r.ticker, str(r.date)[:10], r.open, r.high, r.low, r.close, r.adj_close, r.volume, source)
+                for r in g.itertuples(index=False)]
+        with db.tx() as con:
+            con.executemany(
+                "INSERT OR REPLACE INTO prices(ticker,date,open,high,low,close,adj_close,volume,source) "
+                "VALUES(?,?,?,?,?,?,?,?,?)", recs)
+        n += len(recs)
+    return n
+
+
+def _ratios(t: str, g: pd.DataFrame) -> list[tuple[str, float | None, float | None]]:
+    """(date, new close / stored close, new adj / stored adj) on the dates both have, oldest first."""
+    dates = [str(d)[:10] for d in g["date"]]
+    if not dates:
+        return []
+    old = {r["date"]: r for r in db.rows("SELECT date, close, adj_close FROM prices WHERE ticker=? AND date BETWEEN ? "
+                                         "AND ?", (t, min(dates), max(dates)))}
+    out = []
+    for r in g.itertuples(index=False):
+        d = str(r.date)[:10]
+        o = old.get(d)
+        if not o:
+            continue
+        rc = (float(r.close) / o["close"]) if (o["close"] and r.close) else None
+        ra = (float(r.adj_close) / o["adj_close"]) if (o["adj_close"] and r.adj_close) else None
+        out.append((d, rc, ra))
+    return sorted(out)
+
+
+def rebase_overlap(t: str, g: pd.DataFrame) -> dict | None:
+    """If the new bars' basis differs from the stored bars', rescale every stored bar up to the last date where they
+    differ, so old and new join without a jump. A change in the close by a usual split ratio is recorded as a split.
+    Holdings in every portfolio are restated so their value doesn't change (more shares after a split; after a
+    dividend adjustment, the extra fraction of a share is the reinvested dividend)."""
+    rs = _ratios(t, g)
+    off = [x for x in rs if (x[1] is not None and abs(x[1] - 1) > REBASE_TOL)
+           or (x[2] is not None and abs(x[2] - 1) > REBASE_TOL)]
+    if not off:
+        return None
+    boundary, rc, ra = off[-1]
+    # A basis change moves every earlier day by the same ratio. A source correcting one day's close doesn't:
+    # then the new bar simply overwrites the old one.
+    before = [x for x in rs if x[0] <= boundary]
+    same = all((x[1] is None or rc is None or abs(x[1] / rc - 1) <= 0.0002)
+               and (x[2] is None or ra is None or abs(x[2] / ra - 1) <= 0.0002) for x in before)
+    if len(off) != len(before) or not same:
+        return None
+    rc = rc or 1.0
+    ra = ra or rc
     with db.tx() as con:
-        con.executemany(
-            "INSERT OR REPLACE INTO prices(ticker,date,open,high,low,close,adj_close,volume,source) "
-            "VALUES(?,?,?,?,?,?,?,?,?)",
-            recs,
-        )
+        con.execute("UPDATE prices SET open=open*?, high=high*?, low=low*?, close=close*?, adj_close=adj_close*? "
+                    "WHERE ticker=? AND date<=?", (rc, rc, rc, rc, ra, t, boundary))
+    split = None
+    if abs(rc - 1) > 0.15:
+        from .. import splits
+
+        sr = splits.nice_ratio(1.0 / rc)
+        if sr:
+            nxt = [d for d, _, _ in rs if d > boundary]
+            split = (nxt[0] if nxt else (date.fromisoformat(boundary) + pd.Timedelta(days=1)).strftime("%Y-%m-%d"))
+            splits.store(t, [(split, sr)], "inferred")
+    rebase_holdings(t, ra)
+    db.log("prices", "rebase", True, f"{t}: stored history up to {boundary} rescaled (close x{rc:.6g}, adjusted "
+                                     f"x{ra:.6g})" + (f"; split on {split}" if split else ""))
+    return {"ticker": t, "boundary": boundary, "close": rc, "adj": ra, "split": split}
+
+
+def rebase_holdings(t: str, ra: float) -> None:
+    """Restate stored per-share prices of holdings and open entries after the price history was rescaled by `ra`,
+    so their value and returns carry on unchanged."""
+    if not ra or abs(ra - 1) <= 1e-12:
+        return
+    cik = db.scalar("SELECT cik FROM securities WHERE ticker=?", (t,))
+    if not cik:
+        return
+    with db.tx() as con:
+        con.execute("UPDATE positions SET units=units/?, avg_cost=avg_cost*? WHERE cik=?", (ra, ra, cik))
+        con.execute("UPDATE episodes SET entry_px=entry_px*? WHERE cik=? AND status='open'", (ra, cik))
+        con.execute("UPDATE stints SET entry_px=entry_px*? WHERE cik=? AND (status='open' OR fwd_1y IS NULL "
+                    "OR bench_fwd_1y IS NULL)", (ra, cik))
+
+
+def replace_history(t: str, g: pd.DataFrame, source: str) -> int:
+    """Swap a ticker's whole stored history for a fresh download (consistent basis end to end), restating
+    holdings by the change in basis on the latest date both histories have."""
+    g = g.dropna(subset=["close"])
+    if g.empty:
+        return 0
+    rs = _ratios(t, g)
+    if rs:
+        _, rc, ra = rs[-1]
+        rebase_holdings(t, ra or rc or 1.0)
+    recs = [(r.ticker, str(r.date)[:10], r.open, r.high, r.low, r.close, r.adj_close, r.volume, source)
+            for r in g.itertuples(index=False)]
+    with db.tx() as con:
+        con.execute("DELETE FROM prices WHERE ticker=?", (t,))
+        con.executemany("INSERT INTO prices(ticker,date,open,high,low,close,adj_close,volume,source) "
+                        "VALUES(?,?,?,?,?,?,?,?,?)", recs)
     return len(recs)
+
+
+def refresh_history(tickers: list[str], start: date, progress=None) -> dict:
+    """Re-download whole price histories (Yahoo first, for the actually-traded close and the split dates; Stooq for
+    any Yahoo misses) and record every split. Used once to apply the share-basis fixes and on demand."""
+    from .. import splits as _splits
+
+    todo = list(dict.fromkeys(tickers))
+    done, missing, n_splits = 0, [], 0
+    total = len(todo) or 1
+    y = Yahoo()
+    for i in range(0, len(todo), 40):
+        part = todo[i : i + 40]
+        y.splits_found = []
+        try:
+            df = y.daily_bars(part, start, date.today())
+        except Exception as e:
+            db.log("yahoo", "history", False, f"{part[:3]}: {e}")
+            df = _empty()
+        got = set(df["ticker"].unique()) if not df.empty else set()
+        for t in got:
+            replace_history(t, df[df["ticker"] == t], "yahoo")
+            done += 1
+        by_t: dict[str, list] = {}
+        for t, d, r in y.splits_found:
+            by_t.setdefault(t, []).append((d, r))
+        for t, rows in by_t.items():
+            n_splits += _splits.store(t, rows, "yahoo")
+        missing += [t for t in part if t not in got]
+        if progress:
+            progress(min(1.0, (i + len(part)) / total))
+    still = []
+    if missing:
+        st = Stooq()
+        for t in missing:
+            try:
+                df = st.daily_bars([t], start, date.today())
+            except Exception:
+                df = _empty()
+            if df.empty:
+                still.append(t)
+                continue
+            replace_history(t, df, "stooq")
+            done += 1
+    db.log("prices", "history", done > 0, f"{done} histories replaced, {n_splits} splits recorded, "
+                                         f"{len(still)} not found")
+    return {"done": done, "splits": n_splits, "missing": still}
 
 
 def fetch(tickers: list[str], start: date, end: date, progress=None) -> dict:
@@ -227,9 +381,16 @@ def fetch(tickers: list[str], start: date, end: date, progress=None) -> dict:
                 still.extend(part)  # source looks down for this run; hand the rest to the next one
                 continue
             try:
+                if isinstance(src, Yahoo):
+                    src.splits_found = []
                 df = src.daily_bars(part, start, end)
                 got = set(df["ticker"].unique()) if not df.empty else set()
                 n = store(df, src.name)
+                if isinstance(src, Yahoo) and src.splits_found:
+                    from .. import splits as _splits
+
+                    for t, d, r in src.splits_found:
+                        _splits.store(t, [(d, r)], "yahoo")
                 by_source[src.name] = by_source.get(src.name, 0) + n
                 successes += len(got)
                 failures += len(set(part) - got)

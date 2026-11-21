@@ -15,7 +15,7 @@ from .sources import fred, prices, sec
 from .tradecal import completed_session
 
 log = logging.getLogger("oracle_edge")
-MARKET_TICKERS = [BENCH, "VTI"]
+MARKET_TICKERS = [BENCH, "VTI", "VT"]  # S&P 500, US total market, world total market (Buffett Indicators)
 PRICE_HISTORY_START = "2009-01-01"
 
 
@@ -154,7 +154,7 @@ def replay_many(run_ids: list[int], profile: rules.Profile, end: str, cadence: s
                 sim.mark(d, fin, fout)
             signal_day = cadence == "daily" or _is_week_end(d, days, i)
             if signal_day:
-                regime = macro.regime(d, st["mos_gate"], st.get("regime_modifier", False), lambda x: pb.adj("VTI", x))
+                regime = macro.regime(d, st["mos_gate"], st.get("regime_modifier", False), lambda x: pb.close("VTI", x))
                 owned = set().union(*(set(s.positions) for s in sims))
                 evals = evaluate(d, profile, snaps, pb, regime, tk, owned=owned, macro=macro)
                 for sim in sims:
@@ -351,10 +351,70 @@ def finish_setup(job, lo=0.5) -> None:
 
 
 # ================================================================== daily run
+CALC_VERSION = 2
+"""Bumped when a fix changes stored results (snapshots, live histories). v2 (0.12.0): stock splits, share-count
+scale errors, fiscal-year grouping, buy-below consistency, point-in-time Buffett Indicator."""
+
+
+def calc_fixes_pending() -> bool:
+    return bool(db.cfg("initial_load_done")) and int(db.cfg("calc_version", 1) or 1) < CALC_VERSION
+
+
+def apply_calc_fixes(job) -> str:
+    """Bring stored results up to the current calculations: fresh price histories with split dates, company
+    scores rebuilt from the filings, live histories replayed. Backtests keep their old results until recalculated."""
+    from .splits import Splits
+
+    sec.reset_http()
+    rules.seed_profiles()
+    tickers = [r["ticker"] for r in db.rows("SELECT DISTINCT ticker FROM prices") if r["ticker"]]
+    tickers = list(dict.fromkeys(tickers + MARKET_TICKERS))
+    job.update(0.01, f"Downloading price histories and split dates for {len(tickers):,} tickers")
+    res = prices.refresh_history(tickers, date.fromisoformat(PRICE_HISTORY_START), job.sub(0.01, 0.30, "Prices and splits"))
+    try:
+        fred.refresh_all(job.sub(0.30, 0.32, "Market data (Buffett Indicators, Treasury yields, VIX)"))
+    except Exception as e:
+        db.log("fred", "refresh", False, str(e))
+    profs = rules.active_profiles()
+    with db.tx() as con:
+        con.execute("DELETE FROM snapshots")
+    since = (date.fromisoformat(backfill_start()) - timedelta(days=400)).isoformat()
+    all_ciks = [r["cik"] for r in db.rows("SELECT DISTINCT cik FROM facts")]
+    for k, p in enumerate(profs):
+        a = 0.32 + 0.18 * k / max(len(profs), 1)
+        build_snapshots(p, all_ciks, since=since, progress=job.sub(a, a + 0.18 / max(len(profs), 1),
+                                                                    f"Re-scoring every company ({p.name})"))
+    cands = candidate_ciks([p.id for p in profs])
+    fetch_prices_for(price_tickers(cands), job.sub(0.50, 0.53, "Prices for the shortlist"))
+    pb = PriceBook(price_tickers(cands))
+    for p in profs:
+        build_snapshots(p, cands, since=since, prices=pb, progress=job.sub(0.53, 0.56, "Price-based checks ($1 test)"))
+    end = completed_session()
+    for k, p in enumerate(profs):
+        r = db.one("SELECT id FROM runs WHERE kind='live' AND profile_id=?", (p.id,))
+        if r:
+            clear_run(r["id"])
+        rid = live_run(p)
+        span = 0.42 / max(len(profs), 1)
+        a = 0.56 + k * span
+        job.update(a, f"Replaying {backfill_start()} → {end} for {p.name}")
+        replay(rid, p, end, "daily", job, a, a + span)
+    scan_targets(profs)
+    db.set_cfg("calc_version", CALC_VERSION)
+    db.set_cfg("calc_fixed_at", db.now())
+    n_splits = len([1 for t in Splits().d.values() for _ in t[0]])
+    return (f"Calculation fixes applied: {res['done']:,} price histories ({n_splits:,} splits on record), every "
+            f"company re-scored, live histories rebuilt through {end}. Backtests keep their old results until you "
+            "recalculate them (Backtest → Recalculate all).")
+
+
 def daily_run(job, force: bool = False, send_email: bool = True, do_backup: bool = True) -> str:
     sec.reset_http()
     if not db.cfg("initial_load_done"):
         return "First-time load hasn't run yet; nothing to do."
+    if calc_fixes_pending():  # a release changed how results are calculated: rebuild before the daily update
+        msg = apply_calc_fixes(job)
+        return msg + " " + daily_run(job, force=False, send_email=send_email, do_backup=do_backup)
     end = completed_session()
     profs = rules.active_profiles()
     lasts = [db.scalar("SELECT last_date FROM runs WHERE kind='live' AND profile_id=?", (p.id,)) for p in profs]

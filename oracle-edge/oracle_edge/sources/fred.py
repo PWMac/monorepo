@@ -152,6 +152,12 @@ def refresh_all(progress=None) -> dict:
             db.log("yahoo", "^VIX", True, f"{len(df)} rows (FRED unavailable)")
         except Exception as e:
             db.log("yahoo", "^VIX", False, str(e))
+    try:  # world market value and GDP for the global Buffett Indicator (annual; quick)
+        from . import worldbank
+
+        out.update(worldbank.refresh())
+    except Exception as e:
+        db.log("worldbank", "refresh", False, str(e))
     if progress:
         progress(1.0)
     return out

@@ -10,18 +10,14 @@ from .. import APP_NAME, __version__, jobs
 from . import data
 from .theme import BRAND, CSS, HEAD, NEGATIVE
 
-NAV = [
-    ("Today", "/", "today"),
-    ("My holdings", "/holdings", "account_balance_wallet"),
-    ("Signals", "/signals", "notifications_active"),
-    ("Performance", "/performance", "show_chart"),
-    ("Market", "/market", "thermostat"),
-    ("Profiles", "/profiles", "tune"),
-    ("Backtest", "/backtest", "history"),
-    ("Data", "/data", "storage"),
-    ("Settings", "/settings", "settings"),
-    ("Guide", "/guide", "menu_book"),
+NAV_GROUPS = [  # small groups (best practice: about seven items at most per group)
+    ("Daily", [("Today", "/", "today"), ("My holdings", "/holdings", "account_balance_wallet"),
+               ("Signals", "/signals", "notifications_active")]),
+    ("Analysis", [("Performance", "/performance", "show_chart"), ("Market", "/market", "thermostat"),
+                  ("Backtest", "/backtest", "history"), ("Profiles", "/profiles", "tune")]),
+    ("Setup", [("Data", "/data", "storage"), ("Settings", "/settings", "settings"), ("Guide", "/guide", "menu_book")]),
 ]
+NAV = [item for _, items in NAV_GROUPS for item in items]
 
 
 def _job_bar():
@@ -63,7 +59,23 @@ def frame(title: str):
     dark = ui.dark_mode(value=app.storage.user.get("dark", False))
     with ui.header(elevated=False).classes("oe-topbar items-center justify-between"):
         with ui.row().classes("items-center gap-3 no-wrap"):
-            ui.button(icon="menu", on_click=lambda: drawer.toggle()).props("flat round color=white dense")
+            async def toggle_nav():
+                # wide screens: full menu <-> icon rail (remembered); narrow screens: open/close the menu
+                w = await ui.run_javascript("window.innerWidth")
+                if w and w < 1024:
+                    drawer.toggle()
+                    return
+                mini = not app.storage.user.get("nav_mini", False)
+                app.storage.user["nav_mini"] = mini
+                if mini:
+                    drawer.props("mini")
+                else:
+                    drawer.props(remove="mini")
+                for tip in tips:  # labels on hover only where they are hidden
+                    tip.props(remove="disable") if mini else tip.props("disable")
+
+            ui.button(icon="menu", on_click=toggle_nav).props("flat round color=white dense").tooltip(
+                "Collapse or expand the menu")
             ui.html('<a class="oe-brand" href="/" title="Today">'
                     '<img class="oe-brand-full" src="/static/brand/logo/oracle-edge-header-tagline.png" '
                     'srcset="/static/brand/logo/oracle-edge-header-tagline@2x.png 2x" '
@@ -98,16 +110,61 @@ def frame(title: str):
             ui.button(icon="dark_mode", on_click=toggle_dark).props("flat round color=white dense").tooltip("Dark mode")
     ui.keyboard(on_key=lambda e: search.run_method("focus") if (e.key == "/" and e.action.keydown and not e.modifiers.ctrl)
                 else None, ignore=["input", "select", "textarea"])
-    with ui.left_drawer(value=True, bordered=True).props("width=210") as drawer:
-        with ui.column().classes("oe-nav gap-0 w-full"):
-            for label, path, icon in NAV:
-                with ui.link(target=path, new_tab=path == "/guide").classes("w-full"):
-                    with ui.row().classes("items-center gap-3 px-3 py-2 rounded-lg hover:bg-green-50 w-full"):
-                        ui.icon(icon).classes("text-green-800")
-                        ui.label(label).classes("text-[14px] text-gray-900")
-            ui.label(f"v{__version__} · research tool, not advice").classes("oe-small px-3 pt-6")
-    with ui.column().classes("w-full max-w-[1280px] mx-auto p-5 gap-4"):
+    mini = app.storage.user.get("nav_mini", False)
+    tips = []
+    with ui.left_drawer(value=True, bordered=True).props("width=212 mini-width=60 breakpoint=1023"
+                                                         + (" mini" if mini else "")) as drawer:
+        with ui.column().classes("oe-nav gap-0 w-full pt-1"):
+            for group, items in NAV_GROUPS:
+                ui.label(group).classes("oe-nav-group q-mini-drawer-hide")
+                ui.element("div").classes("oe-nav-sep q-mini-drawer-only")
+                for label, path, icon in items:
+                    active = label == title
+                    with ui.link(target=path, new_tab=path == "/guide").classes("w-full").props(
+                            'aria-current="page"' if active else f'aria-label="{label}"'):
+                        with ui.row().classes("oe-nav-item items-center gap-3 no-wrap w-full"
+                                              + (" oe-nav-active" if active else "")):
+                            ui.icon(icon).classes("oe-nav-icon")
+                            ui.label(label).classes("oe-nav-label q-mini-drawer-hide")
+                        tips.append(ui.tooltip(label).props("anchor='center right' self='center left' :delay=200"
+                                                            + ("" if mini else " disable")))
+            ui.label(f"v{__version__} · research tool, not advice").classes("oe-small px-3 pt-6 q-mini-drawer-hide")
+            ui.label(f"v{__version__}").classes("oe-small pt-6 text-center w-full q-mini-drawer-only")
+    with ui.column().classes("oe-main w-full mx-auto gap-4"):
+        _calc_fix_notice()
         yield
+
+
+def _calc_fix_notice():
+    """Shown on every page until the one-time rebuild after a calculation fix has run."""
+    from .. import pipeline
+
+    try:
+        pending = pipeline.calc_fixes_pending()
+    except Exception:
+        return
+    if not pending:
+        return
+    with ui.card().classes("oe-card w-full").style("border-left:4px solid #A8741F"):
+        with ui.row().classes("w-full items-center justify-between no-wrap gap-4"):
+            with ui.column().classes("gap-1"):
+                ui.label("Calculation fixes are installed: rebuild your results").classes("font-semibold")
+                ui.label("This version corrects how stock splits, share-count units, fiscal years and a few other "
+                         "figures are handled (see Guide → Accuracy audit). Until the rebuild runs, the history "
+                         "on screen was calculated the old way. It re-downloads price histories with their split "
+                         "dates, re-scores every company and replays the live history: allow an hour or more. The "
+                         "next daily update does it automatically if you don't.").classes("text-sm")
+            running = jobs.running()
+
+            def go():
+                if jobs.running():
+                    ui.notify("Another job is running; try again when it finishes.", type="warning")
+                    return
+                jobs.launch("calc_fixes", {})
+                ui.notify("Rebuild started. Progress shows in the top bar.", type="positive")
+
+            ui.button("Rebuild now", icon="build", on_click=go).props(
+                "unelevated no-wrap" + (" disable" if running else "")).classes("shrink-0")
 
 
 def kpi(value: str, label: str, sub: str | None = None, color: str | None = None, link: str | None = None):
