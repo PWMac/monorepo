@@ -74,7 +74,7 @@ footer { color:var(--muted); font-size:12.5px; margin-top:50px; border-top:1px s
   <h1><img src="brand/logo/oracle-edge-header-tagline.png" srcset="brand/logo/oracle-edge-header-tagline@2x.png 2x"
      alt="Oracle Edge: Screen, Rank, Signal"></h1>
   <p>A local stock screener that thinks like the Oracle. This guide explains <b>what</b> the app does,
-  <b>how</b> it decides, and <b>why</b> it was built this way. Version 0.17.4.</p>
+  <b>how</b> it decides, and <b>why</b> it was built this way. Version 0.17.5.</p>
   <p style="font-size:14px">Two documents: this <b>guide</b> is the user manual, kept current with every release and opened from
   "Guide" in the app. The <b>plan</b> (<code>docs/Value-Picker-Plan.html</code> with the source code) is the design record: the research, architecture,
   database layout and the decision log behind the app.</p>
@@ -452,9 +452,17 @@ filtered with Add filter. Banks and insurers aren't valued this way and show bla
 CEO track record). Hover for the name and since when. Opening the Screener starts grading the CEOs of the companies in
 the current view in the background, best first (a few Wikidata and Yahoo look-ups each, so a second or two apiece); the
 column shows "rating…" and fills in as the grades arrive, with a progress line above the table. The daily update grades up to
-150 more a day, opening a stock's Wonderful? tab grades it at once, and grades are refreshed after 30 days. "—" means the CEO
-or their start date couldn't be found, or they've been in the role under two years (hover for which). If Wikidata can't be
-reached nothing is recorded, so the company is simply tried again later (since 0.17.2).</li>
+150 more a day, opening a stock's Wonderful? tab grades it at once, and grades are refreshed after 30 days. A company without a
+grade says why: <i>new CEO</i> (under two fiscal years in the role and no record elsewhere), <i>no start date</i> (the CEO is
+known but not when they started, so there's no record to grade), or <i>not found</i> (no CEO in Wikidata or Yahoo); the line
+above the table counts each for the current view. If Wikidata can't be reached nothing is recorded, so the company is simply
+tried again later (since 0.17.2).</li>
+<li><b>Start dates from SEC filings</b> (version 0.17.5): Wikidata often names a CEO without saying when they started. The app
+then reads the company's latest proxy statement (DEF 14A), or its annual report, for the biography sentence ("has served as
+Chief Executive Officer since March 2014", "was appointed CEO in 2019"); the sentence must name the person and the CEO role,
+and interim or former roles don't count. The stock's CEO card shows where the date came from. Companies that were left without
+a start date or a CEO before 0.17.5 are looked up once more. You can always enter the right CEO and start date yourself on the
+stock's Wonderful? tab.</li>
 </ul>
 
 <h4>CEO track record</h4>
@@ -1497,7 +1505,7 @@ their old results until you recalculate them.</p>
 <tr><td><b>XBRL</b></td><td>The tagged data format companies use to file financial statements with the SEC</td></tr>
 </table>
 
-<footer>Oracle Edge v0.17.4 · research tool, not financial advice · MIT license. The full design plan, with research sources,
+<footer>Oracle Edge v0.17.5 · research tool, not financial advice · MIT license. The full design plan, with research sources,
 is in <code>docs/Value-Picker-Plan.html</code> with the source code.</footer>
 </main>
 </div>

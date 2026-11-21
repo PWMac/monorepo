@@ -155,7 +155,7 @@ def values_job(job) -> str:
 
 
 def ceo_grades_job(job, limit: int | None = None) -> str:
-    """Grade the CEO of every company with Wonderfulness 60+ that has no grade (or one older than 30 days), best
+    """Look up the CEO of every company with Wonderfulness 60+ not looked up in 30 days, best
     first. Each needs a few Wikidata and Yahoo look-ups, so the daily update does at most 150 a day (the Screener
 also grades the companies you're looking at, as you look)."""
     from . import ceo
@@ -170,7 +170,10 @@ also grades the companies you're looking at, as you look)."""
             db.log("ceo", "grade", False, f"{t}: {e}"[:200])
         if i % 5 == 0:
             job.update(i / max(len(todo), 1), f"Rating CEOs: {i:,} of {len(todo):,}")
-    return f"Rated the CEOs of {n:,} companies." if todo else "Every company with Wonderfulness 60+ has a recent CEO grade."
+    cov = ceo.coverage()
+    return ((f"Looked up {n:,} CEOs. " if todo else "Every company with Wonderfulness 60+ has been looked up recently. ")
+            + f"Of the {sum(cov.values()):,} companies with Wonderfulness 60+: {ceo.coverage_text(cov)}. A CEO without a "
+              "known start date can be given one on the stock's Wonderful? tab (CEO track record → correct).")
 
 
 def prices_all_job(job) -> str:
