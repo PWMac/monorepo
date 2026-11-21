@@ -385,6 +385,9 @@ def _with_defaults(body: dict) -> dict:
             body[k] = copy.deepcopy(base[k])
     for k, v in base["settings"].items():
         body["settings"].setdefault(k, v)
+    for r in body.get("rules", []):  # wording from before the ROE floor looked at the last 5 years only
+        if r.get("id") == "r19" and "(10-yr avg; no year < 10%)" in (r.get("formula") or ""):
+            r["formula"] = r["formula"].replace("(10-yr avg; no year < 10%)", "(10-yr avg; no year < 10% in the last 5)")
     return body
 
 
@@ -469,6 +472,21 @@ class RuleResult:
         return self.__dict__
 
 
+ROE_FLOOR_WINDOW = 5
+
+
+def roe_floor_ok(series, rule: dict) -> bool:
+    """The return-on-equity gate's yearly floor (min_year, e.g. 10%) applies to the most recent min_year_window
+    years only (default 5). Tested on the app's history (2012-2022 company-years, ROE averaging 15%+): companies
+    whose only weak year was 6-10 years back did as well over the next 3 years as those with no weak year at all
+    (22% vs 20% went on to compound, median ROE 24% for both); a weak year in the last 3 was a real warning
+    (11% compounded, median ROE 10%); one 4-5 years back was in between (21% compounded, but 30% saw ROIC fall
+    under 10%), so 5 years is the cautious choice."""
+    n = int(rule.get("min_year_window") or ROE_FLOOR_WINDOW)
+    recent = [x for x in list(series)[-n:] if x is not None]
+    return not recent or min(recent) >= rule.get("min_year", 0)
+
+
 def score_rule(rule: dict, m: MetricResult) -> RuleResult:
     v = m.value
     lvl = level_score(v, rule)
@@ -488,9 +506,8 @@ def score_rule(rule: dict, m: MetricResult) -> RuleResult:
     if rule["metric"] == "margin_stability" and getattr(m, "trend", 0) < -0.005 and score is not None:
         score = max(0.0, score - 10)
     passed = meets_target(v, rule)
-    if rule["metric"] == "roe" and passed:
-        my = getattr(m, "min_year", None)
-        passed = my is None or my >= rule.get("min_year", 0)
+    if rule["metric"] == "roe" and passed and rule.get("min_year") is not None:
+        passed = roe_floor_ok(m.series, rule)
     series = [None if (x is None) else round(float(x), 4) for x in m.series][-10:]
     return RuleResult(rule["id"], rule["name"], rule["category"], rule["mode"], v, score, passed, cons, series,
                       m.years[-10:], m.detail)

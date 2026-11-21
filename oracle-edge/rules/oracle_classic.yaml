@@ -178,8 +178,8 @@ rules:
      formula: Free cash flow / Net income, why: Confirms reported profit is real cash.}
   # ---------------- D. Returns
   - {id: r19, name: Return on equity, category: returns, mode: gate, metric: roe, direction: higher,
-     floor: 0.05, target: 0.15, excellent: 0.30, weight: 1.5, fmt: pct, min_year: 0.10,
-     formula: Net income / Avg equity (10-yr avg; no year < 10%), why: Berkshire's stated criterion - good ROE with little debt.}
+     floor: 0.05, target: 0.15, excellent: 0.30, weight: 1.5, fmt: pct, min_year: 0.10, min_year_window: 5,
+     formula: Net income / Avg equity (10-yr avg; no year < 10% in the last 5), why: Berkshire's stated criterion - good ROE with little debt.}
   - {id: r20, name: Return on invested capital, category: returns, mode: scored, metric: roic, direction: higher,
      floor: 0.05, target: 0.15, excellent: 0.30, weight: 1.0, fmt: pct,
      formula: NOPAT / (Debt + Equity - Cash), why: Harder to inflate with leverage than ROE.}

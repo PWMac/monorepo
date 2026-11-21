@@ -635,6 +635,14 @@ def profiles_page(pid: int | None = None):
                 qw = ui.switch("Quarterly early warnings (10-Q)", value=st.get("quarterly_warnings", True))
                 qb = ui.switch("Block new buys while a hard 10-Q warning is open",
                                value=st.get("block_buy_on_quarterly_flag", True))
+            r19 = next((r for r in body["rules"] if r.get("id") == "r19"), None)
+            with ui.row().classes("gap-3 items-end"):
+                roew = ui.number("ROE gate: no year under its floor in the last N years", format="%.0f", min=1, max=10,
+                                 value=int((r19 or {}).get("min_year_window") or rules.ROE_FLOOR_WINDOW)).props(
+                    "outlined dense").classes("w-96")
+                ui.label(f"Floor {((r19 or {}).get('min_year') or 0.10) * 100:.0f}%. 5 = default (tested: a weak year "
+                         "6–10 years back didn't hurt the next 3 years; one in the last 3 did). 10 = the whole "
+                         "record.").classes("oe-small")
             ui.label("Value-trap guards and price test").classes("oe-h2 pt-2")
             with ui.row().classes("gap-3 items-end"):
                 hc = ui.switch("Business health check: skip companies whose sales, profits or return on equity are "
@@ -750,6 +758,9 @@ def profiles_page(pid: int | None = None):
                 b["settings"]["include_foreign"] = inf.value
                 b["settings"]["quarterly_warnings"] = qw.value
                 b["settings"]["block_buy_on_quarterly_flag"] = qb.value
+                for rr in b["rules"]:
+                    if rr.get("id") == "r19":
+                        rr["min_year_window"] = max(1, min(10, int(roew.value or rules.ROE_FLOOR_WINDOW)))
                 b["settings"]["health_check"] = hc.value
                 b["settings"]["price_test"] = ptest.value
                 b["settings"]["fair_pe_mult"] = round(float(fpm.value or 1.5), 4)

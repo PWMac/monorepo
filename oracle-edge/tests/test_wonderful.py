@@ -139,3 +139,27 @@ def test_wikidata_ceo_parsing():
             {"ceo": "http://www.wikidata.org/entity/Q1", "ceoLabel": "A", "start": "2005-01-01T00:00:00Z"}]
     out = wikidata.parse_ceos(rows)
     assert [(x["name"], x["start"], x["end"]) for x in out] == [("A", "2005-01-01", "2015-04-30"), ("B", "2015-05-01", None)]
+
+
+def test_ceo_career_grade_is_weighted_by_years():
+    from oracle_edge import ceo
+
+    t = [{"years": 8.0, "rating": {"score": 90.0, "parts": {"owners": 100.0, "growth": 80.0}}},
+         {"years": 2.0, "rating": {"score": 40.0, "parts": {"owners": 20.0}}},
+         {"years": None, "rating": None, "why": "not in the app's data"}]
+    c = ceo.career(t)
+    assert c["score"] == pytest.approx((90 * 8 + 40 * 2) / 10) and c["grade"] == "A" and c["n"] == 2
+    assert c["parts"]["owners"] == pytest.approx((100 * 8 + 20 * 2) / 10) and c["parts"]["growth"] == 80.0
+    assert c["weights"] == pytest.approx([0.8, 0.2])
+    assert ceo.career([{"years": None, "rating": None}]) is None
+
+
+def test_career_tenures_skip_the_current_role_and_explain_unrated_ones(monkeypatch):
+    from oracle_edge import ceo
+
+    monkeypatch.setattr(ceo, "record", lambda cik, t, a, b=None: {"years": 3.0, "rating": {"score": 70.0, "parts": {}}})
+    led = [{"label": "Here Inc", "cik": 9901, "ticker": "ZZCEO", "start": "2020-03-01", "end": None},
+           {"label": "Private Co", "cik": None, "ticker": None, "start": "2012-01-01", "end": "2019-12-31"}]
+    ten = ceo.career_tenures(9901, "ZZCEO", {"start": "2020-03-01"}, led)
+    assert [x["label"] for x in ten] == ["this company", "Private Co"]
+    assert "not in the app's data" in ten[1]["why"] and ten[0]["years"] == 3.0

@@ -74,7 +74,7 @@ footer { color:var(--muted); font-size:12.5px; margin-top:50px; border-top:1px s
   <h1><img src="brand/logo/oracle-edge-header-tagline.png" srcset="brand/logo/oracle-edge-header-tagline@2x.png 2x"
      alt="Oracle Edge: Screen, Rank, Signal"></h1>
   <p>A local stock screener that thinks like the Oracle. This guide explains <b>what</b> the app does,
-  <b>how</b> it decides, and <b>why</b> it was built this way. Version 0.14.0.</p>
+  <b>how</b> it decides, and <b>why</b> it was built this way. Version 0.14.1.</p>
   <p style="font-size:14px">Two documents: this <b>guide</b> is the user manual, kept current with every release and opened from
   "Guide" in the app. The <b>plan</b> (<code>docs/Value-Picker-Plan.html</code> with the source code) is the design record: the research, architecture,
   database layout and the decision log behind the app.</p>
@@ -315,6 +315,24 @@ and insurers aren't scored: their returns and debt aren't comparable with an ope
 Each year was scored from that year's annual report (only past sales figures may include later restatements). A high score raises the odds a lot; it doesn't guarantee anything, and
 it says nothing about whether the price is right.</p>
 
+<h4>The return-on-equity floor looks at the last 5 years (version 0.14.1)</h4>
+<p>The ROE gate asks for a 10-year average of 15%+ and no year under 10%. Until 0.14.1 that "no year" covered all ten years, so one
+weak year a decade ago (often right after an IPO or a big acquisition) kept an otherwise excellent business off the list. It now
+applies to the <b>last 5 years</b>; you can change it per profile (Profiles → "ROE gate: no year under its floor in the last N
+years"; 10 = the old rule). The test behind it, on companies with an average ROE of 15%+ (fiscal years 2012–2022, next 3 years):</p>
+<table>
+<tr><th>Weakest year (under 10% ROE)</th><th>Company-years</th><th>Went on to compound</th><th>Median ROE next 3 years</th><th>ROIC fell under 10%</th></tr>
+<tr><td>None in 10 years</td><td>2,055</td><td>20%</td><td>24%</td><td>17%</td></tr>
+<tr><td>Only 6–10 years back</td><td>660</td><td>22%</td><td>24%</td><td>25%</td></tr>
+<tr><td>4–5 years back (last 3 fine)</td><td>301</td><td>21%</td><td>22%</td><td>30%</td></tr>
+<tr><td>In the last 3 years</td><td>1,146</td><td>11%</td><td>10%</td><td>54%</td></tr>
+</table>
+<p>A weak year 6–10 years back made no difference; one in the last 3 years was a real warning. Four to five years back was in
+between (as likely to compound, but more often slipped), so 5 years is the cautious choice. On your data this lets 269
+companies pass the checklist instead of 214 (133 worth $2B+ are now "best of both", up from 97). The rebuild after installing
+applies it. In the portfolio backtests the effect was within luck: the 25-stock Quality Core went from 10.6% to 13.0% a year
+for 2019–2026 (10.9% to 10.1% for 2015–2026); the 7-stock live setup went from 5.4% to 2.1%.</p>
+
 <h4>Wonderfulness or Quality: what's the difference?</h4>
 <table>
 <tr><th></th><th>Quality (the Oracle checklist)</th><th>Wonderfulness</th></tr>
@@ -329,7 +347,31 @@ comparing businesses; plays no part in buy and sell signals</td></tr>
 (it marks down heavy R&amp;D and capital spending, and any failed gate is disqualifying); Wonderfulness gives more credit to fast,
 steady growth. On your data, 140 companies pass the checklist and 338 rate wonderful or better; 104 are both.</td></tr>
 </table>
-<p>The stock page's Wonderful? tab shows both side by side ("Oracle checklist: Passes/Fails").</p>
+<p>Every stock page shows both under the ticker ("Wonderfulness 87 · Exceptional" and "Checklist ✓ · Quality 86").</p>
+
+<h4>The Wonderful page: the best businesses on both measures</h4>
+<p>One page answers "which are the most wonderful companies that also pass the checklist?" in one click, and shows why the
+others don't:</p>
+<ul>
+<li><b>Five views</b> (buttons along the top):
+<ul>
+<li><b>Best of both</b> (the default): wonderful or better (70+) and passes the checklist, sorted by the average of the two
+scores.</li>
+<li><b>Most wonderful</b>: everything, best Wonderfulness first.</li>
+<li><b>Highest Quality</b>: everything, best checklist score first.</li>
+<li><b>Wonderful, fails checklist</b>: the Checklist column names the rule that fails. Most often it is the return-on-equity gate:
+one year in the decade fell under 10%, even for companies whose average is 25% or more.</li>
+<li><b>Passes checklist, not wonderful</b>: solid, but slower or less profitable than the best.</li>
+</ul></li>
+<li><b>The map</b>: every company as a dot, Quality across and Wonderfulness up, with dashed lines at the checklist bar and at 70.
+The top-right corner is the best of both; dots outside the current view fade. Hover for the name and scores, click to open the
+stock, click a legend entry to hide a group.</li>
+<li><b>Filters</b> that apply to the map and the table: text search, market value ($2B+ by default), hide companies slipping
+now (a business-health or hard warning in the latest 10-Q), and only those in the Buy Zone today.</li>
+<li><b>The table</b>: position in the view, both scores, tier, checklist result (or the failing rule), the average, where the
+price stands today, the four pillars and the key measures. Tick 2–5 rows and press <b>Compare</b> for a side-by-side view (now
+including Quality), or export the view to CSV. Links like <code>/wonderful?view=nocheck</code> open a view directly.</li>
+</ul>
 
 <h4>CEO track record</h4>
 <p>Each stock's Wonderful? tab rates the current CEO on <b>how the company did for its owners while they were in charge</b>,
@@ -343,9 +385,13 @@ unchanged = 50, +10 = 100)</td></tr>
 <tr><td>Capital allocation</td><td>Market value created per $1 kept ($0 = 0, $1 = 50, $2+ = 100); the return on capital added (0% = 0,
 20%+ = 100); the share count a year (+3% = 0, flat = 50, −3% = 100)</td></tr>
 </table>
-<p>Grades: A 80+, B 65–80, C 50–65, D 35–50, F under 35. A CEO needs two full fiscal years in office to be rated. The fixed scales
-mean any two CEOs compare directly. The card also rates earlier CEOs of the same company (as far back as the data go, 2010) and
-any other company in the app the CEO has run.</p>
+<p>Grades: A 80+, B 65–80, C 50–65, D 35–50, F under 35. A tenure needs two full fiscal years to be rated. The fixed scales
+mean any two CEOs compare directly.</p>
+<p><b>Career grade.</b> When the CEO has run other companies, each tenure is rated the same way and the headline grade is the
+<b>average weighted by the length of each record</b> (ten years at one company count five times as much as two at another); each
+part is weighted the same way. The card lists every CEO role with its years, grade and weight, and says why a role isn't
+counted: a private, foreign or no-longer-listed company isn't in the app's data, and records end where the data start (2010). The
+card also rates the company's earlier CEOs.</p>
 <ul>
 <li><b>Who and since when</b> comes from Wikidata (free, volunteer-edited), checked against Yahoo's list of officers. If they
 disagree, the card says so. Wikidata covers large companies well and small ones patchily, so you can <b>correct the CEO and start
@@ -364,7 +410,8 @@ would have to do, plus any warning in the latest quarterly report.</li>
 <li><b>Wonderfulness over time:</b> each fiscal year scored against the companies reporting that year.</li>
 <li><b>What management did with the money:</b> profit and free cash flow over ten years, and how much went to dividends, buybacks and
 acquisitions; the $1 test, the share count, stock-based pay and the return on capital added.</li>
-<li><b>CEO track record:</b> the current CEO's grade and the record behind it, earlier CEOs, and other companies they ran (below).</li>
+<li><b>CEO track record:</b> the current CEO's career grade (every company they ran, weighted by time), the record here, and
+earlier CEOs (below).</li>
 <li><b>Leaders and ownership</b> (Yahoo Finance, refreshed weekly): business summary, officers with age and pay, insider and
 institutional ownership, insider buying and selling over six months, and ISS governance risk scores (1 = lowest risk). No
 data feed captures integrity or track record: read the proxy statement and shareholder letters too.</li>
@@ -382,7 +429,7 @@ the rule matters.</p>
 <tr><th>Rule</th><th>Measure</th><th>Target (70 pts)</th><th>Why the Oracle cares</th></tr>
 <tr><td>Earnings every year <span class="pill" style="background:#fbe2dd;color:#a33a2b">gate</span></td><td>Years with a profit</td><td>10 of 10</td><td>Wild swings are typical of commodity businesses</td></tr>
 <tr><td>Debt payback <span class="pill" style="background:#fbe2dd;color:#a33a2b">gate</span></td><td>Long-term debt ÷ net income (3-yr avg)</td><td>≤ 4 years</td><td>A durable company could pay off its debt quickly</td></tr>
-<tr><td>Return on equity <span class="pill" style="background:#fbe2dd;color:#a33a2b">gate</span></td><td>Net income ÷ average equity, 10-yr avg</td><td>≥ 15%, no year &lt; 10%</td><td>Berkshire's own stated criterion: good ROE with little debt</td></tr>
+<tr><td>Return on equity <span class="pill" style="background:#fbe2dd;color:#a33a2b">gate</span></td><td>Net income ÷ average equity, 10-yr avg</td><td>≥ 15%, no year &lt; 10% in the last 5 years</td><td>Berkshire's own stated criterion: good ROE with little debt</td></tr>
 <tr><td>Gross margin</td><td>Gross profit ÷ revenue</td><td>≥ 40%</td><td>Not competing on price</td></tr>
 <tr><td>SG&amp;A margin</td><td>SG&amp;A ÷ gross profit</td><td>≤ 30%</td><td>Doesn't spend heavily to keep customers</td></tr>
 <tr><td>R&amp;D margin</td><td>R&amp;D ÷ gross profit</td><td>≤ 30%</td><td>Heavy R&amp;D means the edge must be rebuilt again and again</td></tr>
@@ -1251,7 +1298,7 @@ their old results until you recalculate them.</p>
 <tr><td><b>XBRL</b></td><td>The tagged data format companies use to file financial statements with the SEC</td></tr>
 </table>
 
-<footer>Oracle Edge v0.14.0 · research tool, not financial advice · MIT license. The full design plan, with research sources,
+<footer>Oracle Edge v0.14.1 · research tool, not financial advice · MIT license. The full design plan, with research sources,
 is in <code>docs/Value-Picker-Plan.html</code> with the source code.</footer>
 </main>
 </div>

@@ -191,6 +191,57 @@ def rate(m: dict) -> dict | None:
     return {"score": score, "grade": grade, "parts": parts}
 
 
+def career(tenures: list[dict]) -> dict | None:
+    """A CEO's career grade: each rated tenure's score weighted by the years it covers (a 10-year record counts five
+    times a 2-year one), and each part weighted the same way. tenures: [{years, rating}, ...]."""
+    rated = [t for t in tenures if t.get("rating") and (t.get("years") or 0) > 0]
+    if not rated:
+        return None
+    yrs = sum(t["years"] for t in rated)
+    score = sum(t["rating"]["score"] * t["years"] for t in rated) / yrs
+    parts: dict[str, float] = {}
+    for k in ("owners", "growth", "returns", "capital"):
+        w = [(t["rating"]["parts"][k], t["years"]) for t in rated if k in t["rating"]["parts"]]
+        if w:
+            parts[k] = sum(v * y for v, y in w) / sum(y for _, y in w)
+    grade = "A" if score >= 80 else "B" if score >= 65 else "C" if score >= 50 else "D" if score >= 35 else "F"
+    return {"score": score, "grade": grade, "years": yrs, "n": len(rated), "parts": parts,
+            "weights": [t["years"] / yrs for t in rated]}
+
+
+def career_tenures(cik: int, ticker: str, cur: dict, led: list[dict]) -> list[dict]:
+    """Every CEO tenure of the current CEO: this one first, then other companies (and any earlier stint here) from
+    Wikidata. Each gets its record and rating where the app has the company's data."""
+    out = []
+    m = record(cik, ticker, cur["start"])
+    out.append({"label": "this company", "ticker": ticker, "start": cur["start"], "end": None, "current": True,
+                "years": m.get("years") if m.get("rating") else None, "rating": m.get("rating"), "record": m})
+    for c in led:
+        if not c.get("start"):
+            continue
+        here = c.get("cik") == cik or (c.get("ticker") or "").upper() == ticker.upper()
+        if here and (not c.get("end") or abs(_years(c["start"], cur["start"])) < 1.1):
+            continue  # the current tenure itself
+        t = None
+        if c.get("cik"):
+            t = db.scalar("SELECT ticker FROM securities WHERE cik=?", (c["cik"],))
+        if not t and c.get("ticker"):
+            t = db.scalar("SELECT ticker FROM securities WHERE ticker=?", (c["ticker"].upper(),))
+        x = {"label": c.get("label") or "?", "ticker": t, "start": c["start"], "end": c.get("end"), "current": False}
+        if not t:
+            x["why"] = "not in the app's data (private, foreign or no longer listed)"
+        elif c.get("end") and c["end"] < "2011-01-01":
+            x["why"] = "before the app's data (2010)"
+        else:
+            ccik = db.scalar("SELECT cik FROM securities WHERE ticker=?", (t,))
+            mm = record(ccik, t, c["start"], c.get("end"))
+            x.update(record=mm, rating=mm.get("rating"), years=mm.get("years") if mm.get("rating") else None)
+            if not mm.get("rating"):
+                x["why"] = mm.get("note") or "under two fiscal years of data"
+        out.append(x)
+    return out
+
+
 # ---------------------------------------------------------------- who is the CEO
 def manual(cik: int) -> dict | None:
     r = db.one("SELECT name, start FROM ceo_manual WHERE cik=?", (cik,))
