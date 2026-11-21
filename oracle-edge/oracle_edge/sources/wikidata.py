@@ -73,22 +73,33 @@ def ceos(cik: int, ticker: str | None) -> list[dict] | None:
     return parse_ceos(val) if val is not None else None
 
 
-def companies_led(qid: str) -> list[dict]:
-    """Companies a person has been CEO of: {company, label, cik, start, end}."""
-    q = f"""SELECT ?company ?companyLabel ?cik ?start ?end WHERE {{
-      ?company p:P169 ?st . ?st ps:P169 wd:{qid} .
+def companies_led(qid: str | None = None, name: str | None = None) -> list[dict]:
+    """Companies a person has been CEO of: {company, label, cik, ticker, start, end}. By Wikidata id, or by exact
+    English name when the id isn't known (e.g. a CEO you entered yourself)."""
+    if qid:
+        who_ = f"?st ps:P169 wd:{qid} ."
+        key = f"led:{qid}"
+    elif name:
+        nm = name.replace('"', "").strip()
+        who_ = f'?st ps:P169 ?person . ?person rdfs:label "{nm}"@en .'
+        key = f"ledn:{nm.lower()}"
+    else:
+        return []
+    q = f"""SELECT ?company ?companyLabel ?cik ?ticker ?start ?end WHERE {{
+      ?company p:P169 ?st . {who_}
       OPTIONAL {{ ?st pq:P580 ?start }} OPTIONAL {{ ?st pq:P582 ?end }}
       OPTIONAL {{ ?company wdt:P5531 ?cik }}
+      OPTIONAL {{ ?company p:P414 ?ex . ?ex pq:P249 ?ticker }}
       SERVICE wikibase:label {{ bd:serviceParam wikibase:language "en". }} }} LIMIT 50"""
-    val = _cached(f"led:{qid}", lambda: _query(q)) or []
+    val = _cached(key, lambda: _query(q)) or []
     out, seen = [], set()
     for r in val:
-        k = (r.get("company"), _d(r.get("start")))
+        k = (r.get("company"), _d(r.get("start")))  # one row per tenure (several tickers repeat it)
         if k in seen:
             continue
         seen.add(k)
         cik = r.get("cik")
         out.append({"company": (r.get("company") or "").rsplit("/", 1)[-1], "label": r.get("companyLabel"),
-                    "cik": int(cik) if cik and cik.isdigit() else None, "start": _d(r.get("start")),
-                    "end": _d(r.get("end"))})
+                    "cik": int(cik) if cik and cik.isdigit() else None, "ticker": r.get("ticker"),
+                    "start": _d(r.get("start")), "end": _d(r.get("end"))})
     return out
