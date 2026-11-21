@@ -74,7 +74,7 @@ footer { color:var(--muted); font-size:12.5px; margin-top:50px; border-top:1px s
   <h1><img src="brand/logo/oracle-edge-header-tagline.png" srcset="brand/logo/oracle-edge-header-tagline@2x.png 2x"
      alt="Oracle Edge: Screen, Rank, Signal"></h1>
   <p>A local stock screener that thinks like the Oracle. This guide explains <b>what</b> the app does,
-  <b>how</b> it decides, and <b>why</b> it was built this way. Version 0.11.2.</p>
+  <b>how</b> it decides, and <b>why</b> it was built this way. Version 0.11.3.</p>
   <p style="font-size:14px">Two documents: this <b>guide</b> is the user manual, kept current with every release and opened from
   "Guide" in the app. The <b>plan</b> (<code>docs/Value-Picker-Plan.html</code> with the source code) is the design record: the research, architecture,
   database layout and the decision log behind the app.</p>
@@ -676,6 +676,17 @@ shows in red.</li>
 <li><b>Growth of $1</b>: time-weighted returns (new money doesn't count as growth) against the S&amp;P 500 (SPY, dividends
 included), plus the number of stocks held. Cash earns nothing in the model, so idle cash shows up honestly as a drag.</li>
 <li><b>Episodes:</b> each buy-to-sell round trip. <b>Stints:</b> how stocks did while in the Buy Zone, bought or not.</li>
+<li id="rankcheck"><b>Is the ranking working?</b> Every Buy Zone entry, grouped by its rank on the day it entered (#1–5, #6–15,
+#16+), with the stock's next 365 days <b>next to the S&amp;P 500's over the same days</b>, as an average and a median, and the share
+that beat the S&amp;P. Read the "vs S&amp;P" columns, not the raw return: a rank of 16 or worse only exists when many stocks are cheap
+at once, which is usually a market sell-off (March 2020, 2022), so the raw return of that group mostly reflects the market's own
+rebound. Two rules keep the counts honest:
+<ul>
+  <li>A stock that leaves the Buy Zone and comes back <b>within 30 days</b> counts as one entry, so a price hovering around the buy
+  line doesn't count many times. (On the live history this merged 792 entries into 243.)</li>
+  <li>Entries on the <b>first day</b> of the history are left out: those stocks were already in the Buy Zone when it began.</li>
+</ul>
+The holdings columns show the return against the S&amp;P while actually owned (not annualized).</li>
 <li><b>My holdings:</b> enter your real positions to get badges for them alongside the model's.</li>
 </ul>
 
@@ -785,6 +796,24 @@ of the period, how many thirds beat the S&amp;P 500, turnover, trading costs, an
 <p>The three periods are independent stretches of the same history, not true out-of-sample data, since no setting is fitted to one
 period and judged on another. Results are only as good as the history: with about 7 years and one deep bear market, small differences
 are noise.</p>
+<h3 id="ranktests">Tested and not adopted (November 2026)</h3>
+<p>On the live profile (Buffettology 15% · best 7), 2019 → November 2026, weekly replays:</p>
+<table>
+<tr><th>Idea</th><th>Result</th><th>Decision</th></tr>
+<tr><td><b>Buy more in bargain markets</b>: spend the whole cash reserve when more of the wonderful companies are in the Buy Zone than
+on 80% of past days</td><td>25.1% CAGR vs 25.2% live: no measurable effect. The reserve is rarely large, so there was little extra
+to spend.</td><td>Not adopted</td></tr>
+<tr><td><b>Trim as holdings get expensive</b>: sell 25% of a holding at or above its intrinsic value (at most every 90 days) and keep
+the cash for bargains</td><td>17.1% CAGR (18.3% trimming only at 1.2× value) vs 25.2%. The best holdings kept rising well past
+their estimated value, and trimming them cut the compounding.</td><td>Not adopted. The existing nose-bleed trim (2× value and P/E)
+stays.</td></tr>
+<tr><td><b>Quality weight in the rank</b> (0.65 now): 0.80, 0.50, 0.35, 0.20</td><td>Every other weight did much worse in the portfolio
+(8–13% CAGR vs 25.2%), with similar or deeper drawdowns. A same-day check of the whole Buy Zone found that value-heavier orderings put
+slightly better stocks in the top 5, but with only 7 holdings the portfolio result depends on a few picks, so that edge didn't
+survive.</td><td>Kept at 0.65</td></tr>
+</table>
+<p>What this says about the live result: changing any one setting a little roughly halved the backtested CAGR. With 7 holdings, a
+handful of picks drive the outcome, so treat the 25% as one lucky-or-good path through 2019–2026, not a rate to expect.</p>
 <div class="note"><b>Before running G and G+ the first time</b>, run <b>Data → re-run first-time load</b> once. It re-reads the SEC data
 with the new items (stock pay, receivables, inventory, acquisitions, PP&amp;E) and re-scores every company. Until then the enhanced
 valuation falls back to the classic inputs, and the results card says so.</div>
@@ -892,7 +921,8 @@ Prices are end-of-day; there are no live quotes, analyst estimates or news. Fore
 currency, and their P/E uses the valuation's US-dollar conversion.</td></tr>
 <tr><td><b>My holdings</b></td><td>Your real positions with badges</td></tr>
 <tr><td><b>Signals</b></td><td>The full signal journal with strength ratings, scores, filters and CSV export</td></tr>
-<tr><td><b>Performance</b></td><td>Your money vs the same money in the S&amp;P 500, growth of $1, drawdowns, episodes, rank-bucket results, Buy Zone stints</td></tr>
+<tr><td><b>Performance</b></td><td>Your money vs the same money in the S&amp;P 500, growth of $1, drawdowns, episodes, rank-bucket results
+against the S&amp;P over the same days, Buy Zone stints</td></tr>
 <tr><td><b>Market</b></td><td>Buffett Indicator history and its valuation zones; the Bitcoin early warning: today's reading, its
 history against the cut-offs with every past call marked right or wrong, scores against the base rate, a table of every call,
 what QQQ did after each kind of reading, the live record and recent market alerts</td></tr>
@@ -1024,7 +1054,7 @@ use the checklist on each report card.</li>
 <tr><td><b>XBRL</b></td><td>The tagged data format companies use to file financial statements with the SEC</td></tr>
 </table>
 
-<footer>Oracle Edge v0.11.2 · research tool, not financial advice · MIT license. The full design plan, with research sources,
+<footer>Oracle Edge v0.11.3 · research tool, not financial advice · MIT license. The full design plan, with research sources,
 is in <code>docs/Value-Picker-Plan.html</code> with the source code.</footer>
 </main>
 </div>

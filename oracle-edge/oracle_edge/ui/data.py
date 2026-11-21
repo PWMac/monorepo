@@ -153,26 +153,54 @@ def open_episode_returns(run_id) -> dict[int, float]:
     return out
 
 
+def _median(xs):
+    import statistics
+
+    xs = [x for x in xs if x is not None]
+    return statistics.median(xs) if xs else None
+
+
+def _avg(xs):
+    xs = [x for x in xs if x is not None]
+    return sum(xs) / len(xs) if xs else None
+
+
 def rank_buckets(run_id) -> list[dict]:
-    rows = db.rows("SELECT entry_rank, return_pct, excess_pct FROM episodes WHERE run_id=? AND status='closed'", (run_id,))
-    st = db.rows("SELECT entry_rank, return_pct, bench_return_pct, fwd_1y FROM stints WHERE run_id=?", (run_id,))
-    buckets = [("#1–5", 1, 5), ("#6–15", 6, 15), ("#16+", 16, 9999)]
+    """Buy Zone entries grouped by rank on the day they entered: each stock's next-year return next to the
+    S&P 500's over the same days, so a group isn't flattered by when it happened to buy. Re-entries within 30 days
+    count once (signals.REENTRY_DAYS), and entries on the run's first day are left out (they were already in the
+    Buy Zone when the history began)."""
+    st = [dict(r) for r in db.rows(
+        "SELECT cik, entry_rank, fwd_1y, bench_fwd_1y, at_start FROM stints WHERE run_id=?", (run_id,))]
+    eps = db.rows("SELECT entry_rank, return_pct, excess_pct, days_held FROM episodes WHERE run_id=? AND status='closed'",
+                  (run_id,))
     out = []
-    for name, a, b in buckets:
-        f = [r for r in st if r["entry_rank"] and a <= r["entry_rank"] <= b]
-        fw = [r["fwd_1y"] for r in f if r["fwd_1y"] is not None]
-        ep = [r for r in rows if r["entry_rank"] and a <= r["entry_rank"] <= b]
-        out.append({"bucket": name, "stints": len(f), "avg_fwd_1y": sum(fw) / len(fw) if fw else None,
-                    "episodes": len(ep),
-                    "avg_excess": (sum(r["excess_pct"] or 0 for r in ep) / len(ep)) if ep else None})
+    for name, a, b in [("#1–5", 1, 5), ("#6–15", 6, 15), ("#16+", 16, 10 ** 6)]:
+        f = [r for r in st if r["entry_rank"] and a <= r["entry_rank"] <= b and not r.get("at_start")]
+        w = [r for r in f if r["fwd_1y"] is not None and r["bench_fwd_1y"] is not None]
+        ex = [r["fwd_1y"] - r["bench_fwd_1y"] for r in w]
+        ep = [r for r in eps if r["entry_rank"] and a <= r["entry_rank"] <= b]
+        out.append({"bucket": name, "stints": len(f), "stocks": len({r["cik"] for r in f}), "judged": len(w),
+                    "avg_fwd_1y": _avg(r["fwd_1y"] for r in w), "med_fwd_1y": _median(r["fwd_1y"] for r in w),
+                    "avg_bench": _avg(r["bench_fwd_1y"] for r in w),
+                    "avg_excess_1y": _avg(ex), "med_excess_1y": _median(ex),
+                    "beat": (sum(1 for x in ex if x > 0) / len(ex)) if ex else None,
+                    "episodes": len(ep), "avg_excess": _avg(r["excess_pct"] for r in ep),
+                    "med_excess": _median(r["excess_pct"] for r in ep)})
+    out.append({"skipped_start": sum(1 for r in st if r.get("at_start"))})
     return out
 
 
 def stints_summary(run_id) -> dict:
-    r = db.one("""SELECT COUNT(*) n, AVG(return_pct) r, AVG(bench_return_pct) b, AVG(fwd_1y) f,
-                  SUM(CASE WHEN return_pct > bench_return_pct THEN 1 ELSE 0 END) beat
-                  FROM stints WHERE run_id=? AND status='closed'""", (run_id,))
-    return dict(r) if r else {}
+    rows = db.rows("SELECT return_pct r, bench_return_pct b, fwd_1y f, bench_fwd_1y bf FROM stints "
+                   "WHERE run_id=? AND status='closed'", (run_id,))
+    if not rows:
+        return {}
+    ex = [r["r"] - r["b"] for r in rows if r["r"] is not None and r["b"] is not None]
+    fx = [r["f"] - r["bf"] for r in rows if r["f"] is not None and r["bf"] is not None]
+    return {"n": len(rows), "r": _avg(r["r"] for r in rows), "b": _avg(r["b"] for r in rows),
+            "med_ex": _median(ex), "beat": sum(1 for x in ex if x > 0), "f": _avg(r["f"] for r in rows),
+            "fx": _avg(fx), "med_fx": _median(fx)}
 
 
 def stock(ticker: str) -> dict | None:

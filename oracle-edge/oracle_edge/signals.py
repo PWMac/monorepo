@@ -21,6 +21,7 @@ from .engine import Eval, PriceBook
 from .rules import Profile
 
 BENCH = "SPY"
+REENTRY_DAYS = 30  # a Buy Zone re-entry within this many days of leaving continues the earlier entry
 
 BADGE_LABEL = {
     "STRONG_BUY": "▲▲ STRONG BUY", "BUY": "▲ BUY", "ADD": "＋ ADD", "HOLD": "● HOLD", "WATCH": "◎ WATCH",
@@ -109,6 +110,7 @@ class PortfolioSim:
             "SELECT * FROM signal_state WHERE run_id=? AND portfolio_id=?", (run_id, portfolio_id))}
         self.open_stints = {r["cik"]: dict(r) for r in db.rows(
             "SELECT * FROM stints WHERE run_id=? AND status='open'", (run_id,))}
+        self._first_stint_day: str | None = None
 
     # ------------------------------------------------------------ helpers
     def _st(self, cik):
@@ -815,16 +817,32 @@ class PortfolioSim:
         return res
 
     def stints(self, d: str, evals: list[Eval]) -> None:
+        """Buy Zone entries ("stints"), for the 'Is the ranking working?' table. A stock that leaves the Buy Zone
+        and comes back within REENTRY_DAYS continues its earlier entry instead of starting a new one, so a price
+        hovering around the buy line counts once. Entries on the run's first day are flagged: those stocks were
+        already in the Buy Zone when the history began, so they didn't 'enter' with a rank of their own."""
         con = db.get()
+        if self._first_stint_day is None:
+            self._first_stint_day = db.scalar("SELECT MIN(entered_on) FROM stints WHERE run_id=?", (self.run_id,)) or d
         in_zone = {e.cik: e for e in evals if e.list == "buy"}
         for cik, e in in_zone.items():
-            if cik not in self.open_stints:
-                px = self.pb.adj(self.tk.get(cik), d)
-                cur = con.execute(
-                    "INSERT INTO stints(run_id,cik,entered_on,entry_px,entry_rank,status) VALUES(?,?,?,?,?, 'open')",
-                    (self.run_id, cik, d, px, e.rank),
-                )
-                self.open_stints[cik] = {"id": cur.lastrowid, "cik": cik, "entered_on": d, "entry_px": px}
+            if cik in self.open_stints:
+                continue
+            last = db.one("SELECT id, entered_on, entry_px, left_on FROM stints WHERE run_id=? AND cik=? "
+                          "AND status='closed' ORDER BY left_on DESC LIMIT 1", (self.run_id, cik))
+            if last and last["left_on"] and _days(last["left_on"], d) <= REENTRY_DAYS:
+                con.execute("UPDATE stints SET left_on=NULL, exit_px=NULL, return_pct=NULL, bench_return_pct=NULL, "
+                            "status='open', reentries=COALESCE(reentries,0)+1 WHERE id=?", (last["id"],))
+                self.open_stints[cik] = {"id": last["id"], "cik": cik, "entered_on": last["entered_on"],
+                                         "entry_px": last["entry_px"]}
+                continue
+            px = self.pb.adj(self.tk.get(cik), d)
+            cur = con.execute(
+                "INSERT INTO stints(run_id,cik,entered_on,entry_px,entry_rank,status,at_start) "
+                "VALUES(?,?,?,?,?, 'open', ?)",
+                (self.run_id, cik, d, px, e.rank, int(d == self._first_stint_day)),
+            )
+            self.open_stints[cik] = {"id": cur.lastrowid, "cik": cik, "entered_on": d, "entry_px": px}
         for cik in list(self.open_stints):
             if cik not in in_zone:
                 s = self.open_stints.pop(cik)

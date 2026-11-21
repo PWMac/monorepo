@@ -200,7 +200,7 @@ _DIFF_KEYS = [  # (setting, label, format)
     ("regime_modifier", "bigger margin when expensive", "bool"), ("valuation_model", "valuation", "txt"),
     ("min_rank_score", "minimum Oracle Rank", "num"), ("include_foreign", "foreign filers", "bool"),
     ("initial_capital", "starting money", "usd"), ("weekly_contribution", "weekly amount", "usd"),
-    ("trade_cost_bps", "trading cost (bps)", "num"),
+    ("trade_cost_bps", "trading cost (bps)", "num"), ("rank_quality_weight", "Quality weight in rank", "num"),
 ]
 
 
