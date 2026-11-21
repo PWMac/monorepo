@@ -425,6 +425,15 @@ def _ceo_card(s: dict) -> None:
 
     def draw(res):
         cur = res.get("current")
+        ch = db.rows("SELECT * FROM ceo_changes WHERE cik=? ORDER BY date DESC LIMIT 3", (s["cik"],))
+        for c in ch[:1]:
+            with ui.row().classes("items-center gap-2 no-wrap"):
+                ui.html("<span style='background:#2c5d8f;color:#fff;border-radius:4px;font-size:11px;padding:1px 6px'>"
+                        "CEO CHANGE</span>", sanitize=False)
+                ui.label(f"{c['new_name']} replaced {c['old_name']}" + (f" from {c['date']}" if c["date"] else "")
+                         + (f" (found via {c['source']})" if c["source"] else "") + ". A new CEO is graded once they "
+                         "have two fiscal years in the role; their record at other companies counts toward the career "
+                         "grade straight away.").classes("text-sm")
         if res.get("conflict"):
             ui.label(res["conflict"]).classes("text-sm text-amber-800")
         m = res.get("record") or {}
@@ -670,6 +679,7 @@ def ranking_rows(prof) -> list[dict]:
     trs = wonderful.trends(prof)
     mh = wonderful.metric_histories(prof)
     cg = ceo.grades()
+    cch = ceo.recent_changes(365)
     from .. import values
 
     vals = values.all_values()
@@ -701,6 +711,8 @@ def ranking_rows(prof) -> list[dict]:
                     "ceo_grade": g.get("grade"), "ceo_score": g.get("score"), "ceo_name": g.get("name") or "",
                     "ceo_since": (g.get("start") or "")[:4], "ceo_basis": g.get("basis") or "",
                     "ceo_note": g.get("note") or ("" if g else "not rated yet"), "ceo_tried": bool(g),
+                    "ceo_changed": (cch.get(r["cik"]) or {}).get("date") or "",
+                    "ceo_prev": (cch.get(r["cik"]) or {}).get("old_name") or "",
                     "v_price": v.get("price"), "v_iv": v.get("iv"), "v_low": v.get("low"), "v_high": v.get("high"),
                     "v_er": v.get("er"), "v_mos": v.get("mos"), "v_required": v.get("required"),
                     "v_buy": (v["price"] <= v["buy_below"]) if v.get("buy_below") else None,

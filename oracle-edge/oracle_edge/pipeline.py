@@ -556,7 +556,12 @@ def daily_run(job, force: bool = False, send_email: bool = True, do_backup: bool
             db.log("sec", "ticker_map", False, str(e))
     job.update(0.02, "Checking the SEC for new annual reports")
     since = date.fromisoformat(db.cfg("last_filing_check", (date.today() - timedelta(days=3)).isoformat()))
-    filings = sec.annual_filings_since(since)
+    filings = sec.annual_filings_since(since, forms=sec.ANNUAL_FORMS | sec.QUARTER_FORMS | sec.EIGHTK_FORMS)
+    eightk: dict[int, str] = {}
+    for form, cik, fd in filings:
+        if form in sec.EIGHTK_FORMS:
+            eightk[cik] = min(eightk.get(cik, fd), fd)
+    filings = [f for f in filings if f[0] not in sec.EIGHTK_FORMS]
     universe = {r["cik"] for r in db.rows("SELECT cik FROM securities WHERE active=1")}
     watch = set(candidate_ciks([p.id for p in profs]))
     annual = {cik for form, cik, _ in filings if form not in sec.QUARTER_FORMS and cik in universe}
@@ -579,7 +584,11 @@ def daily_run(job, force: bool = False, send_email: bool = True, do_backup: bool
     res = fetch_prices_for(price_tickers(price_universe(cands)), job.sub(0.25, 0.50, "Updating prices"))
     db.set_cfg("last_price_fetch", {"at": db.now(), "missing": res["missing"][:200]})
     if db.cfg("ceo_grades_daily", True):
-        try:  # CEO grades for the ranking page, a few a day (Wikidata look-ups)
+        try:  # CEO changes (SEC 8-K item 5.02) and re-grades after new annual reports, then the routine grading
+            from . import ceo
+
+            job.update(0.50, "Checking for CEO changes")
+            ceo.check_changes(eightk, annual)
             ceo_grades_job(job, limit=150)
         except Exception as e:
             db.log("ceo", "grades", False, str(e)[:200])

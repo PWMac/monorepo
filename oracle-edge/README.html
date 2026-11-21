@@ -74,7 +74,7 @@ footer { color:var(--muted); font-size:12.5px; margin-top:50px; border-top:1px s
   <h1><img src="brand/logo/oracle-edge-header-tagline.png" srcset="brand/logo/oracle-edge-header-tagline@2x.png 2x"
      alt="Oracle Edge: Screen, Rank, Signal"></h1>
   <p>A local stock screener that thinks like the Oracle. This guide explains <b>what</b> the app does,
-  <b>how</b> it decides, and <b>why</b> it was built this way. Version 0.17.2.</p>
+  <b>how</b> it decides, and <b>why</b> it was built this way. Version 0.17.3.</p>
   <p style="font-size:14px">Two documents: this <b>guide</b> is the user manual, kept current with every release and opened from
   "Guide" in the app. The <b>plan</b> (<code>docs/Value-Picker-Plan.html</code> with the source code) is the design record: the research, architecture,
   database layout and the decision log behind the app.</p>
@@ -464,6 +464,22 @@ under about five years the result is partly luck; and integrity, candor and cult
 letters and the proxy statement too.</li>
 </ul>
 
+<h5>Keeping CEO information current (version 0.17.3)</h5>
+<p>The daily update checks for CEO changes and keeps the grades fresh:</p>
+<ul>
+<li><b>SEC 8-K filings.</b> A company must file an 8-K within four business days when a director or top officer leaves or
+is appointed (item 5.02). Every day the app reads the SEC's list of new 8-Ks; for each company it follows (any it has graded,
+and every company with Wonderfulness 60+) whose 8-K reports item 5.02, it looks the CEO up again at once, skipping the cached
+answers. Wikidata often takes weeks to catch up, so when Yahoo already names a different CEO, Yahoo's name is used, starting on
+the 8-K's filing date.</li>
+<li><b>New annual reports.</b> A company that files a new annual report is re-graded (the CEO's record now has another year).</li>
+<li><b>Monthly refresh.</b> Every grade is looked up again after 30 days (up to 150 a day), which also catches changes Yahoo or
+Wikidata show without an 8-K.</li>
+<li><b>When the CEO changes</b>, the change is recorded (old and new name, date, and how it was found), the daily email gets a
+<b>CEO changes</b> section, the Screener's CEO cell shows <b>NEW</b> for 12 months (hover for who it replaced; Add filter →
+<i>New CEO</i>), and the stock's CEO card says so. A new CEO isn't graded on this company until they have two fiscal years in
+the role, but their record at other companies counts toward the career grade straight away.</li>
+</ul>
 <h4>The stock page's Wonderful? tab</h4>
 <ul>
 <li><b>The score, tier and rank</b> among all scored companies, and the four pillars with every measure and its percentile bar.</li>
@@ -1460,7 +1476,7 @@ their old results until you recalculate them.</p>
 <tr><td><b>XBRL</b></td><td>The tagged data format companies use to file financial statements with the SEC</td></tr>
 </table>
 
-<footer>Oracle Edge v0.17.2 · research tool, not financial advice · MIT license. The full design plan, with research sources,
+<footer>Oracle Edge v0.17.3 · research tool, not financial advice · MIT license. The full design plan, with research sources,
 is in <code>docs/Value-Picker-Plan.html</code> with the source code.</footer>
 </main>
 </div>

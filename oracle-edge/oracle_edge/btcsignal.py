@@ -300,7 +300,8 @@ def check_alerts(reg, btc: dict | None) -> list[dict]:
 
 def recent_alerts(days: int = 14) -> list[dict]:
     return [dict(r) for r in db.rows(
-        "SELECT * FROM market_alerts WHERE date >= date('now', ?) ORDER BY date DESC, id DESC", (f"-{days} days",))]
+        "SELECT * FROM market_alerts WHERE date >= date('now', ?) AND kind != 'ceo_change' ORDER BY date DESC, id DESC",
+        (f"-{days} days",))]
 
 
 def daily(reg) -> dict:
