@@ -96,3 +96,61 @@ def test_sign_in_failure_is_not_retried_and_is_explained(monkeypatch):
     except RuntimeError as e:
         assert "535-5.7.8" in str(e)
     assert tried == [587]
+
+
+def _fake_server(reply_to_auth: bytes):
+    """A one-connection SMTP server: offers AUTH PLAIN and LOGIN, refuses the sign-in, then hangs up."""
+    import socket
+    import threading
+
+    srv = socket.socket()
+    srv.bind(("127.0.0.1", 0))
+    srv.listen(1)
+    seen = []
+
+    def run():
+        c, _ = srv.accept()
+        f = c.makefile("rwb")
+        f.write(b"220 fake ESMTP\r\n")
+        f.flush()
+        for line in f:
+            cmd = line.decode().strip()
+            seen.append(cmd.split()[0].upper() if cmd else "")
+            if cmd.upper().startswith(("EHLO", "HELO")):
+                f.write(b"250-fake\r\n250-STARTTLS\r\n250 AUTH LOGIN PLAIN XOAUTH2\r\n")
+            elif cmd.upper().startswith("AUTH"):
+                f.write(reply_to_auth)
+                f.flush()
+                break  # hang up right after refusing, like Gmail
+            else:
+                f.write(b"250 ok\r\n")
+            f.flush()
+        c.close()
+        srv.close()
+
+    threading.Thread(target=run, daemon=True).start()
+    return srv.getsockname()[1], seen
+
+
+def test_refused_sign_in_shows_the_servers_reason(monkeypatch):
+    monkeypatch.setattr(emailer.smtplib.SMTP, "starttls", lambda self, context=None: (220, b"ok"))
+    port, seen = _fake_server(b"535-5.7.8 Username and Password not accepted. For more information, go to\r\n"
+                              b"535 5.7.8  https://support.google.com/mail/?p=BadCredentials x\r\n")
+    try:
+        emailer._open("127.0.0.1", port, "starttls", "me@example.com", "pw", timeout=5)
+        raise AssertionError("should have failed")
+    except emailer.SmtpStepError as e:
+        assert e.step == "sign-in" and "5.7.8" in e.server
+        assert "535-5.7.8" in emailer.explain_error(e)
+    assert seen.count("AUTH") == 1  # one method only, so the real reason isn't lost
+
+
+def test_silent_hang_up_during_sign_in_is_explained(monkeypatch):
+    monkeypatch.setattr(emailer.smtplib.SMTP, "starttls", lambda self, context=None: (220, b"ok"))
+    port, _ = _fake_server(b"")
+    try:
+        emailer._open("127.0.0.1", port, "starttls", "me@example.com", "pw", timeout=5)
+        raise AssertionError("should have failed")
+    except emailer.SmtpStepError as e:
+        msg = emailer.explain_error(e)
+        assert e.step == "sign-in" and "app password" in msg and "wait an hour" in msg

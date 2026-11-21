@@ -46,11 +46,32 @@ def save_settings(s: dict, password: str | None = None) -> None:
 
 
 class SmtpStepError(RuntimeError):
-    """A failure tagged with the step it happened at (connect, greeting, encryption, sign-in, send)."""
+    """A failure tagged with the step it happened at (connect, greeting, encryption, sign-in, send), with the
+    mail server's last error reply when it gave one."""
 
-    def __init__(self, step: str, err: Exception):
-        super().__init__(f"{step}: {err}")
-        self.step, self.err = step, err
+    def __init__(self, step: str, err: Exception, server: str = ""):
+        super().__init__(f"{step}: {err}" + (f" (server said: {server})" if server else ""))
+        self.step, self.err, self.server = step, err, server
+
+
+class _Recorder:
+    """Keeps the server's replies (never what we send, so no password), to report its real reason for a refusal."""
+
+    def getreply(self):
+        code, msg = super().getreply()
+        text = msg.decode("utf-8", "replace") if isinstance(msg, bytes) else str(msg)
+        self.__dict__.setdefault("replies", []).append((code, " ".join(text.split())))
+        return code, msg
+
+    def last_error(self) -> str:
+        bad = [f"{c} {t}" for c, t in self.__dict__.get("replies", []) if c >= 400]
+        return bad[-1][:300] if bad else ""
+
+
+def _client(use_ssl: bool):
+    """smtplib's client with reply recording, built at connect time (so a substituted smtplib.SMTP is honoured)."""
+    base = smtplib.SMTP_SSL if use_ssl else smtplib.SMTP
+    return type(f"Recording{base.__name__}", (_Recorder, base), {})
 
 
 # The two standard ways to submit mail. Port 465 speaks TLS from the first byte; 587 (and 25/2525) starts in
@@ -69,9 +90,9 @@ def _open(host: str, port: int, security: str, user: str, pw: str, timeout: int 
     ctx = ssl.create_default_context()
     try:
         if security == "ssl":
-            smtp = smtplib.SMTP_SSL(host, port, context=ctx, timeout=timeout)
+            smtp = _client(True)(host, port, context=ctx, timeout=timeout)
         else:
-            smtp = smtplib.SMTP(host, port, timeout=timeout)
+            smtp = _client(False)(host, port, timeout=timeout)
     except (OSError, smtplib.SMTPException) as e:
         step = "find server" if isinstance(e, socket.gaierror) else "connect"
         if isinstance(e, (smtplib.SMTPServerDisconnected, ssl.SSLError)):
@@ -85,10 +106,18 @@ def _open(host: str, port: int, security: str, user: str, pw: str, timeout: int 
             except (smtplib.SMTPException, ssl.SSLError, OSError) as e:
                 raise SmtpStepError("encryption", e) from e
             smtp.ehlo()
+        # One sign-in method only. smtplib otherwise tries the next method after a refusal; if the server has
+        # already hung up, its real reason ("535 5.7.8 ...") is replaced by "Connection unexpectedly closed".
+        ef = getattr(smtp, "esmtp_features", None)
+        feats = (ef.get("auth") or "").upper().split() if isinstance(ef, dict) else []
+        for mech in ("PLAIN", "LOGIN"):
+            if mech in feats:
+                ef["auth"] = mech
+                break
         try:
             smtp.login(user, pw)
         except (smtplib.SMTPException, OSError) as e:
-            raise SmtpStepError("sign-in", e) from e
+            raise SmtpStepError("sign-in", e, smtp.last_error()) from e
         return smtp
     except BaseException:
         try:
@@ -148,7 +177,7 @@ def send(subject: str, html_body: str, text_body: str = "") -> None:
             try:
                 smtp.send_message(msg)
             except (smtplib.SMTPException, OSError) as e:
-                raise SmtpStepError("send", e) from e
+                raise SmtpStepError("send", e, smtp.last_error()) from e
     except Exception as e:
         log.error("email failed (%s, %s:%s %s): %s", subject[:60], s["host"], s["port"], s["security"], e)
         raise
@@ -165,14 +194,28 @@ _STEP_HELP = {
     "encryption": "The server hung up while switching to encryption. Usually antivirus 'email protection' "
                   "(Avast, AVG, Norton, Kaspersky, ESET, Bitdefender) or a VPN intercepting the connection: turn its "
                   "mail scanning off, or allow Python.",
-    "sign-in": "The server rejected the sign-in.",
+    "sign-in": "The server refused the sign-in.",
     "send": "Signed in, but the server refused the message. Check the 'Send to' addresses; Gmail also refuses a "
             "From address that isn't your own.",
 }
 
 
+_SIGNIN_HUNG_UP = (
+    "The server hung up during sign-in without giving a reason. For Google: (1) the password must be a 16-letter app "
+    "password from myaccount.google.com/apppasswords, not your normal Google password, even if that one is correct; "
+    "(2) the sign-in address must be the account the app password was made for; (3) Workspace accounts need the "
+    "admin to allow app passwords; (4) after many failed tries Google blocks sign-ins for a while, so wait an hour "
+    "and test once.")
+
+
 def explain_error(e: Exception) -> str:
     t = str(e)
+    if "4.7.0" in t and ("Too many" in t or "try again later" in t):
+        return ("Google is temporarily blocking sign-ins after too many attempts (454 4.7.0). Wait an hour, then send "
+                "one test email.")
+    if "5.7.14" in t or "log in via your web browser" in t.lower():
+        return ("Google wants you to confirm this sign-in in a browser (534 5.7.14). Sign in to Gmail on this PC, "
+                "visit accounts.google.com/DisplayUnlockCaptcha, then test again.")
     if "5.7.9" in t or "Application-specific password required" in t:
         return "Google wants an app password (534-5.7.9). Create one at myaccount.google.com/apppasswords."
     if "5.7.8" in t or "Username and Password not accepted" in t:
@@ -182,7 +225,10 @@ def explain_error(e: Exception) -> str:
     if "5.7.139" in t or "SmtpClientAuthentication is disabled" in t:
         return "Microsoft 365 has SMTP sign-in turned off for this mailbox (5.7.139). An admin has to allow SMTP AUTH."
     if isinstance(e, SmtpStepError):
-        return f"Failed at '{e.step}': {e.err}. {_STEP_HELP.get(e.step, '')}"
+        if e.step == "sign-in" and not e.server and isinstance(e.err, smtplib.SMTPServerDisconnected):
+            return f"Failed at 'sign-in': {e.err}. {_SIGNIN_HUNG_UP}"
+        said = f" The server said: {e.server}." if e.server else ""
+        return f"Failed at '{e.step}': {e.err}.{said} {_STEP_HELP.get(e.step, '')}"
     if "timed out" in t.lower():
         return "Couldn't reach the mail server (timeout). Check the server name and port."
     return t
