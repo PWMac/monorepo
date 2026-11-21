@@ -256,6 +256,12 @@ MIGRATIONS: list[str] = [
         er REAL, mos REAL, buy_below REAL, implied REAL, supports REAL, pe_now REAL, pe_med REAL, required REAL,
         ttm INTEGER, estimates INTEGER, updated_at TEXT);
     """,
+    # ---- v18: CEO changes (found by the daily update: SEC 8-K item 5.02, Yahoo, Wikidata) ----
+    """
+    CREATE TABLE IF NOT EXISTS ceo_changes (id INTEGER PRIMARY KEY AUTOINCREMENT, cik INTEGER, date TEXT,
+        old_name TEXT, new_name TEXT, source TEXT, created_at TEXT);
+    CREATE INDEX IF NOT EXISTS ix_ceo_changes_cik ON ceo_changes(cik, date);
+    """,
 ]
 
 

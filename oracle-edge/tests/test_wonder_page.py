@@ -160,3 +160,54 @@ def test_background_ceo_grading_saves_real_answers_only(monkeypatch):
     assert g["grade"] is None and g["note"] == "CEO not found"
     with db.tx() as con:
         con.execute("DELETE FROM ceo_grades WHERE cik IN (990010, 990011)")
+
+
+def test_officer_change_8ks_are_found_by_item_502():
+    from oracle_edge.sources import sec
+
+    doc = {"filings": {"recent": {"form": ["8-K", "8-K", "10-Q", "8-K/A", "8-K"],
+                                  "filingDate": ["2026-11-18", "2026-11-10", "2026-11-05", "2026-10-01", "2025-01-01"],
+                                  "items": ["5.02,9.01", "8.01", "", "5.02", "5.02"]}}}
+    assert sec.parse_officer_changes(doc, "2026-09-01") == ["2026-11-18", "2026-10-01"]
+    idx = ("8-K              ACME CORP                       12345   20261118  edgar/data/12345/x.txt\n"
+           "10-K             ACME CORP                       12345   20261118  edgar/data/12345/y.txt\n")
+    assert [f for f, _, _ in sec.parse_daily_index(idx)] == ["10-K"]  # the default still means annual + quarterly
+    assert {f for f, _, _ in sec.parse_daily_index(idx, sec.EIGHTK_FORMS | sec.ANNUAL_FORMS)} == {"8-K", "10-K"}
+
+
+def test_daily_ceo_check_finds_a_new_ceo_and_records_the_change(monkeypatch):
+    from oracle_edge.sources import company, sec, wikidata
+
+    cik = 990020
+    with db.tx() as con:
+        con.execute("DELETE FROM ceo_grades WHERE cik=?", (cik,))
+        con.execute("DELETE FROM ceo_changes WHERE cik=?", (cik,))
+        con.execute("DELETE FROM market_alerts WHERE kind='ceo_change'")
+        con.execute("INSERT OR REPLACE INTO securities(cik, ticker, name) VALUES(?,?,?)", (cik, "ZZCEO", "Zz Corp"))
+    old = [{"qid": "Q1", "name": "Ann Oldham", "start": "2012-01-01", "end": None}]
+    monkeypatch.setattr(wikidata, "ceos", lambda c, t: old)  # Wikidata still lists the old CEO
+    monkeypatch.setattr(wikidata, "companies_led", lambda *a, **k: [])
+    monkeypatch.setattr(company, "get", lambda t, refresh=False: {"officers": [{"name": "Ann Oldham", "title": "CEO"}]})
+    ceo.assess(cik, "ZZCEO")
+    assert ceo.grades()[cik]["name"] == "Ann Oldham"
+    # the company files an 8-K (item 5.02); Yahoo already shows the new CEO
+    monkeypatch.setattr(company, "get", lambda t, refresh=False: {"officers": [{"name": "Bob Newman",
+                                                                                "title": "Chief Executive Officer"}]})
+    monkeypatch.setattr(sec, "officer_changes", lambda c, since: ["2026-11-18"])
+    out = ceo.check_changes({cik: "2026-11-18", 424242: "2026-11-18"}, set())
+    assert out["checked_8k"] == 1 and out["officer_changes"] == 1  # companies we don't follow aren't looked up
+    g = ceo.grades()[cik]
+    assert g["name"] == "Bob Newman" and g["start"] == "2026-11-18"
+    ch = ceo.recent_changes(3650)[cik]
+    assert ch["old_name"] == "Ann Oldham" and ch["new_name"] == "Bob Newman" and "8-K" in ch["source"]
+    assert db.scalar("SELECT COUNT(*) FROM market_alerts WHERE kind='ceo_change' AND message LIKE 'ZZCEO%'") == 1
+    ceo.check_changes({cik: "2026-11-18"}, set())  # seen again: no duplicate change
+    assert db.scalar("SELECT COUNT(*) FROM ceo_changes WHERE cik=?", (cik,)) == 1
+    from oracle_edge import emailer
+
+    assert "CEO changes" in emailer.market_html(db.rows("SELECT * FROM market_alerts WHERE kind='ceo_change'"))
+    with db.tx() as con:
+        con.execute("DELETE FROM ceo_grades WHERE cik=?", (cik,))
+        con.execute("DELETE FROM ceo_changes WHERE cik=?", (cik,))
+        con.execute("DELETE FROM market_alerts WHERE kind='ceo_change'")
+        con.execute("DELETE FROM securities WHERE cik=?", (cik,))
