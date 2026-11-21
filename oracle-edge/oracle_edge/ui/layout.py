@@ -13,7 +13,8 @@ from .theme import BRAND, CSS, HEAD, NEGATIVE
 NAV_GROUPS = [  # small groups (best practice: about seven items at most per group)
     ("Daily", [("Today", "/", "today"), ("My holdings", "/holdings", "account_balance_wallet"),
                ("Signals", "/signals", "notifications_active")]),
-    ("Analysis", [("Performance", "/performance", "show_chart"), ("Market", "/market", "thermostat"),
+    ("Analysis", [("Wonderful", "/wonderful", "workspace_premium"), ("Performance", "/performance", "show_chart"),
+                  ("Market", "/market", "thermostat"),
                   ("Backtest", "/backtest", "history"), ("Profiles", "/profiles", "tune")]),
     ("Setup", [("Data", "/data", "storage"), ("Settings", "/settings", "settings"), ("Guide", "/guide", "menu_book")]),
 ]

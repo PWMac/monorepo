@@ -224,6 +224,15 @@ MIGRATIONS: list[str] = [
     CREATE TABLE IF NOT EXISTS news_cache (
         key TEXT PRIMARY KEY, fetched_at TEXT, items_json TEXT);
     """,
+    # ---- v13: Wonderfulness scores (current and by fiscal year) and company profiles (management) ----
+    """
+    CREATE TABLE IF NOT EXISTS wonder (
+        cik INTEGER, profile_id INTEGER, cohort TEXT, as_of TEXT, filed TEXT, score REAL, rank INTEGER, n INTEGER,
+        pillars_json TEXT, feats_json TEXT, PRIMARY KEY (cik, profile_id, cohort)) WITHOUT ROWID;
+    CREATE INDEX IF NOT EXISTS ix_wonder_cohort ON wonder(profile_id, cohort, score);
+    CREATE TABLE IF NOT EXISTS company_info (
+        ticker TEXT PRIMARY KEY, fetched_at TEXT, info_json TEXT);
+    """,
 ]
 
 
