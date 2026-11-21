@@ -225,6 +225,20 @@ def fix_share_scale(s: dict) -> int:
                         sh[i] = sh[i] / k
                         fixed += 1
                         break
+                else:
+                    # a whole power of ten off the other years (e.g. 225,840 for 22.6 million) is a unit slip, not
+                    # a real change in the share count; if that year's EPS agrees with the slipped count (net
+                    # income / EPS = the reported shares), the EPS carries the same slip and is corrected with it
+                    import math
+
+                    lg = math.log10(sh[i] / med)
+                    m = round(lg)
+                    if abs(m) >= 2 and abs(lg - m) <= 0.3:
+                        k = 10.0 ** m
+                        if ni[i] and eps[i] and 0.67 <= (ni[i] / eps[i]) / sh[i] <= 1.5:
+                            eps[i] = eps[i] * k
+                        sh[i] = sh[i] / k
+                        fixed += 1
     return fixed
 
 

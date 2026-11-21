@@ -83,6 +83,41 @@ def test_splits_inferred_from_restated_filings():
     assert from_filings(facts) == [("2024-02-12", 4)]
 
 
+def test_a_split_the_filings_contradict_is_ignored():
+    """A price source listed a 0.374 'split' for a company whose share count didn't change: ignored. A real 10:1
+    split (shares x10 in the next annual report) and one with no report after it yet are kept."""
+    from oracle_edge.splits import observed_change
+
+    with db.tx() as con:
+        con.execute("DELETE FROM splits WHERE ticker IN ('ZZA','ZZB','ZZC')")
+        con.execute("DELETE FROM facts WHERE cik IN (9801,9802,9803)")
+        con.executemany("INSERT OR REPLACE INTO securities(cik,ticker,name) VALUES(?,?,?)",
+                        [(9801, "ZZA", "A"), (9802, "ZZB", "B"), (9803, "ZZC", "C")])
+        con.executemany("INSERT INTO splits(ticker,date,ratio,source) VALUES(?,?,?,'yahoo')",
+                        [("ZZA", "2025-10-24", 0.374), ("ZZB", "2026-06-12", 10.0), ("ZZC", "2026-10-01", 2.0)])
+        con.executemany("INSERT INTO facts(cik,item,fy_end,value,filed) VALUES(?,?,?,?,?)",
+                        [(9801, "shares_diluted", "2024-12-31", 17.27e6, "2025-02-19"),
+                         (9801, "shares_diluted", "2025-12-31", 16.24e6, "2026-03-02"),
+                         (9802, "shares_diluted", "2025-06-30", 133.75e6, "2025-08-08"),
+                         (9802, "shares_diluted", "2026-06-30", 1319.6e6, "2026-08-06"),
+                         (9803, "shares_diluted", "2025-12-31", 50e6, "2026-02-20")])
+    sp = Splits(["ZZA", "ZZB", "ZZC"])
+    assert not sp.has("ZZA") and sp.factor("ZZA", "2020-01-01") == 1.0
+    assert [r[:3] for r in sp.rejected] == [("ZZA", "2025-10-24", 0.374)]
+    assert sp.factor("ZZB", "2025-01-01") == 10.0 and sp.factor("ZZC", "2025-01-01") == 2.0
+    assert abs(observed_change([("2024-12-31", "2025-02-19", 17.27e6), ("2025-12-31", "2026-03-02", 16.24e6)],
+                               "2025-10-24") - 16.24 / 17.27) < 1e-12
+
+
+def test_share_count_and_eps_a_power_of_ten_off_are_rescaled_together():
+    """A filing with 225,840 shares and EPS 50.0 (net income agrees with both) for a company with ~23 million
+    shares: both are off by 100."""
+    s = {"years": ["2022", "2023", "2024", "2025"], "shares_diluted": [25.6e6, 25.0e6, 23.7e6, 225_840.0],
+         "net_income": [37.4e6, 31.8e6, 24.7e6, 11.3e6], "eps_diluted": [1.46, 1.27, 1.04, 50.0]}
+    assert fix_share_scale(s) == 1
+    assert abs(s["shares_diluted"][3] - 22_584_000.0) < 1 and abs(s["eps_diluted"][3] - 0.50) < 1e-9
+
+
 # ------------------------------------------------------------------ stored price history
 def _bars(t, rows):
     return pd.DataFrame([{"ticker": t, "date": d, "open": c, "high": c, "low": c, "close": c, "adj_close": a,

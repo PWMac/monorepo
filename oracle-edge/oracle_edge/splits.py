@@ -27,6 +27,7 @@ class Splits:
     def __init__(self, tickers: list[str] | None = None, load: bool = True):
         self.d: dict[str, tuple[list[str], list[float]]] = {}
         self.priced: set[str] = set()
+        self.rejected: list[tuple[str, str, float, float]] = []
         if not load:
             return
         # tickers whose split dates come from the price source (Yahoo reports every split); for the others,
@@ -41,6 +42,43 @@ class Splits:
             a = self.d.setdefault(r["ticker"], ([], []))
             a[0].append(r["date"])
             a[1].append(float(r["ratio"]))
+        self.rejected: list[tuple[str, str, float, float]] = []
+        self._check_against_filings()
+
+    def _check_against_filings(self) -> None:
+        """Drop a split the company's own filings contradict. A real split changes the diluted share count
+        between the last annual report before it and the first one after it by about the split ratio; when the
+        count barely moved (closer to no change than to the ratio), the split is a data-source error and is
+        ignored (one such entry made a company's earnings look 2.7 times bigger). Splits with no annual report
+        on one side yet can't be checked and are kept."""
+        import math
+
+        tick = list(self.d)
+        facts: dict[str, list[tuple[str, str, float]]] = {}
+        for i in range(0, len(tick), 400):
+            chunk = tick[i:i + 400]
+            q = ",".join("?" * len(chunk))
+            for r in db.rows(f"SELECT s.ticker, f.fy_end, f.filed, f.value FROM facts f JOIN securities s "
+                             f"ON s.cik=f.cik WHERE f.item='shares_diluted' AND f.value > 0 AND s.ticker IN ({q})",
+                             chunk):
+                facts.setdefault(r["ticker"], []).append((r["fy_end"], r["filed"], float(r["value"])))
+        for t, (dates, ratios) in list(self.d.items()):
+            rows = facts.get(t)
+            if not rows:
+                continue
+            keep_d, keep_r = [], []
+            for d, ratio in zip(dates, ratios):
+                obs = observed_change(rows, d)
+                if obs is not None and abs(math.log(ratio)) > math.log(1.2) \
+                        and abs(math.log(obs / ratio)) >= abs(math.log(obs)):
+                    self.rejected.append((t, d, ratio, obs))
+                    continue
+                keep_d.append(d)
+                keep_r.append(ratio)
+            if keep_d:
+                self.d[t] = (keep_d, keep_r)
+            else:
+                del self.d[t]
 
     def factor(self, ticker: str | None, after: str | None, upto: str | None = None) -> float:
         """Product of split ratios on dates in (after, upto]; upto=None means every split known."""
@@ -68,6 +106,20 @@ class Splits:
         local = Splits(load=False)
         local.d[ticker or ""] = ([d for d, _ in found], [r for _, r in found])
         return local
+
+
+def observed_change(rows: list[tuple[str, str, float]], d: str) -> float | None:
+    """Diluted shares in the first annual report for a year ending after d ÷ those in the last annual report filed
+    before d (each as first filed). rows: (fy_end, filed, value). None if either side is missing."""
+    before = [r for r in rows if r[1] < d]
+    after = [r for r in rows if r[0] > d]
+    if not before or not after:
+        return None
+    fy_b = max(r[0] for r in before)
+    b = min((r for r in before if r[0] == fy_b), key=lambda r: r[1])[2]
+    fy_a = min(r[0] for r in after)
+    a = min((r for r in after if r[0] == fy_a), key=lambda r: r[1])[2]
+    return a / b if b else None
 
 
 def from_filings(facts) -> list[tuple[str, float]]:
