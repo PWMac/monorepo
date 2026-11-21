@@ -351,7 +351,7 @@ def finish_setup(job, lo=0.5) -> None:
 
 
 # ================================================================== daily run
-CALC_VERSION = 3
+CALC_VERSION = 4
 """Bumped when a fix changes stored results (snapshots, live histories). v2 (0.12.0): stock splits, share-count
 scale errors, fiscal-year grouping, buy-below consistency, point-in-time Buffett Indicator."""
 

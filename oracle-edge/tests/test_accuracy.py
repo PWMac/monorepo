@@ -385,3 +385,19 @@ def test_fair_pe_price_test():
     assert score == pytest.approx(50.0)                      # halfway between 1.5x and 0.5x the median
     assert fair_pe_test(40.0, v, {"eps_last": 2.0}, {"price_test": "dcf"}) is None
     assert fair_pe_test(40.0, SimpleNamespace(pe_median=None), {"eps_last": 2.0}, st) is None
+
+
+def test_roe_floor_applies_to_the_last_five_years_only():
+    from oracle_edge.metrics import MetricResult
+    from oracle_edge.rules import load_yaml_profile, roe_floor_ok, score_rule
+
+    rule = next(r for r in load_yaml_profile()["rules"] if r["id"] == "r19")
+    assert rule["min_year_window"] == 5
+    old_dip = [0.08, 0.25, 0.30, 0.28, 0.31, 0.29, 0.30, 0.27, 0.33, 0.30]   # weak year 10 years back
+    new_dip = [0.25, 0.30, 0.28, 0.31, 0.29, 0.30, 0.27, 0.09, 0.33, 0.30]   # weak year 3 years back
+    assert roe_floor_ok(old_dip, rule) and not roe_floor_ok(new_dip, rule)
+    assert not roe_floor_ok(old_dip, {**rule, "min_year_window": 10})
+    years = [f"{2016 + i}-12-31" for i in range(10)]
+    ok = score_rule(rule, MetricResult(sum(old_dip) / 10, old_dip, years))
+    bad = score_rule(rule, MetricResult(sum(new_dip) / 10, new_dip, years))
+    assert ok.passed and not bad.passed

@@ -315,6 +315,24 @@ and insurers aren't scored: their returns and debt aren't comparable with an ope
 Each year was scored from that year's annual report (only past sales figures may include later restatements). A high score raises the odds a lot; it doesn't guarantee anything, and
 it says nothing about whether the price is right.</p>
 
+<h4>The return-on-equity floor looks at the last 5 years (version 0.14.1)</h4>
+<p>The ROE gate asks for a 10-year average of 15%+ and no year under 10%. Until 0.14.1 that "no year" covered all ten years, so one
+weak year a decade ago (often right after an IPO or a big acquisition) kept an otherwise excellent business off the list. It now
+applies to the <b>last 5 years</b>; you can change it per profile (Profiles → "ROE gate: no year under its floor in the last N
+years"; 10 = the old rule). The test behind it, on companies with an average ROE of 15%+ (fiscal years 2012–2022, next 3 years):</p>
+<table>
+<tr><th>Weakest year (under 10% ROE)</th><th>Company-years</th><th>Went on to compound</th><th>Median ROE next 3 years</th><th>ROIC fell under 10%</th></tr>
+<tr><td>None in 10 years</td><td>2,055</td><td>20%</td><td>24%</td><td>17%</td></tr>
+<tr><td>Only 6–10 years back</td><td>660</td><td>22%</td><td>24%</td><td>25%</td></tr>
+<tr><td>4–5 years back (last 3 fine)</td><td>301</td><td>21%</td><td>22%</td><td>30%</td></tr>
+<tr><td>In the last 3 years</td><td>1,146</td><td>11%</td><td>10%</td><td>54%</td></tr>
+</table>
+<p>A weak year 6–10 years back made no difference; one in the last 3 years was a real warning. Four to five years back was in
+between (as likely to compound, but more often slipped), so 5 years is the cautious choice. On your data this lets 269
+companies pass the checklist instead of 214 (133 worth $2B+ are now "best of both", up from 97). The rebuild after installing
+applies it. In the portfolio backtests the effect was within luck: the 25-stock Quality Core went from 10.6% to 13.0% a year
+for 2019–2026 (10.9% to 10.1% for 2015–2026); the 7-stock live setup went from 5.4% to 2.1%.</p>
+
 <h4>Wonderfulness or Quality: what's the difference?</h4>
 <table>
 <tr><th></th><th>Quality (the Oracle checklist)</th><th>Wonderfulness</th></tr>
@@ -411,7 +429,7 @@ the rule matters.</p>
 <tr><th>Rule</th><th>Measure</th><th>Target (70 pts)</th><th>Why the Oracle cares</th></tr>
 <tr><td>Earnings every year <span class="pill" style="background:#fbe2dd;color:#a33a2b">gate</span></td><td>Years with a profit</td><td>10 of 10</td><td>Wild swings are typical of commodity businesses</td></tr>
 <tr><td>Debt payback <span class="pill" style="background:#fbe2dd;color:#a33a2b">gate</span></td><td>Long-term debt ÷ net income (3-yr avg)</td><td>≤ 4 years</td><td>A durable company could pay off its debt quickly</td></tr>
-<tr><td>Return on equity <span class="pill" style="background:#fbe2dd;color:#a33a2b">gate</span></td><td>Net income ÷ average equity, 10-yr avg</td><td>≥ 15%, no year &lt; 10%</td><td>Berkshire's own stated criterion: good ROE with little debt</td></tr>
+<tr><td>Return on equity <span class="pill" style="background:#fbe2dd;color:#a33a2b">gate</span></td><td>Net income ÷ average equity, 10-yr avg</td><td>≥ 15%, no year &lt; 10% in the last 5 years</td><td>Berkshire's own stated criterion: good ROE with little debt</td></tr>
 <tr><td>Gross margin</td><td>Gross profit ÷ revenue</td><td>≥ 40%</td><td>Not competing on price</td></tr>
 <tr><td>SG&amp;A margin</td><td>SG&amp;A ÷ gross profit</td><td>≤ 30%</td><td>Doesn't spend heavily to keep customers</td></tr>
 <tr><td>R&amp;D margin</td><td>R&amp;D ÷ gross profit</td><td>≤ 30%</td><td>Heavy R&amp;D means the edge must be rebuilt again and again</td></tr>

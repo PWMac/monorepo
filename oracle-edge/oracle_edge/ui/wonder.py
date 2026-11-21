@@ -485,6 +485,8 @@ def checklist(prof) -> dict[int, dict]:
     bar = float(prof.settings.get("quality_min", 70))
     fmts = {r["id"]: r.get("fmt", "") for r in prof.all_rules()}
     mins = {r["id"]: r["min_year"] for r in prof.all_rules() if r.get("min_year") is not None}
+    wins = {r["id"]: int(r.get("min_year_window") or rules.ROE_FLOOR_WINDOW) for r in prof.all_rules()
+            if r.get("min_year") is not None}
     out = {}
     for r in db.rows("SELECT s.cik, s.quality, s.gates_passed, s.failed_gates FROM snapshots s JOIN (SELECT cik, MAX(filed) f "
                      "FROM snapshots WHERE profile_id=? AND profile_version=? GROUP BY cik) m ON s.cik=m.cik AND "
@@ -500,7 +502,8 @@ def checklist(prof) -> dict[int, dict]:
                    f" {v:.1f} yrs" if fmt_ == "years" and v < 90 else " (losses)" if fmt_ == "years" else f" {v:.2f}")
             my = mins.get(f.get("id"))
             if my is not None and v is not None and v >= my:  # the average is fine; one year fell below the floor
-                failed.append(f"{f['name']}: a year under {my * 100:.0f}% (average{val})")
+                failed.append(f"{f['name']}: a year under {my * 100:.0f}% in the last {wins.get(f['id'], 5)} "
+                              f"(average{val})")
             else:
                 failed.append(f"{f['name']}{val}")
         why = ", ".join(failed)
