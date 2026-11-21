@@ -224,12 +224,28 @@ def latest_snapshot(cik: int, profile_id: int) -> dict | None:
     return x
 
 
-def stock_eval(run_id, cik) -> dict | None:
+def stock_eval(run_id, cik, profile=None) -> dict | None:
+    """The run's evaluation of this company on its latest day. A company the daily update doesn't track (off the
+    shortlist, so there's no evaluation for that day) is evaluated on the spot with the same rules; detail.on_demand
+    marks it, and detail.last_tracked gives the last day it was tracked, if ever."""
     r = db.one("SELECT * FROM evaluations WHERE run_id=? AND cik=? ORDER BY date DESC LIMIT 1", (run_id, cik))
-    if not r:
+    latest = db.scalar("SELECT MAX(date) FROM evaluations WHERE run_id=?", (run_id,))
+    if r and (not latest or r["date"] >= latest):
+        x = dict(r)
+        x["detail"] = json.loads(x["detail"] or "{}")
+        return x
+    from ..engine import evaluate_one
+
+    prof = profile or rules.get_profile(db.scalar("SELECT profile_id FROM runs WHERE id=?", (run_id,)))
+    try:
+        x = evaluate_one(cik, prof)
+    except Exception as e:
+        db.log("ui", "evaluate_one", False, f"{cik}: {e}"[:200])
+        x = None
+    if x is None:
         return None
-    x = dict(r)
-    x["detail"] = json.loads(x["detail"] or "{}")
+    x["run_id"] = run_id
+    x["detail"]["last_tracked"] = r["date"] if r else None
     return x
 
 

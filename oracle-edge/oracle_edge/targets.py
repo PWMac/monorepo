@@ -227,10 +227,16 @@ def watch_set(run_id: int, d: str) -> list[dict]:
                   OR e.cik IN (SELECT cik FROM custom_targets WHERE active=1))""", (pid, run_id, d))]
 
 
-def plan_for(run_id: int, cik: int, st: dict) -> tuple[dict, dict | None]:
-    r = db.one("""SELECT e.price, e.buy_below, e.strong_buy_below, e.iv, s.ticker FROM evaluations e
-                  JOIN securities s ON s.cik=e.cik WHERE e.run_id=? AND e.cik=? ORDER BY e.date DESC LIMIT 1""",
-               (run_id, cik))
+def plan_for(run_id: int, cik: int, st: dict, ev: dict | None = None) -> tuple[dict, dict | None]:
+    """Targets from the given evaluation (e.g. the stock page's, which may be worked out on the spot), else the
+    run's latest stored one."""
+    if ev is not None:
+        r = {"price": ev.get("price"), "buy_below": ev.get("buy_below"), "strong_buy_below": ev.get("strong_buy_below"),
+             "iv": ev.get("iv"), "ticker": db.scalar("SELECT ticker FROM securities WHERE cik=?", (cik,))}
+    else:
+        r = db.one("""SELECT e.price, e.buy_below, e.strong_buy_below, e.iv, s.ticker FROM evaluations e
+                      JOIN securities s ON s.cik=e.cik WHERE e.run_id=? AND e.cik=? ORDER BY e.date DESC LIMIT 1""",
+                   (run_id, cik))
     if not r:
         return plan(None, None, None, None, None, st), None
     t = technicals(r["ticker"])

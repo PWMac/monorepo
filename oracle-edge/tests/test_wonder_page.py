@@ -123,3 +123,12 @@ def test_value_filters_and_the_value_pass():
     assert wp.passes(_row(v_buy=None), {"v_buy": ["none"]})
     n = values.compute_all()  # runs on whatever the test database holds
     assert n == len(values.all_values())
+
+
+def test_stock_page_evaluates_untracked_companies_on_the_spot():
+    from oracle_edge.engine import evaluate_one
+    from oracle_edge.ui import valuecard
+
+    assert evaluate_one(987654321, rules.default_profile()) is None  # unknown company: nothing, no error
+    svg = valuecard.value_line_html(15.6, 19.5, 22.7, 26.2, 17.0, None)
+    assert 'y="13"' in svg and 'y="30"' in svg  # today's price and buy-below labels never collide
