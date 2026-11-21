@@ -262,6 +262,10 @@ MIGRATIONS: list[str] = [
         old_name TEXT, new_name TEXT, source TEXT, created_at TEXT);
     CREATE INDEX IF NOT EXISTS ix_ceo_changes_cik ON ceo_changes(cik, date);
     """,
+    # ---- v19: cost of revenue filled from Yahoo for companies whose filings split it with no total ----
+    """
+    CREATE TABLE IF NOT EXISTS cost_fill (cik INTEGER PRIMARY KEY, checked_at TEXT, added INTEGER, note TEXT);
+    """,
 ]
 
 

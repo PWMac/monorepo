@@ -600,6 +600,19 @@ def _report_card(s, r, prof, snap, ev, run_id):
             cats = snap["category_scores"]
             ui.label(" · ".join(f"{k.title()} {v:.0f}" for k, v in cats.items())).classes("oe-small")
         rules_by_id = {x["id"]: x for x in prof.all_rules()}
+        r1 = next((x for x in snap["rules_json"] if x["id"] == "r1"), None)
+        if r1 is not None and r1.get("value") is None and (snap.get("routed") or "standard") == "standard":
+            from .. import grossfill
+
+            k = grossfill.kind(s["cik"])
+            ui.label("Gross margin: " + (
+                "this company reports no cost of sales (common for payment networks, asset managers and many service "
+                "firms), so gross margin and the rules measured against gross profit don't apply. They're skipped, not "
+                "counted against it." if k == "none" else
+                "this company reports its cost of sales in separate lines with no total, which the SEC data the app "
+                "reads doesn't include. The daily update fills recent years from Yahoo Finance (checked against the "
+                "SEC's sales figures); until then the gross-margin rules are skipped.")).classes(
+                "oe-small text-amber-800" if k == "gap" else "oe-small")
         groups = [("Gates (must pass)", lambda x: x["mode"] == "gate"),
                   ("Scored", lambda x: x["mode"] == "scored")]
         for title, pred in groups:

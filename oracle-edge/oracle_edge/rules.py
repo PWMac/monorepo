@@ -532,6 +532,8 @@ def confidence(s: dict, results: list[RuleResult], data_years: int, lookback: in
     c = 1.0
     if s["years"]:
         for k in ("revenue", "net_income", "equity", "ocf", "capex", "shares_diluted", "gross_profit"):
+            if k == "gross_profit" and all(v is None for v in s.get("gross_profit") or []):
+                continue  # no cost of sales in any year: the business doesn't have one (gross margin doesn't apply)
             if s[k][-1] is None:
                 c -= 0.03
     c -= 0.02 * max(0, lookback - data_years)

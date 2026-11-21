@@ -680,6 +680,9 @@ def ranking_rows(prof) -> list[dict]:
     mh = wonderful.metric_histories(prof)
     cg = ceo.grades()
     cch = ceo.recent_changes(365)
+    from .. import grossfill
+
+    gmk = grossfill.kinds()
     from .. import values
 
     vals = values.all_values()
@@ -711,6 +714,7 @@ def ranking_rows(prof) -> list[dict]:
                     "ceo_grade": g.get("grade"), "ceo_score": g.get("score"), "ceo_name": g.get("name") or "",
                     "ceo_since": (g.get("start") or "")[:4], "ceo_basis": g.get("basis") or "",
                     "ceo_note": g.get("note") or ("" if g else "not rated yet"), "ceo_tried": bool(g),
+                    "gm_kind": gmk.get(r["cik"], "none"),
                     "ceo_changed": (cch.get(r["cik"]) or {}).get("date") or "",
                     "ceo_prev": (cch.get(r["cik"]) or {}).get("old_name") or "",
                     "v_price": v.get("price"), "v_iv": v.get("iv"), "v_low": v.get("low"), "v_high": v.get("high"),

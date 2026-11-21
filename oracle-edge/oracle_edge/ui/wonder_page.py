@@ -278,8 +278,11 @@ def columns(bar: float) -> tuple[list[dict], dict[str, list[str]]]:
     measures = [
         _tc("roic_med", "ROIC 10-yr median", F_PCT, 1, 116, None, "Return on invested capital each year", "pct",
             "The column is the 10-year median; the arrow and chart follow each year's ROIC."),
-        _tc("gm_med", "Gross margin", F_PCT, 1, 104, None, "Gross margin each year", "pct",
-            "The column is the 10-year median; the arrow and chart follow each year's margin."),
+        {**_tc("gm_med", "Gross margin", F_PCT, 1, 104, "Gross margin, 10-year median. n/a = the company reports no "
+               "cost of sales (payment networks, asset managers, many service firms): gross margin doesn't apply and "
+               "isn't counted against it.", "Gross margin each year", "pct",
+               "The column is the 10-year median; the arrow and chart follow each year's margin."),
+         ":cellRenderer": _GM},
         _tc("rev_g5", "Sales growth 5 yrs", F_PCT, 1, 112, None, "Sales growth each year", "pct",
             "The column is 5-year growth a year; the arrow and chart follow each year's growth.",
             columnGroupShow="open"),
@@ -333,6 +336,13 @@ def columns(bar: float) -> tuple[list[dict], dict[str, list[str]]]:
         G[gid] = [c.get("colId") or c["field"] for c in children]
     return cols, G
 
+
+_GM = ("p => { if (p.value == null && p.data) { const k = p.data.gm_kind;"
+       " if (k === 'none') return '<span title=\"Reports no cost of sales, so gross margin doesn\\'t apply (not counted "
+       "against it)\" style=\"color:#9aa5a0\">n/a</span>';"
+       " if (k === 'gap') return '<span title=\"Reports its cost of sales in pieces with no total; the daily update fills "
+       "it from Yahoo Finance\" style=\"color:#9aa5a0\">pending</span>'; return ''; }"
+       " return (" + _tcell(F_PCT, 1) + ")(p); }")
 
 GROUP_LABELS = {"scores": "Scores", "mgmt": "CEO", "pillars": "Pillars", "measures": "Key measures",
                 "value": "Value (price vs worth)", "info": "Company info (size, 10-Q, industry)"}
