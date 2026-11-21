@@ -245,6 +245,17 @@ MIGRATIONS: list[str] = [
     CREATE TABLE IF NOT EXISTS surprises (ticker TEXT, date TEXT, eps_est REAL, eps_actual REAL, surprise REAL,
         PRIMARY KEY (ticker, date)) WITHOUT ROWID;
     """,
+    # ---- v16: each company's CEO grade, for the ranking page (filled when a stock page is opened and in the background) ----
+    """
+    CREATE TABLE IF NOT EXISTS ceo_grades (cik INTEGER PRIMARY KEY, name TEXT, start TEXT, grade TEXT, score REAL,
+        basis TEXT, years REAL, note TEXT, updated_at TEXT);
+    """,
+    # ---- v17: every company's value-driver valuation at the latest price, for the Screener ----
+    """
+    CREATE TABLE IF NOT EXISTS vd_values (cik INTEGER PRIMARY KEY, date TEXT, price REAL, iv REAL, low REAL, high REAL,
+        er REAL, mos REAL, buy_below REAL, implied REAL, supports REAL, pe_now REAL, pe_med REAL, required REAL,
+        ttm INTEGER, estimates INTEGER, updated_at TEXT);
+    """,
 ]
 
 

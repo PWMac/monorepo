@@ -68,6 +68,7 @@ FEATURES = {
     "share_cagr": ("Diluted shares, 10-year change a year", "pct", "flat or falling"),
 }
 RULE_MAP = {  # feature -> (rule id, field)
+    "gm_last": ("r1", "last"),  # stored for the ranking page's trends (not scored)
     "roic_last": ("r20", "last"), "roic_med": ("r20", "value"), "roic_years": ("r20", "consistency"),
     "roic_min": ("r20", "min"), "roe_last": ("r19", "last"), "gm_med": ("r1", "value"), "gm_years": ("r1", "consistency"),
     "predictability": ("r22", "value"), "oe_growth": ("r17", "value"), "eps_growth": ("r8", "value"),
@@ -189,9 +190,10 @@ def financial_ciks() -> set[int]:
     return out
 
 
-HISTORY_VERSION = 2
+HISTORY_VERSION = 3
 """Bumped when the year-by-year scores need recomputing. v2 (0.15.0): years ending in the first week of January
-(52/53-week fiscal years) are labelled with the year they mostly cover, so two years no longer share a label."""
+(52/53-week fiscal years) are labelled with the year they mostly cover, so two years no longer share a label.
+v3 (0.17.0): each year also keeps that year's gross margin (for the ranking page's trends)."""
 
 
 def fy_label(fy_end: str) -> str:
@@ -361,7 +363,12 @@ def summarize(series: list[tuple[str, float]], years: int = 3) -> dict:
     chg = last - base[1] if base[0] != last_lab else None
     direction = ("new" if chg is None else "up" if chg >= 5 else "down" if chg <= -5 else "flat")
     first_exc = next((lab for lab, v in series if v >= 80), None)
-    return {"chg": chg, "since": base[0], "dir": direction, "years": len(series),
+    streak = 0
+    for _, v in reversed(series):
+        if v < 70:
+            break
+        streak += 1
+    return {"chg": chg, "since": base[0], "dir": direction, "years": len(series), "streak_70": streak,
             "years_70": sum(1 for _, v in series if v >= 70), "first_80": first_exc,
             "low": min(v for _, v in series), "high": max(v for _, v in series)}
 
@@ -387,6 +394,87 @@ def trends(profile=None) -> dict[int, dict]:
         wser = sorted(ws.items())
         qser = sorted((k, v) for k, v in qual.get(cik, {}).items() if k <= lab)
         out[cik] = {"w": wser, "q": qser, **summarize(wser), "q_chg": summarize(qser).get("chg")}
+    return out
+
+
+# ---------------------------------------------------------------- histories of the ranking page's columns
+# column -> (where it comes from, key, the change that counts as a move, which way is better)
+HIST_FIELDS = {
+    "score": ("score", None, 4.0, 1), "quality": ("quality", None, 4.0, 1), "combined": ("combined", None, 4.0, 1),
+    "moat": ("pillar", "moat", 5.0, 1), "growth": ("pillar", "growth", 5.0, 1),
+    "strength": ("pillar", "strength", 5.0, 1), "allocation": ("pillar", "allocation", 5.0, 1),
+    "roic_med": ("feat", "roic_last", 0.02, 1), "gm_med": ("feat", "gm_last", 0.015, 1),
+    "rev_g5": ("feat", "rev_g1", 0.03, 1), "debt_payback": ("feat", "debt_payback", 0.5, -1),
+    "dollar_test": ("feat", "dollar_test", 0.3, 1),
+}
+_HIST_CACHE: dict = {}
+
+
+def direction(vals: list[float], tol: float) -> str | None:
+    """'up', 'down' or 'flat': the average of the last two years against the average of up to three years before
+    them (smooths one odd year). None with fewer than three years."""
+    if len(vals) < 3:
+        return None
+    last = sum(vals[-2:]) / 2
+    prev = vals[-5:-2]
+    d = last - sum(prev) / len(prev)
+    return "up" if d >= tol else "down" if d <= -tol else "flat"
+
+
+def metric_histories(profile=None, years: int = 8) -> dict[int, dict]:
+    """For every scored company, each ranking-page column year by year (the latest year = today's figures) and
+    its direction: {"hist": {field: [[label, value], ...]}, "tr": {field: "up"|"down"|"flat"}}. Cached until the
+    scores change."""
+    p = profile or rules.default_profile()
+    key = (p.snap, db.scalar("SELECT COUNT(*) || MAX(filed) FROM wonder WHERE profile_id=?", (p.snap[0],)),
+           db.scalar("SELECT MAX(filed) FROM snapshots WHERE profile_id=?", (p.snap[0],)))
+    if _HIST_CACHE.get("key") == key:
+        return _HIST_CACHE["val"]
+    by: dict[int, dict[str, dict]] = defaultdict(dict)
+    nowlab: dict[int, str] = {}
+    for r in db.rows("SELECT cik, cohort, as_of, score, pillars_json, feats_json FROM wonder WHERE profile_id=? AND "
+                     "(cohort LIKE 'FY%' OR cohort='now')", (p.snap[0],)):
+        lab = fy_label(r["as_of"]) if r["cohort"] == "now" else r["cohort"]
+        if r["cohort"] == "now":
+            nowlab[r["cik"]] = lab
+        elif lab in by[r["cik"]] and by[r["cik"]][lab].get("_now"):
+            continue  # today's score already stands for this year
+        f = json.loads(r["feats_json"] or "{}").get("f", {})
+        by[r["cik"]][lab] = {"score": r["score"], "_now": r["cohort"] == "now", **json.loads(r["pillars_json"] or "{}"),
+                             **{k: f.get(k) for k in ("roic_last", "gm_last", "gm_med", "rev_g1", "debt_payback",
+                                                      "dollar_test")}}
+    qual = _quality_by_year(p)
+    out = {}
+    for cik, lab_now in nowlab.items():
+        ys = {k: v for k, v in by[cik].items() if k <= lab_now}
+        labs = sorted(ys)[-years:]
+        q = qual.get(cik, {})
+        hist, tr = {}, {}
+        for field, (src, k, tol, _better) in HIST_FIELDS.items():
+            ser = []
+            for lab in labs:
+                y = ys[lab]
+                if src == "score":
+                    v = y.get("score")
+                elif src == "quality":
+                    v = q.get(lab)
+                elif src == "combined":
+                    v = (y["score"] + q[lab]) / 2 if q.get(lab) is not None and y.get("score") is not None else None
+                elif src == "pillar":
+                    v = y.get(k)
+                else:
+                    v = y.get(k)
+                    if v is None and k == "gm_last":
+                        v = y.get("gm_med")
+                if v is not None:
+                    ser.append([lab, round(v, 4)])
+            if len(ser) >= 2:
+                hist[field] = ser
+                d = direction([v for _, v in ser], tol)
+                if d:
+                    tr[field] = d
+        out[cik] = {"hist": hist, "tr": tr}
+    _HIST_CACHE.update(key=key, val=out)
     return out
 
 

@@ -1,4 +1,4 @@
-"""Wonderfulness: the stock page's "Wonderful?" tab and the ranking page (/wonderful)."""
+"""Wonderfulness: the stock page's "Wonderful?" tab and the data behind the Screener (/screener)."""
 
 from __future__ import annotations
 
@@ -9,8 +9,8 @@ from nicegui import run, ui
 
 from .. import ceo, db, rules, wonderful
 from ..sources import company
-from .layout import empty, frame, kpi
-from .theme import money, num, pct
+from .layout import empty, kpi
+from .theme import num, pct
 
 TIER_COL = {"Exceptional": "#1f6f4a", "Wonderful": "#3c8d5f", "Good": "#8A5A12", "Average": "#6b7280",
             "Weak": "#a33a2b", "Not scored": "#6b7280"}
@@ -395,18 +395,10 @@ def _rec_lines(m: dict) -> list[str]:
 
 
 def ceo_data(s: dict) -> dict:
-    """Everything the CEO card shows (network and database work; run off the UI thread)."""
-    info = company.get(s["ticker"])
-    res = ceo.who(s["cik"], s["ticker"], (info or {}).get("officers"))
+    """Everything the CEO card shows (network and database work; run off the UI thread). Also saves the grade
+    for the ranking page."""
+    res = ceo.assess(s["cik"], s["ticker"])
     cur = res.get("current")
-    if cur and cur.get("start"):
-        from ..sources import wikidata
-
-        led = wikidata.companies_led(cur.get("qid"), None if cur.get("qid") else cur.get("name")) \
-            if res.get("wikidata_ok") or cur.get("qid") else []
-        res["tenures"] = ceo.career_tenures(s["cik"], s["ticker"], cur, led)
-        res["record"] = res["tenures"][0]["record"]
-        res["career"] = ceo.career(res["tenures"])
     hist = [h for h in res.get("history") or [] if h.get("start")]
     prev = []
     for i, h in enumerate(hist):
@@ -591,9 +583,6 @@ _TREND_TIP = """class {
   getGui() { return this.e; }
 }"""
 _Y70 = "p => (p.data && p.data.y70n) ? p.value + ' of ' + p.data.y70n : ''"
-TRENDS = {"any": "Any trend", "steady70": "70+ in each of the last 5 years", "up": "Rising ▲", "flat": "Steady ▬",
-          "down": "Falling ▼"}
-
 
 def _c(field, header, fmt=None, width=110, tip=None, **kw):
     width = max(width, 9 * max(len(x) for x in header.split()) + 76)
@@ -655,6 +644,19 @@ def price_status(prof) -> dict[int, dict]:
     return out
 
 
+def _aligned(hist: dict[str, list]) -> tuple[dict[str, list], int | None]:
+    """Each column's yearly values on one year axis (gaps as None), so a row carries one start year."""
+    years = sorted({int(lab[2:]) for ser in hist.values() for lab, _ in ser})
+    if not years:
+        return {}, None
+    y0, y1 = years[0], years[-1]
+    out = {}
+    for f, ser in hist.items():
+        d = {int(lab[2:]): v for lab, v in ser}
+        out[f] = [None if d.get(y) is None else float(f"{d[y]:.4g}") for y in range(y0, y1 + 1)]
+    return out, y0
+
+
 def ranking_rows(prof) -> list[dict]:
     wonderful.ensure(prof)
     sec = {r["cik"]: r for r in db.rows("SELECT cik, ticker, name, sic_desc, is_foreign FROM securities")}
@@ -666,6 +668,11 @@ def ranking_rows(prof) -> list[dict]:
     checks = checklist(prof)
     evs = price_status(prof)
     trs = wonderful.trends(prof)
+    mh = wonderful.metric_histories(prof)
+    cg = ceo.grades()
+    from .. import values
+
+    vals = values.all_values()
     out = []
     for r in db.rows("SELECT cik, score, rank, n, as_of, pillars_json, feats_json FROM wonder WHERE profile_id=? AND "
                      "cohort='now' ORDER BY score DESC", (prof.snap[0],)):
@@ -678,6 +685,10 @@ def ranking_rows(prof) -> list[dict]:
         q = checks.get(r["cik"], {})
         e = evs.get(r["cik"], {})
         t = trs.get(r["cik"], {})
+        h = mh.get(r["cik"], {})
+        hist, hy0 = _aligned(h.get("hist") or {})
+        g = cg.get(r["cik"], {})
+        v = vals.get(r["cik"], {})
         w10 = (t.get("w") or [])[-10:]
         qd = dict(t.get("q") or [])
         last5 = [v for _, v in w10[-5:]]
@@ -686,6 +697,17 @@ def ranking_rows(prof) -> list[dict]:
                     "spark_q": [None if qd.get(k) is None else round(qd[k], 1) for k, _ in w10],
                     "y70": sum(v >= 70 for v in last5), "y70n": len(last5), "years_70": t.get("years_70"),
                     "years": t.get("years"), "first_80": t.get("first_80") or "", "q_trend": t.get("q_chg"),
+                    "streak70": t.get("streak_70", 0), "hist": hist, "hy0": hy0, "tr": h.get("tr") or {},
+                    "ceo_grade": g.get("grade"), "ceo_score": g.get("score"), "ceo_name": g.get("name") or "",
+                    "ceo_since": (g.get("start") or "")[:4], "ceo_basis": g.get("basis") or "",
+                    "ceo_note": g.get("note") or ("" if g else "not rated yet"),
+                    "v_price": v.get("price"), "v_iv": v.get("iv"), "v_low": v.get("low"), "v_high": v.get("high"),
+                    "v_er": v.get("er"), "v_mos": v.get("mos"), "v_required": v.get("required"),
+                    "v_buy": (v["price"] <= v["buy_below"]) if v.get("buy_below") else None,
+                    "v_implied": v.get("implied"), "v_supports": v.get("supports"),
+                    "v_gap": (v["implied"] - v["supports"]) if v.get("implied") is not None and v.get("supports") is not None
+                    else None,
+                    "v_pe_rel": (v["pe_now"] / v["pe_med"]) if v.get("pe_now") and v.get("pe_med") else None,
                     "ticker": s["ticker"], "name": s["name"], "industry": s["sic_desc"], "score": r["score"],
                     "quality": q.get("quality"), "passes": q.get("passes", False), "why_fail": q.get("why", ""),
                     "checklist": ("✓ passes" if q.get("passes") else ("✗ " + q["why"] if q.get("why") else "✗"))
@@ -701,226 +723,6 @@ def ranking_rows(prof) -> list[dict]:
                     "share_change": f.get("share_change"),
                     "warnings": "; ".join(x["name"] for x in fl if x.get("health") or x.get("hard")) or ""})
     return out
-
-
-VIEWS = {  # key -> (button label, one-line explanation, filter(row, bar), sort field)
-    "both": ("Best of both", "Wonderful or better (70+) AND passes the Oracle checklist; sorted by the average of the two "
-             "scores.", lambda r: r["score"] >= 70 and r["passes"], "combined"),
-    "wonderful": ("Most wonderful", "Every company, best Wonderfulness first.", lambda r: True, "score"),
-    "quality": ("Highest Quality", "Every company, best Quality (checklist score) first.", lambda r: r["quality"] is not None,
-                "quality"),
-    "nocheck": ("Wonderful, fails checklist", "Wonderful or better, but failing a checklist rule: see why in the "
-                "Checklist column (often heavy R&D or capital spending, or one weak year).",
-                lambda r: r["score"] >= 70 and not r["passes"], "score"),
-    "notwonder": ("Passes checklist, not wonderful", "Pass the Oracle's rules but rank below 70 on Wonderfulness: "
-                  "solid, but slower or less profitable than the best.", lambda r: r["passes"] and r["score"] < 70,
-                  "quality"),
-}
-QUAD_COL = {"both": "#1f6f4a", "nocheck": "#2c5d8f", "notwonder": "#c9a227", "neither": "#c7ccc9"}
-
-
-def _trend_ok(r, mode: str) -> bool:
-    if mode == "steady70":
-        return r["y70n"] >= 5 and r["y70"] == r["y70n"]
-    return mode == "any" or r["trend_dir"] == mode
-
-
-def _quad(r) -> str:
-    w, q = r["score"] >= 70, r["passes"]
-    return "both" if w and q else "nocheck" if w else "notwonder" if q else "neither"
-
-
-@ui.page("/wonderful")
-def wonderful_page(compare: str = "", view: str = "both"):
-    prof = rules.default_profile()
-    view = view if view in VIEWS else "both"
-    with frame("Wonderful companies"):
-        ui.label("The best businesses").classes("oe-h1")
-        ui.label("Two views of the same company, side by side. Wonderfulness ranks every business against all the "
-                 "others on what predicted lasting high returns and growth. Quality is the Oracle checklist: does it "
-                 "pass Buffett's rules of thumb (the bar the model needs before it may buy)? The best businesses score "
-                 "well on both. The price plays no part here; the Price column only tells you where it stands today.").classes(
-            "oe-muted")
-        rows = ranking_rows(prof)
-        if not rows:
-            empty("No scores yet. They are computed from the annual-report scores after the first data load.")
-            return
-        bar = float(prof.settings.get("quality_min", 70))
-        st = {"view": view}
-        # ---- controls
-        with ui.row().classes("items-center gap-2 w-full"):
-            btns = {}
-            for k, (label, _tip, _f, _s) in VIEWS.items():
-                btns[k] = ui.button(label, on_click=lambda k=k: set_view(k)).props("no-caps")
-        tip = ui.label("").classes("oe-small")
-        with ui.row().classes("items-center gap-3 w-full"):
-            q = ui.input(placeholder="Filter by ticker, name or industry").props("dense outlined clearable").classes("w-72")
-            size = ui.select({0: "Any size", 2e9: "$2B+", 10e9: "$10B+", 50e9: "$50B+"}, value=2e9,
-                             label="Market value").props("dense outlined").classes("w-36")
-            trend = ui.select(TRENDS, value="any", label="Wonderfulness trend").props("dense outlined").classes("w-56")
-            healthy = ui.switch("Hide companies slipping now", value=False)
-            buyable = ui.switch("Only in the Buy Zone today", value=False)
-
-        def base():
-            return [r for r in rows if ((r["mcap"] or 0) >= size.value if size.value else True)
-                    and not (healthy.value and r["warnings"]) and not (buyable.value and not r["buyable"])
-                    and _trend_ok(r, trend.value)]
-
-        def current():
-            label, t, f, key = VIEWS[st["view"]]
-            xs = [r for r in base() if f(r)]
-            xs.sort(key=lambda r: -(r.get(key) if r.get(key) is not None else -1))
-            for i, r in enumerate(xs):
-                r["pos"] = i + 1
-            return xs
-        # ---- the map
-        with ui.card().classes("oe-card w-full"):
-            with ui.row().classes("w-full items-center justify-between"):
-                ui.label("Quality vs Wonderfulness").classes("oe-h2")
-                counts = ui.label("").classes("oe-small")
-            ui.label(f"Each dot is a company. Right of the dashed line = passes the Oracle checklist (Quality {bar:.0f}+ and "
-                     "every must-pass rule); above it = wonderful (70+). The top-right corner is the best of both. Click a "
-                     "dot to open the company; click a legend entry to hide a group.").classes("oe-small")
-            chart = ui.echart({}, on_point_click=lambda e: ui.navigate.to(f"/stock/{e.name}") if e.name else None).classes(
-                "w-full").style("height:430px")
-
-        def chart_opts(view_rows):
-            inview = {r["ticker"] for r in view_rows}
-            groups = {"both": [], "nocheck": [], "notwonder": [], "neither": []}
-            for r in base():
-                if r["quality"] is None:
-                    continue
-                groups[_quad(r)].append(r)
-            names = {"both": "Best of both", "nocheck": "Wonderful, fails checklist", "notwonder":
-                     "Passes checklist, not wonderful", "neither": "Neither"}
-            series = []
-            for g, xs in groups.items():
-                series.append({
-                    "type": "scatter", "name": f"{names[g]} ({len(xs)})", "symbolSize": 7,
-                    "itemStyle": {"color": QUAD_COL[g]},
-                    "data": [{"name": r["ticker"], "value": [round(r["quality"], 1), round(r["score"], 1), r["name"]],
-                              "itemStyle": {"opacity": 0.95 if r["ticker"] in inview else 0.18}} for r in xs]})
-            series[0]["markLine"] = {"silent": True, "symbol": "none", "lineStyle": {"type": "dashed", "color": "#6b7280"},
-                                     "label": {"show": False}, "data": [{"xAxis": bar}, {"yAxis": 70}]}
-            return {"tooltip": {":formatter": "p => `<b>${p.name}</b> ${p.value[2]}<br>Wonderfulness ${p.value[1]} · "
-                                              "Quality ${p.value[0]}`"},
-                    "legend": {"top": 0}, "grid": {"left": 50, "right": 20, "top": 40, "bottom": 40},
-                    "xAxis": {"name": "Quality (Oracle checklist)", "nameLocation": "middle", "nameGap": 26,
-                              "min": 20, "max": 100},
-                    "yAxis": {"name": "Wonderfulness", "nameLocation": "middle", "nameGap": 34, "min": 0, "max": 100},
-                    "series": series}
-        # ---- the table
-        cols = [
-            _c("pos", "#", _NUM0, 64, "Position in this view.", pinned="left"),
-            _c("ticker", "Ticker", None, 90, pinned="left", cellClass="font-bold"),
-            _c("name", "Company", None, 190, pinned="left"),
-            _c("score", "Wonderfulness", _NUM0, 120, "How it ranks among all businesses (0–100)."),
-            _c("tier", "Tier", None, 105),
-            {"field": "trend", "headerName": "Trend (3 yrs)", "width": 128, "minWidth": 128, ":cellRenderer": _SPARK,
-             "headerTooltip": "Up to 10 years of Wonderfulness, and the change over the last 3 fiscal years (▲ +5 or "
-                              "more, ▼ −5 or more, ▬ in between). Hover for the yearly scores; click for the full chart.",
-             ":tooltipValueGetter": "p => p.data ? 'trend' : null", ":tooltipComponent": _TREND_TIP,
-             "filter": "agNumberColumnFilter"},
-            _c("y70", "Years at 70+", _Y70, 96, "How many of the last 5 fiscal years scored 70+ (wonderful or better). "
-                                                "Consistency predicted staying on top better than a rising score."),
-            _c("quality", "Quality", _NUM0, 90, f"The Oracle checklist score; the model needs {bar:.0f}+ and every "
-                                               "must-pass rule to buy."),
-            _c("checklist", "Checklist", None, 190, "Passes, or the rule it fails."),
-            _c("combined", "Average of both", _NUM0, 110, "(Wonderfulness + Quality) ÷ 2: the sort order of Best of both."),
-            _c("price_status", "Price today", None, 150, "Buy Zone, or how far the price is above the buy-below price "
-                                                         "(live profile)."),
-            {"headerName": "Pillars (100 = best)", "children": [
-                _c("moat", "Moat", _NUM0, 80), _c("growth", "Growth", _NUM0, 85), _c("strength", "Strength", _NUM0, 90),
-                _c("allocation", "Capital allocation", _NUM0, 105)]},
-            {"headerName": "Key measures", "children": [
-                _c("roic_med", "ROIC 10-yr median", _PCT, 110), _c("gm_med", "Gross margin", _PCT, 95),
-                _c("rev_g5", "Sales growth 5 yrs", _PCT, 105), _c("rev_up", "Years sales grew", None, 95),
-                _c("debt_payback", "Debt payback", _YRS, 95), _c("dollar_test", "$1 test", _X, 80)]},
-            _c("mcap", "Market value", _BIL, 105),
-            _c("warnings", "Latest 10-Q", None, 200, "Business-health or hard warnings in the latest quarterly report."),
-            _c("industry", "Industry", None, 200),
-        ]
-        g = ui.aggrid({"columnDefs": cols, "rowData": [],
-                       "defaultColDef": {"sortable": True, "resizable": True, "filter": True, "wrapHeaderText": True,
-                                         "autoHeaderHeight": True},
-                       "rowHeight": 36, "suppressCellFocus": True, "tooltipShowDelay": 300, "multiSortKey": "shift",
-                       "rowSelection": {"mode": "multiRow", "checkboxes": True, "headerCheckbox": False},
-                       "selectionColumnDef": {"pinned": "left", "width": 48, "maxWidth": 48,
-                                              "suppressHeaderMenuButton": True, "sortable": False, "filter": False}},
-                      theme="quartz").classes("w-full").style("height:60vh")
-
-        def refresh():
-            xs = current()
-            for k, b in btns.items():
-                b.props("unelevated" if k == st["view"] else "outline")
-            label, t, _f, _k = VIEWS[st["view"]]
-            tip.text = f"{label}: {t} {len(xs):,} companies."
-            allx = base()
-            n = {k: sum(1 for r in allx if r["quality"] is not None and _quad(r) == k) for k in QUAD_COL}
-            counts.text = (f"{n['both']:,} best of both · {n['nocheck']:,} wonderful but fail the checklist · "
-                           f"{n['notwonder']:,} pass the checklist but aren't wonderful")
-            g.options["rowData"] = xs
-            g.update()
-            chart.options.clear()
-            chart.options.update(chart_opts(xs))
-            chart.update()
-
-        def set_view(k):
-            st["view"] = k
-            refresh()
-        for el in (size, trend, healthy, buyable):
-            el.on_value_change(lambda e: refresh())
-        q.on_value_change(lambda e: g.run_grid_method("setGridOption", "quickFilterText", e.value or ""))
-        dlg = ui.dialog().props("maximized=false")
-
-        def show_history(row):
-            dlg.clear()
-            h = wonderful.history(row["cik"], prof)
-            with dlg, ui.card().classes("oe-card").style("width:min(900px,95vw);max-width:95vw"):
-                with ui.row().classes("w-full items-center justify-between no-wrap"):
-                    ui.label(f"{row['ticker']} · {row['name']}: score history").classes("oe-h2")
-                    with ui.row().classes("items-center gap-1 no-wrap"):
-                        ui.button("Open stock page", icon="open_in_new",
-                                  on_click=lambda: ui.navigate.to(f"/stock/{row['ticker']}")).props("flat dense no-caps")
-                        ui.button(icon="close", on_click=dlg.close).props("flat dense round")
-                if len(h) < 2:
-                    ui.label("Only one year scored so far.").classes("oe-muted")
-                else:
-                    with ui.row().classes("gap-2"):
-                        for f in trend_facts(h):
-                            ui.label(f).classes("oe-small").style("background:#eef3f0;border-radius:10px;padding:1px 9px")
-                    ui.echart(history_chart(h)).classes("w-full").style("height:340px")
-            dlg.open()
-
-        def clicked(e):
-            col, data = e.args.get("colId"), e.args.get("data")
-            if not data or col in (None, "ag-Grid-SelectionColumn"):
-                return
-            if col == "trend":
-                show_history(data)
-            else:
-                ui.navigate.to(f"/stock/{data['ticker']}")
-        g.on("cellClicked", clicked)
-        comp = ui.column().classes("w-full gap-3")
-
-        async def do_compare():
-            sel = await g.get_selected_rows()
-            tickers = [r["ticker"] for r in sel][:5]
-            if len(tickers) < 2:
-                ui.notify("Tick 2 to 5 companies to compare.", type="info")
-                return
-            comp.clear()
-            with comp:
-                _compare(tickers, prof)
-        with ui.row().classes("items-center gap-3"):
-            ui.button("Compare ticked companies", icon="compare_arrows", on_click=do_compare).props("unelevated")
-            ui.button("Export CSV", icon="download",
-                      on_click=lambda: g.run_grid_method("exportDataAsCsv", {"fileName": f"best-businesses-{st['view']}.csv"})
-                      ).props("flat dense")
-        refresh()
-        if compare:
-            with comp:
-                _compare([t.strip().upper() for t in compare.split(",") if t.strip()][:5], prof)
 
 
 def _compare(tickers: list[str], prof) -> None:
@@ -959,13 +761,13 @@ def _compare(tickers: list[str], prof) -> None:
                                                     "data": [{"yAxis": 70}, {"yAxis": 80}]}} if i == 0 else {})}
                                   for i, (t, _w) in enumerate(ws)]}).classes("w-full").style("height:300px")
         head = "".join(f"<th style='text-align:right;padding:4px 10px'><a href='/stock/{t}'>{t}</a></th>" for t, _ in ws)
-        body = [f"<tr><td style='padding:4px 10px 4px 0'><b>Wonderfulness</b></td>" + "".join(
+        body = ["<tr><td style='padding:4px 10px 4px 0'><b>Wonderfulness</b></td>" + "".join(
             f"<td style='text-align:right;padding:4px 10px'><b>{w['score']:.0f}</b> ({w['tier']})</td>" for _, w in ws)
             + "</tr>", "<tr><td style='padding:4px 10px 4px 0'>Rank</td>" + "".join(
             f"<td style='text-align:right;padding:4px 10px'>#{w['rank']:,} of {w['n']:,}</td>" for _, w in ws) + "</tr>"]
         chk = checklist(prof)
         body.append("<tr><td style='padding:4px 10px 4px 0'><b>Quality (Oracle checklist)</b></td>" + "".join(
-            f"<td style='text-align:right;padding:4px 10px'>"
+            "<td style='text-align:right;padding:4px 10px'>"
             + (f"<b>{chk[w['cik']]['quality']:.0f}</b> " + ("✓ passes" if chk[w['cik']]['passes'] else
                                                              "✗ " + html.escape(chk[w['cik']]['why'])) if w["cik"] in chk else "—")
             + "</td>" for _, w in ws) + "</tr>")

@@ -290,3 +290,62 @@ def who(cik: int, ticker: str, yahoo_officers: list[dict] | None = None) -> dict
     elif ycea:
         out["current"] = {"name": ycea["name"], "start": None, "source": "Yahoo (no start date)"}
     return out
+
+
+# ---------------------------------------------------------------- the grade, for the ranking page
+def assess(cik: int, ticker: str) -> dict:
+    """Who runs the company and their record: the CEO card's data (network: Yahoo officers, Wikidata). Saves the
+    grade for the ranking page."""
+    from .sources import company, wikidata
+
+    info = company.get(ticker)
+    res = who(cik, ticker, (info or {}).get("officers"))
+    cur = res.get("current")
+    if cur and cur.get("start"):
+        led = wikidata.companies_led(cur.get("qid"), None if cur.get("qid") else cur.get("name")) \
+            if res.get("wikidata_ok") or cur.get("qid") else []
+        res["tenures"] = career_tenures(cik, ticker, cur, led)
+        res["record"] = res["tenures"][0]["record"]
+        res["career"] = career(res["tenures"])
+    save_grade(cik, res)
+    return res
+
+
+def save_grade(cik: int, res: dict) -> None:
+    """Keep the career grade (or this tenure's when the career can't be graded) for the ranking page."""
+    cur = res.get("current") or {}
+    car = res.get("career")
+    rec = (res.get("record") or {}).get("rating")
+    g = car or rec
+    note = ""
+    if not cur.get("name"):
+        note = "CEO not found"
+    elif not cur.get("start"):
+        note = "start date unknown"
+    elif not g:
+        note = "under two fiscal years in the role" if (res.get("record") or {}).get("years", 0) < 2 else "not enough data"
+    db.get().execute(
+        "INSERT OR REPLACE INTO ceo_grades(cik, name, start, grade, score, basis, years, note, updated_at) "
+        "VALUES(?,?,?,?,?,?,?,?,?)",
+        (cik, cur.get("name"), cur.get("start"), g["grade"] if g else None, g["score"] if g else None,
+         "career" if car and car.get("n", 1) > 1 else "this company" if g else None,
+         (car or {}).get("years") or (res.get("record") or {}).get("years"), note, db.now()))
+
+
+def grades() -> dict[int, dict]:
+    return {r["cik"]: dict(r) for r in db.rows("SELECT * FROM ceo_grades")}
+
+
+def to_rate(min_score: float = 60.0, max_age_days: int = 30, profile=None) -> list[tuple[int, str]]:
+    """Companies on the ranking page worth a CEO grade (Wonderfulness >= min_score) that have none or an old one,
+    best first."""
+    from datetime import date, timedelta
+
+    from . import rules
+
+    p = profile or rules.default_profile()
+    old = (date.today() - timedelta(days=max_age_days)).isoformat()
+    return [(r["cik"], r["ticker"]) for r in db.rows(
+        "SELECT w.cik, s.ticker FROM wonder w JOIN securities s ON s.cik=w.cik LEFT JOIN ceo_grades g ON g.cik=w.cik "
+        "WHERE w.profile_id=? AND w.cohort='now' AND w.score>=? AND s.ticker IS NOT NULL "
+        "AND (g.updated_at IS NULL OR g.updated_at < ?) ORDER BY w.score DESC", (p.snap[0], min_score, old))]

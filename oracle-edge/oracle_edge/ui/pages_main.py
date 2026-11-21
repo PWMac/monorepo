@@ -9,7 +9,7 @@ import json
 from nicegui import app, ui
 
 from .. import btcsignal, db, rules, strength, targets
-from . import data, outlook, quote, valuecard, wonder
+from . import data, outlook, quote, valuecard, wonder, wonder_page  # noqa: F401 (registers /screener)
 from .charts import zoom_chart
 from .layout import empty, frame, kpi
 from .theme import BADGES, BRAND, BTC_COL, badge_html, fmt_value, ladder_html, money, num, pct, sparkline
