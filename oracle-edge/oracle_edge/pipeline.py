@@ -579,6 +579,17 @@ def daily_run(job, force: bool = False, send_email: bool = True, do_backup: bool
         route_sic(sorted(annual))
         for p in profs:
             build_snapshots(p, sorted(annual), latest_only=True)
+    try:  # cost of sales split into lines with no total (e.g. Cadence): fill from Yahoo, then re-score them
+        from . import grossfill
+
+        filled = grossfill.run(limit=80, progress=job.sub(0.22, 0.25, "Filling missing cost of sales"))
+        if filled:
+            since_f = (date.fromisoformat(backfill_start()) - timedelta(days=400)).isoformat()
+            for p in profs:
+                build_snapshots(p, filled, since=since_f)
+            annual = set(annual) | set(filled)  # treated like new annual reports below (Wonderfulness, CEO grades)
+    except Exception as e:
+        db.log("yahoo", "cost_fill", False, str(e)[:200])
     job.update(0.25, "Updating prices")
     cands = candidate_ciks([p.id for p in profs])
     res = fetch_prices_for(price_tickers(price_universe(cands)), job.sub(0.25, 0.50, "Updating prices"))

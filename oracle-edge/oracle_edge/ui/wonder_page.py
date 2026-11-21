@@ -278,8 +278,19 @@ def columns(bar: float) -> tuple[list[dict], dict[str, list[str]]]:
     measures = [
         _tc("roic_med", "ROIC 10-yr median", F_PCT, 1, 116, None, "Return on invested capital each year", "pct",
             "The column is the 10-year median; the arrow and chart follow each year's ROIC."),
-        _tc("gm_med", "Gross margin", F_PCT, 1, 104, None, "Gross margin each year", "pct",
+        {**_tc("gm_med", "Gross margin", F_PCT, 1, 104, "Gross margin, 10-year median. n/a = the company reports no "
+               "cost of sales (payment networks, asset managers, many service firms): gross margin doesn't apply and "
+               "isn't counted against it; compare operating margin instead.", "Gross margin each year", "pct",
+               "The column is the 10-year median; the arrow and chart follow each year's margin."),
+         ":cellRenderer": _GM},
+        _tc("om_med", "Operating margin", F_PCT, 1, 108, "Operating income ÷ sales, 10-year median. Every company has "
+            "one, so it's the margin to compare when gross margin is n/a.", "Operating margin each year", "pct",
             "The column is the 10-year median; the arrow and chart follow each year's margin."),
+        _tc("nm_med", "Net margin", F_PCT, 1, 96, "Net income ÷ sales, 10-year median.", "Net margin each year", "pct",
+            "The column is the 10-year median; the arrow and chart follow each year's margin.", columnGroupShow="open"),
+        _tc("ocfm_med", "Cash flow margin", F_PCT, 1, 104, "Operating cash flow ÷ sales, 10-year median: how much of "
+            "each sales dollar arrives as cash.", "Operating cash flow margin each year", "pct",
+            "The column is the 10-year median; the arrow and chart follow each year's margin.", columnGroupShow="open"),
         _tc("rev_g5", "Sales growth 5 yrs", F_PCT, 1, 112, None, "Sales growth each year", "pct",
             "The column is 5-year growth a year; the arrow and chart follow each year's growth.",
             columnGroupShow="open"),
@@ -334,6 +345,13 @@ def columns(bar: float) -> tuple[list[dict], dict[str, list[str]]]:
     return cols, G
 
 
+_GM = ("p => { if (p.value == null && p.data) { const k = p.data.gm_kind;"
+       " if (k === 'none') return '<span title=\"Reports no cost of sales, so gross margin doesn\\'t apply (not counted "
+       "against it); see Operating margin\" style=\"color:#9aa5a0\">n/a</span>';"
+       " if (k === 'gap') return '<span title=\"Reports its cost of sales in pieces with no total; the daily update fills "
+       "it from Yahoo Finance\" style=\"color:#9aa5a0\">pending</span>'; return ''; }"
+       " return (" + _tcell(F_PCT, 1) + ")(p); }")
+
 GROUP_LABELS = {"scores": "Scores", "mgmt": "CEO", "pillars": "Pillars", "measures": "Key measures",
                 "value": "Value (price vs worth)", "info": "Company info (size, 10-Q, industry)"}
 
@@ -359,6 +377,9 @@ FILTERS = {
     "allocation": ("Capital-allocation pillar", "range", "allocation", "num"),
     "roic_med": ("ROIC 10-yr median", "range", "roic_med", "pct"),
     "gm_med": ("Gross margin", "range", "gm_med", "pct"),
+    "om_med": ("Operating margin", "range", "om_med", "pct"),
+    "nm_med": ("Net margin", "range", "nm_med", "pct"),
+    "ocfm_med": ("Cash flow margin", "range", "ocfm_med", "pct"),
     "rev_g5": ("Sales growth 5 yrs", "range", "rev_g5", "pct"),
     "debt_payback": ("Debt payback (years)", "range", "debt_payback", "yrs"),
     "dollar_test": ("$1 test", "range", "dollar_test", "x"),
@@ -375,7 +396,8 @@ FILTER_GROUPS = [("Company", ["industry", "tier", "checklist", "mcap"]),
                  ("Scores", ["score", "quality", "combined", "wtrend", "trend", "y70", "streak70"]),
                  ("Management", ["ceo_grade", "ceo_score", "ceo_new"]),
                  ("Pillars", ["moat", "growth", "strength", "allocation"]),
-                 ("Key measures", ["roic_med", "gm_med", "rev_g5", "debt_payback", "dollar_test"]),
+                 ("Key measures", ["roic_med", "gm_med", "om_med", "nm_med", "ocfm_med", "rev_g5", "debt_payback",
+                                   "dollar_test"]),
                  ("Value", ["v_mos", "v_er", "v_buy", "v_implied", "v_gap", "v_pe_rel"])]
 SCALE = {"num": 1.0, "pct": 0.01, "yrs": 1.0, "x": 1.0, "bil": 1e9}
 SUFFIX = {"num": "", "pct": "%", "yrs": " yrs", "x": "×", "bil": " $B"}
