@@ -192,3 +192,12 @@ def test_no_holdings_limit():
     pid = ensure_portfolio(611, p, mode="focused", overrides={"max_holdings": 0})
     assert db.scalar("SELECT max_positions FROM portfolios WHERE id=?", (pid,)) is None
     assert "No limit on holdings" in rules.describe({"settings": {**p.settings, "max_holdings": 0}})
+
+
+def test_weekly_money_goes_to_at_most_n_stocks():
+    sim = _focused(612, n=10, max_buys_per_week=2)
+    sim.policy = "spread"
+    evs = [_ev(c, t, rank=c, rs=90 - c) for c, t in ((1, "AAA"), (2, "BBB"), (3, "CCC"), (4, "DDD"))]
+    _step(sim, DAYS[0], evs)
+    r = _step(sim, DAYS[1], evs)
+    assert {s["cik"] for s in r.signals if s["type"] in ("BUY", "STRONG_BUY")} == {1, 2}  # the best two only

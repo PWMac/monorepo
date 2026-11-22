@@ -481,6 +481,10 @@ class PortfolioSim:
             room = cap * V - pos_value(cik)
             if room > min_buy:
                 opts.append(("add", e, room, None))
+        mb = int(st.get("max_buys_per_week") or 0)
+        if mb and len(opts) > mb:
+            # new money (and any sales) goes to at most `mb` stocks at a time: the best-ranked ones, owned or not
+            opts = sorted(opts, key=lambda o: o[1].rank or 999)[:mb]
         policy = self.policy
         if policy == "patient":
             if self.last_deploy is None:

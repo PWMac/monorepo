@@ -77,6 +77,7 @@ settings:
   buy_min_wonder: null
   buy_rank_by: oracle_rank      # oracle_rank (Quality and cheapness) | combined ((Wonderfulness + Quality) / 2)
   buy_trend: null              # only buy on the rise: above_200d | beating_market_6m | both
+  max_buys_per_week: null      # spread each week's money across at most this many stocks (best-ranked first)
   max_buy_weight: 0.25         # new money never pushes one holding above this share of the portfolio
   patient_extra_mos: 0.15      # patient: wait for a margin of safety this much above the buy gate...
   patient_max_weeks: 26        # ...but never hold the cash longer than this

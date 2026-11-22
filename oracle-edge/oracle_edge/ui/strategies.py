@@ -438,6 +438,9 @@ def _editor(cur: rules.Profile) -> None:
                               value=st.get("portfolio_mode", "focused"), label="Portfolio style").props(
                 "outlined dense").classes("w-64")
             pn = _num("Holdings (N, 0 = no limit)", st.get("max_holdings", 15), "%.0f", "w-48", min=0)
+            pmb = _num("Spread each week's money across at most (blank = all)", st.get("max_buys_per_week"), "%.0f",
+                       "w-[380px]", min=1)
+            pmb.props("clearable")
             psz = ui.select({"equal": "Equal slices", "conviction": "Conviction (higher Rank, bigger slice)",
                              "value_quality": "Better business at a better price gets more",
                              "size": "Bigger company gets more (like an index)"},
@@ -531,7 +534,7 @@ def _editor(cur: rules.Profile) -> None:
                 "fair_pe_mult": round(float(fpm.value or 1.5), 4), "max_mos": _frac(mmo.value),
                 "vd_required_return": _frac(rvr.value), "vd_growth_cap": _frac(rvg.value, 0.12),
                 "predictability_mos": rpm.value,
-                "portfolio_mode": pmode.value, "max_holdings": max(0, int(pn.value)) if pn.value not in (None, "") else 15, "sizing": psz.value,
+                "portfolio_mode": pmode.value, "max_holdings": max(0, int(pn.value)) if pn.value not in (None, "") else 15, "max_buys_per_week": int(pmb.value) if pmb.value not in (None, "", 0) else None, "sizing": psz.value,
                 "initial_capital": float(10000 if pcap0.value in (None, "") else pcap0.value), "weekly_contribution": float(pwk.value or 0),
                 "new_money": ppol.value, "buy_rule": brule.value,
                 "ranked_buy_count": max(1, int(rbn.value or 4)), "ranked_max_weight": _frac(rmw.value),

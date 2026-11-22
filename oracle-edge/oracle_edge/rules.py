@@ -157,7 +157,7 @@ RISING_SETTINGS = {
     "valuation_model": "value_driver", "hurdle": 0.15, "portfolio_mode": "focused", "max_holdings": 0,
     "new_money": "spread", "sizing": "equal", "fund_strong": False, "buy_rank_by": "combined",
     "buy_price_rule": "growth_gap", "buy_growth_gap": 0.10, "buy_min_return": 0.05, "buy_min_wonder": 75,
-    "buy_min_sales_growth": 0.10, "buy_trend": "above_200d",
+    "buy_min_sales_growth": 0.10, "buy_trend": "above_200d", "max_buys_per_week": 4,
 }
 
 
@@ -234,10 +234,10 @@ PURPOSE = {
     "Wonderful & rising · no limit":
         "Owns every wonderful, quality company (Wonderfulness 75+, Quality 70+) at a sensible price (it implies no more "
         "than 10 points more growth than delivered, 5%+ expected return) whose sales grow 10%+ and whose price is above "
-        "its 200-day average; no limit on holdings, new money spread across them. Sells early when the price lags the "
-        "S&P 500 by 15%+ over 6 months or breaks its 200-day average while sales stall, or when Quality or "
-        "Wonderfulness drop 5+ points or sales shrink. Backtest: 14.3% a year from 2015 (S&P 500 13.3%), 10.7% from "
-        "2019 (13.9%).",
+        "its 200-day average; no limit on holdings, each week's money split across the best 4 of them. Sells early when "
+        "the price lags the S&P 500 by 15%+ over 6 months or breaks its 200-day average while sales stall, or when "
+        "Quality or Wonderfulness drop 5+ points or sales shrink. Backtest: 13.4% a year from 2015 (S&P 500 13.3%), "
+        "9.3% from 2019 (13.9%); spreading across all of them instead earned about a point more.",
     "Top-ranked 4 · $200 a week":
         "Starts at $0 and puts $200 a week, $50 each, into the 4 companies with the highest (Wonderfulness + "
         "Quality) ÷ 2, at any price. Sells a holding once it ranks below #8 or a 10-Q shows sales shrinking, and "
@@ -335,7 +335,9 @@ def describe(body: dict) -> str:
         if st.get("new_money") == "best_rank" and st.get("buy_rank_by") == "combined":
             nm = "new money to the best combined score"
         if st.get("max_holdings") == 0:
-            out.append(f"No limit on holdings: owns every company that qualifies; {nm}.")
+            per = (f", each week's money split across the best {int(st['max_buys_per_week'])} at most"
+                   if st.get("max_buys_per_week") else "")
+            out.append(f"No limit on holdings: owns every company that qualifies; {nm}{per}.")
         else:
             out.append(f"Holds the best {st.get('max_holdings', 15)} ({_SIZING.get(st.get('sizing'), 'equal slices')}); "
                        f"{nm}.")
@@ -399,7 +401,7 @@ _DIFF_KEYS = [  # (setting, label, format)
     ("buy_price_rule", "buy price rule", "txt"), ("buy_fair_mult", "buy at most × fair value", "num"),
     ("buy_growth_gap", "growth gap", "pct"), ("buy_min_return", "expected return at least", "pct"),
     ("buy_min_sales_growth", "sales growth floor", "pct"), ("buy_min_wonder", "Wonderfulness floor", "num"),
-    ("buy_rank_by", "ranks candidates by", "txt"), ("buy_trend", "only on the rise", "txt"),
+    ("buy_rank_by", "ranks candidates by", "txt"), ("max_buys_per_week", "stocks bought per week at most", "num"), ("buy_trend", "only on the rise", "txt"),
 ]
 
 
