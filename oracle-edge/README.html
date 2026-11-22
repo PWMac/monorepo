@@ -274,8 +274,8 @@ what QQQ did after each kind of reading, the live record and recent market alert
 <tr><td><b>Strategies</b></td><td>One workspace for strategies and their backtests: every strategy side by side (live paper
 record and latest backtest, <i>Backtest all</i> to put them on the same dates); click one to open it, with tabs for its
 <b>Rules</b> (the editor), <b>Results &amp; backtests</b> and <b>Holdings test &amp; experiments</b>; hide built-ins, delete
-copies with their backtests, tidy up old backtests. <b>Oracle checklists</b> hold how companies are scored (rules, weights,
-record length), with copies, <i>Restore defaults</i> (<a href="#backtest">section 20</a>)</td></tr>
+copies with their backtests, tidy up old backtests. <b>Oracle checklists</b> hold the rules companies are scored on, with
+copies, <i>Restore defaults</i> (<a href="#backtest">section 20</a>)</td></tr>
 <tr><td><b>Data</b></td><td>Price sources (order, API keys, test), recent data problems, coverage gaps, foreign filers' ADR ratios, re-run first-time load, run the daily update now</td></tr>
 <tr><td><b>Settings</b></td><td>Market temperature (Bitcoin window, horizon, cut-offs, market alerts), SEC identity, email, daily schedule,
 database size and clean-up, backup folder and restore</td></tr>
@@ -1572,9 +1572,9 @@ until at least one eases.</li>
 way on every screen (Quality, Wonderfulness, the CEO grade, the fair value) and only the portfolio decisions differ:</p>
 <table>
 <tr><th></th><th>What it is</th><th>How many</th></tr>
-<tr><td><b>An Oracle checklist</b> (the "house view" in 0.18–0.20)</td><td>How companies are scored: the rules for standard
-companies, banks and insurers, their weights, the ROE gate's window, the near-miss margin and the record length. The Quality
-score and the must-pass rules come from it.</td><td>One to start with; copy it to try changes. Strategies → <i>Open the Oracle
+<tr><td><b>An Oracle checklist</b> (the "house view" in 0.18–0.20)</td><td>The rules companies are scored on: the rules for
+standard companies, banks and insurers, their weights, the ROE gate's window and the near-miss margin. The Quality score and the
+must-pass rules come from it.</td><td>One to start with; copy it to try changes. Strategies → <i>Open the Oracle
 checklists</i>. Changing one re-scores every company once for the strategies on it.</td></tr>
 <tr><td><b>A strategy</b></td><td>A portfolio plan run on an Oracle checklist: which companies it considers, what price it
 pays, how many it holds, how it buys, adds, trims and sells, its risk limits and its money.</td><td>As many as you like.
@@ -1582,7 +1582,8 @@ Changing one never re-scores a company; it only replays that strategy.</td></tr>
 </table>
 <h3>What a strategy sets</h3>
 <ol>
-<li><b>Which companies it considers:</b> the <b>Oracle checklist</b> it's scored on, Quality at least (70 by default), <b>Wonderfulness at least</b> (as it was known
+<li><b>Which companies it considers:</b> the <b>Oracle checklist</b> it's scored on and the <b>record length</b> (10 years of
+results, at least 7; or 5 years, for research, so backtests can start earlier), Quality at least (70 by default), <b>Wonderfulness at least</b> (as it was known
 on each day, from each year's annual report, so backtests stay honest), market value and daily trading floors, foreign filers,
 and industries to keep or leave out. Companies you hold are always followed.</li>
 <li><b>What price it pays:</b> the hurdle (expected return a year), the margin of safety, the valuation model and the price test,
@@ -1625,24 +1626,25 @@ backfill (5y)</i> (the short record), <i>Oracle Classic + timing</i>, and the ed
 best 7</i> (<a href="#ondata">Buying and selling on data</a>) and <i>Wonderful &amp; rising · no limit</i> (<a href="#rising">its
 section</a>). Use <b>Save as</b> for an editable copy.</li>
 </ul>
-<h3 id="checklists">Oracle checklists (0.21 naming; the house view before)</h3>
+<h3 id="checklists">Oracle checklists (0.21; the house view before)</h3>
 <ul>
-<li><b>What one is:</b> everything about how a company is scored: the must-pass and scored rules for standard companies, banks
-and insurers, their weights, the ROE gate's window, the near-miss margin and the <b>record length</b> (10 years of results, at
-least 7; or 5 years, for research). The Quality score comes from it.</li>
+<li><b>What one is:</b> the rules a company is scored on: the must-pass and scored rules for standard companies, banks and
+insurers, their weights, the ROE gate's window and the near-miss margin. The Quality score comes from it. How many years of
+results it's applied to (10, or 5 for research) is each strategy's own setting, next to its checklist.</li>
 <li><b>Which one is used where:</b> each strategy picks one (Rules → section 1). The one used across the app (the Screener's
 Quality, stock pages, Today) is the <b>primary strategy's</b> (★), so they can't disagree; to change it, make a strategy on
-another checklist primary. A 5-year-record checklist is for research and can't be the primary's. The Screener's strategy
-picker also switches the Quality bar and scores to that strategy's checklist (<i>Work out the scores</i> the first time).</li>
+another checklist primary. A 5-year-record strategy is for research and can't be primary. The Screener's strategy picker
+also switches the scores to that strategy's checklist and record length; the first time, it works them out (a few minutes, with
+progress) and never shows another strategy's scores in the meantime.</li>
 <li><b>Trying a change safely:</b> on the Oracle checklists page, <b>Save as new checklist…</b>, change a rule, pick the copy in a
 copied strategy's section 1, and backtest the two side by side (Strategies → <i>Backtest all</i>). Nothing used by the app
 changes until you edit the primary's checklist or make the other strategy primary.</li>
-<li><b>Cost:</b> strategies on the same checklist share its scores. Each checklist in use is scored once (about as long as a
+<li><b>Cost:</b> strategies on the same checklist and record length share their scores. Each checklist in use is scored once (about as long as a
 rebuild) and stored once (a few hundred MB). Wonderfulness doesn't depend on the checklist; it stays the same everywhere.</li>
 <li><b>Page actions:</b> Save (re-scores the strategies on it and replays those that run daily), Save as new checklist, Rename,
-<b>Restore defaults</b> (the shipped rules; the record length stays) and Delete (only when no strategy uses it).</li>
-<li><b>Upgrading to 0.21 changes no score:</b> the house view became <i>Oracle checklist</i> (10-year record) and the short-record
-strategy got <i>Oracle checklist · 5-year record</i> with the same rules.</li>
+<b>Restore defaults</b> (the shipped rules) and Delete (only when no strategy uses it).</li>
+<li><b>Upgrading to 0.21 changes no score:</b> the house view became the one <i>Oracle checklist</i>; every strategy uses it with
+the record length it had.</li>
 </ul>
 <h3>Backtests</h3>
 <ul>

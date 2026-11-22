@@ -145,11 +145,12 @@ def test_house_view_restore_defaults():
 
 def test_oracle_checklists():
     cks = rules.checklists()
-    assert cks and any(v["record"] == "short" for v in cks.values())   # 5-year record became its own checklist
+    assert len(cks) == 1                                   # one checklist: record length is the strategy's setting
     app = rules.app_checklist_id()
     assert rules.checklist_id(rules.default_profile().settings) == app
     relaxed = next(p for p in rules.list_profiles() if p.name == "Relaxed backfill (5y)")
-    assert rules.scoring_standard(relaxed.settings) == "short" and rules.checklist_id(relaxed.settings) != app
+    assert rules.scoring_standard(relaxed.settings) == "short" and rules.checklist_id(relaxed.settings) == app
+    assert relaxed.settings["lookback_years"] == 5 and relaxed.snap != rules.default_profile().snap
     # a copy with a different rule scores differently, so a strategy moved onto it gets its own scores
     nid = rules.copy_checklist(app, "Lenient debt")
     with pytest.raises(ValueError):
@@ -170,3 +171,20 @@ def test_oracle_checklists():
     rules.rename_checklist(nid, "Lenient debt v2")
     rules.delete_checklist(nid)
     assert nid not in rules.checklists()
+
+
+def test_identical_five_year_checklist_from_early_builds_is_folded_in():
+    cks = rules.checklists()
+    app = min(cks)
+    dup = max(cks) + 1
+    cks[dup] = {**json.loads(json.dumps(cks[app])), "name": "Oracle checklist · 5-year record", "record": "short"}
+    rules._save_checklists(cks)
+    pid = rules.save_as(rules.primary_id(), "five-year copy", None)
+    b = json.loads(db.one("SELECT body_json FROM profiles WHERE id=?", (pid,))["body_json"])
+    b["settings"]["checklist_id"] = dup
+    db.get().execute("UPDATE profiles SET body_json=? WHERE id=?", (json.dumps(b), pid))
+    rules.ensure_house_view()
+    assert dup not in rules.checklists()
+    p = rules.get_profile(pid)
+    assert rules.checklist_id(p.settings) == app and rules.scoring_standard(p.settings) == "short"
+    rules.delete_profile(pid)

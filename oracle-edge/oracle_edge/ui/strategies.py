@@ -65,7 +65,8 @@ def universe_text(st: dict) -> str:
         bits.append("no foreign filers")
     ck = rules.house_view(rules.checklist_id(st)) or {}
     if ck:
-        bits.append(f"scored on {ck.get('name')}" + (" (5 years of results)" if ck.get("record") == "short" else ""))
+        bits.append(f"scored on {ck.get('name')}" + (" with 5 years of results" if rules.scoring_standard(st) == "short"
+                                                     else ""))
     return "; ".join(bits)
 
 
@@ -498,11 +499,11 @@ def _editor(cur: rules.Profile) -> None:
                  "backtests stay honest. Companies you hold are always followed.").classes("oe-small")
         with ui.row().classes("gap-3 items-end"):
             cks = rules.checklists()
-            std = ui.select({k: v["name"] + ("" if "record" in v["name"].lower() else (
-                " · 10-year record" if v.get("record", "standard") == "standard" else " · 5-year record (research)"))
-                for k, v in cks.items()},
-                            value=rules.checklist_id(st), label="Oracle checklist (how companies are scored)").props(
-                "outlined dense").classes("w-[420px]")
+            std = ui.select({k: v["name"] for k, v in cks.items()}, value=rules.checklist_id(st),
+                            label="Oracle checklist (how companies are scored)").props(
+                "outlined dense").classes("w-80")
+            recl = ui.select({k: v["label"] for k, v in rules.STANDARDS.items()}, value=rules.scoring_standard(st),
+                             label="Record length").props("outlined dense").classes("w-96")
             qmin = _num("Quality at least", st.get("quality_min", 70), "%.0f", "w-40", min=0, max=100)
             wmin = _num("Wonderfulness at least (blank = any)", st.get("universe_wonder_min"), "%.0f", "w-72",
                         min=0, max=100)
@@ -683,7 +684,7 @@ def _editor(cur: rules.Profile) -> None:
             b = copy.deepcopy(body)
             s = b["settings"]
             s.update({
-                "checklist_id": int(std.value) if std.value is not None else None,
+                "checklist_id": int(std.value) if std.value is not None else None, "scoring_standard": recl.value,
                 "quality_min": float(qmin.value or 0),
                 "universe_wonder_min": float(wmin.value) if wmin.value not in (None, "") else None,
                 "min_market_cap": float(mcap.value or 0), "min_dollar_volume": float(dvol.value or 0),
@@ -811,9 +812,9 @@ def house_page(cid: int | None = None):
         for k in rules.HOUSE_KEYS:  # the selected checklist's rules, whichever strategy is used for the preview
             body[k] = copy.deepcopy(hv[k])
         ui.label("Oracle checklists: how companies are scored").classes("oe-h1")
-        ui.label("An Oracle checklist is everything about how a company is scored: the must-pass and scored rules for "
-                 "standard companies, banks and insurers, their weights, the near-miss margin and the record length. "
-                 "The Quality score comes from it. Each strategy uses one (Strategies → Rules → section 1); strategies on "
+        ui.label("An Oracle checklist is the rules a company is scored on: the must-pass and scored rules for "
+                 "standard companies, banks and insurers, their weights and the near-miss margin. The Quality score "
+                 "comes from it. Each strategy uses one (Strategies → Rules → section 1); strategies on "
                  "the same checklist share its scores. The checklist used across the app (Screener, stock pages, "
                  "Today) is the primary strategy's (★). Copy a checklist to try a change on one strategy and compare "
                  "backtests before changing the one everything uses.").classes("oe-muted")
@@ -823,12 +824,11 @@ def house_page(cid: int | None = None):
             rows.append(f"<tr style='cursor:pointer;{'background:#fbf6e6;' if k == cid else ''}' "
                         f"onclick=\"location.href='/checklists?cid={k}'\"><td style='text-align:left'>"
                         f"{'★ ' if k == app_cid else ''}{v.get('name')}</td>"
-                        f"<td>{'10 years' if v.get('record', 'standard') == 'standard' else '5 years (research)'}</td>"
                         f"<td style='text-align:left'>{', '.join(p.name for p in us) or '—'}</td>"
                         f"<td>v{v.get('version', 1)} · {str(v.get('updated_at', ''))[:10]}</td></tr>")
         with ui.card().classes("oe-card w-full"):
             ui.html("<table class='oe-cmp' style='width:100%;border-collapse:collapse;font-size:13px'><thead><tr>"
-                    "<th style='text-align:left'>Oracle checklist</th><th>Record</th><th style='text-align:left'>Used by"
+                    "<th style='text-align:left'>Oracle checklist</th><th style='text-align:left'>Used by"
                     "</th><th>Version</th></tr></thead><tbody>" + "".join(rows) + "</tbody></table><style>.oe-cmp td,"
                     ".oe-cmp th{padding:5px 10px;text-align:right;border-bottom:1px solid #eef0ee}.oe-cmp th{color:#6b7280;"
                     "font-size:12px}</style>", sanitize=False).classes("w-full")
@@ -878,10 +878,8 @@ def house_page(cid: int | None = None):
                     "outlined dense").classes("w-96")
                 nmm = ui.number("Near miss: within points of the bar", value=body["settings"].get("near_miss_margin", 5),
                                 format="%.3g").props("outlined dense").classes("w-72")
-                rec = ui.select({"standard": "10 years of results (7 at least)",
-                                 "short": "5 years of results (research: backtests can start earlier)"},
-                                value=hv.get("record", "standard"), label="Record length").props(
-                    "outlined dense").classes("w-96")
+                ui.label("Record length (10 years of results, or 5 for research) is each strategy's own setting.").classes(
+                    "oe-small")
 
         def collect() -> dict:
             b = copy.deepcopy(body)
@@ -896,7 +894,6 @@ def house_page(cid: int | None = None):
                 if rr.get("id") == "r19":
                     rr["min_year_window"] = max(1, min(10, int(roew.value or rules.ROE_FLOOR_WINDOW)))
             b["settings"]["near_miss_margin"] = float(nmm.value or 0)
-            b["record"] = rec.value
             return b
 
         pv = {"seq": 0}
@@ -925,10 +922,6 @@ def house_page(cid: int | None = None):
             if not rules.house_changed(b, cid):
                 ui.notify("Nothing changed.", type="info")
                 return
-            if b.get("record") == "short" and any(p.id == rules.primary_id() for p in users):
-                ui.notify("The primary strategy uses this checklist, and it can't be on a 5-year record.",
-                          type="warning")
-                return
             with ui.dialog() as dlg, ui.card():
                 ui.label(f"Change {hv.get('name')}?").classes("oe-h2")
                 ui.label(f"Every company is re-scored once for the {len(users)} strateg"
@@ -953,7 +946,7 @@ def house_page(cid: int | None = None):
             with ui.dialog() as dlg, ui.card():
                 ui.label(f"Restore {hv.get('name')} to the shipped rules?").classes("oe-h2")
                 ui.label("Every rule, weight, the bank and insurer rules and the near-miss margin go back to the "
-                         "defaults the app ships with (rules/oracle_classic.yaml); the record length stays. Every company "
+                         "defaults the app ships with (rules/oracle_classic.yaml). Every company "
                          "is re-scored once for the strategies on it. Your strategies' own settings don't change.").classes(
                     "text-sm")
 
