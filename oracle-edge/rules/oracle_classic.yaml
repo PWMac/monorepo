@@ -63,6 +63,9 @@ settings:
   ranked_sell_outside: 8       # top_ranked: sell a holding once it ranks below this (twice the buy count tested best)
   ranked_sell_on_revenue: true # top_ranked: sell (and don't buy) while the latest 10-Q shows sales shrinking
   ranked_max_weight: null      # top_ranked: optional, no new money into a holding above this share of the portfolio
+  # exit rules (0.19): when to trim, sell, switch or warn. null = the rules implied by the settings above
+  # (see oracle_edge/exits.py); Strategies -> section 4 edits them as a list
+  exit_rules: null
   max_buy_weight: 0.25         # new money never pushes one holding above this share of the portfolio
   patient_extra_mos: 0.15      # patient: wait for a margin of safety this much above the buy gate...
   patient_max_weeks: 26        # ...but never hold the cash longer than this

@@ -17,6 +17,7 @@ import json
 from dataclasses import dataclass, field
 
 from . import db
+from . import exits
 from .engine import Eval, PriceBook
 from .rules import Profile
 
@@ -628,7 +629,7 @@ class PortfolioSim:
         if not signal_day:
             return res
         if st.get("buy_rule") == "top_ranked" and self.focused:
-            return self._decide_ranked(d, res, sig, V)
+            return self._decide_ranked(d, res, sig, V, by)
 
         def pos_value(cik):
             p = self.positions.get(cik)
@@ -639,8 +640,11 @@ class PortfolioSim:
         add_ok = {}                                      # cik -> Eval, holdings eligible for top-ups
         holding_evals = {}                               # cik -> Eval, healthy holdings (could fund a strong buy)
 
-        # ---- owned positions
+        # ---- owned positions: the strategy's exit rules (sell, REVIEW, trim), then ADD / HOLD
+        rules_ = exits.rules_of(st)
+        swap_rule = next((r for r in rules_ if r["on"] and r["when"] == "better_idea" and r["do"] == "switch"), None)
         weakest = None
+        n_pos = len(self.positions)
         for cik, pos in list(self.positions.items()):
             e = by.get(cik)
             stt = self._st(cik)
@@ -653,73 +657,15 @@ class PortfolioSim:
             if e.list == "pending":
                 res.badges[cik] = ("HOLD", e.note or "valuation pending")
                 continue
-            hard_fail = [f for f in e.failed if f.get("id") != "u1"]
-            if (hard_fail and not e.gates_passed) or (e.quality is not None and e.quality < st["sell_quality"]):
-                why = ("thesis broken: " + ", ".join(
-                    f"{f['name']} {_fmt(f.get('value'), self.fmt.get(f.get('id'), ''))} (limit "
-                    f"{_fmt(self.target.get(f.get('id')), self.fmt.get(f.get('id'), ''))})" for f in hard_fail)) \
-                    if hard_fail else f"thesis broken: Quality {e.quality:.0f} < {st['sell_quality']}"
-                sig(cik, "SELL", why, 1.0, {"failed": hard_fail, "quality": e.quality})
-                res.badges[cik] = ("SELL", why)
-                leaving.add(cik)
-                cash_avail += pos_value(cik)
-                continue
-            # ---- early warnings -> REVIEW (hard triggers can be confirmed into a SELL by the next filing)
-            qbuy = pos.get("quality_at_buy")
-            drop = (qbuy - e.quality) if (qbuy is not None and e.quality is not None) else 0
-            hard, soft = [], []
-            if drop >= st["review_quality_drop"]:
-                hard.append(f"Quality down {drop:.0f} pts since purchase ({qbuy:.0f} → {e.quality:.0f})")
-            for f in e.qflags or []:
-                (hard if f.get("hard") else soft).append(f"{f['name']}: {f['detail']} (10-Q {e.qfiled})")
-            gm = e.gate_margin
-            if gm is not None and gm < st["review_gate_margin"] and e.gate_margin_rule:
-                g = e.gate_margin_rule
-                soft.append(f"{g['name']} close to its limit ({_fmt(g.get('value'), g.get('fmt', ''))} vs "
-                            f"{_fmt(g.get('target'), g.get('fmt', ''))})")
-            latest_filing = max(e.filed or "", e.qfiled or "")
-            if hard or soft:
-                if hard and stt["review"] and stt["review_filed"] and latest_filing > stt["review_filed"] \
-                        and (stt.get("review_reason") or "").startswith("hard"):
-                    why = "REVIEW confirmed by next filing: " + "; ".join(hard)
-                    sig(cik, "SELL", why, 1.0, {"hard": hard, "soft": soft})
-                    res.badges[cik] = ("SELL", why)
+            act = self._exits(d, cik, e, pos, w, V, n_pos, rules_, stt, sig, res)
+            if act:
+                if act[0] == "sell":
                     leaving.add(cik)
                     cash_avail += pos_value(cik)
-                    continue
-                kind = "hard" if hard else "soft"
-                if not stt["review"] or (kind == "hard" and not (stt.get("review_reason") or "").startswith("hard")):
-                    stt["review"], stt["review_filed"] = 1, latest_filing
-                    stt["review_reason"] = kind + ": " + "; ".join(hard or soft)
-                res.badges[cik] = ("REVIEW", "; ".join(hard + soft) +
-                                   (" · becomes SELL if the next filing confirms it" if hard else
-                                    " · watch item, not a sell trigger"))
+                elif act[0] == "trim":
+                    cash_avail += pos_value(cik) * act[1]
                 continue
-            stt["review"], stt["review_reason"] = 0, None
-            # nose-bleed trim
-            nose = (e.iv and e.price and e.price >= st["nosebleed_iv_mult"] * e.iv and e.pe_now and e.pe_median
-                    and e.pe_now >= st["nosebleed_pe_mult"] * e.pe_median)
-            stt["nose_streak"] = stt["nose_streak"] + 1 if nose else 0
-            if stt["nose_streak"] >= st["nosebleed_days"]:
-                why = f"nose-bleed price: {e.price / e.iv:.1f}× value, P/E {e.pe_now:.0f} vs median {e.pe_median:.0f}"
-                sig(cik, "TRIM", why, st["trim_fraction"])
-                stt["nose_streak"] = 0
-                res.badges[cik] = ("TRIM", why)
-                cash_avail += pos_value(cik) * st["trim_fraction"]
-                continue
-            n_pos = len(self.positions)
-            mp = self._max_pos()
-            cap = max(self.position_cap, 1.5 / n_pos) if n_pos else 1.0
-            if mp:  # a hard maximum position: trim back to it once it's exceeded by the tolerance
-                cap = mp + float(st.get("max_position_tolerance", 0.05))
-            if n_pos >= 2 and w > cap:
-                target = mp if mp else max(self.trim_to, 1.0 / n_pos)
-                frac = 1 - target / w
-                why = f"oversized: {w:.0%} of portfolio → trim to {target:.0%}"
-                sig(cik, "TRIM", why, frac)
-                res.badges[cik] = ("TRIM", why)
-                cash_avail += pos_value(cik) * frac
-                continue
+            qbuy = pos.get("quality_at_buy")
             # ADD on a dip: thesis intact, limited number of times (no endless averaging down)
             thesis_ok = not st.get("add_requires_quality", True) or (
                 not stt["review"] and (qbuy is None or e.quality is None or e.quality >= qbuy - 5))
@@ -739,8 +685,8 @@ class PortfolioSim:
                 else "business intact"
             res.badges[cik] = ("HOLD", note)
             holding_evals[cik] = e
-            held_long = _days(pos["opened_on"], d) >= int(st.get("swap_min_hold_days", 0) or 0)
-            if (not self.focused or held_long) and \
+            held_long = swap_rule is not None and _days(pos["opened_on"], d) >= int(swap_rule.get("min_days") or 0)
+            if swap_rule is not None and (not self.focused or held_long) and \
                     (weakest is None or (e.rank_score or 0) < (weakest[1].rank_score or 0)):
                 weakest = (cik, e)
 
@@ -799,8 +745,7 @@ class PortfolioSim:
             rj = {"quality": e.quality, "rank": e.rank, "mos": e.mos, "er": e.er}
             if self.focused:
                 if limit and n_owned >= limit:
-                    if weakest and (e.rank_score or 0) - (weakest[1].rank_score or 0) >= st["swap_rank_gap"] and \
-                            (e.er or 0) - (weakest[1].er or 0) >= st["swap_er_gap"]:
+                    if weakest and self._better(e, weakest[1], swap_rule):
                         freed = pos_value(weakest[0])
                         sig(weakest[0], "SWAP", f"swap for {e.ticker}: Rank {weakest[1].rank_score:.0f} → "
                                                 f"{e.rank_score:.0f}", 1.0)
@@ -830,8 +775,7 @@ class PortfolioSim:
             # ---- variable (legacy) mode
             size = st["strong_buy_units"] if strong else 1.0
             if limit and n_owned >= limit:
-                if weakest and (e.rank_score or 0) - (weakest[1].rank_score or 0) >= st["swap_rank_gap"] and \
-                        (e.er or 0) - (weakest[1].er or 0) >= st["swap_er_gap"]:
+                if weakest and self._better(e, weakest[1], swap_rule):
                     sig(weakest[0], "SWAP", f"swap for {e.ticker}: Rank {weakest[1].rank_score:.0f} → {e.rank_score:.0f}", 1.0)
                     res.badges[weakest[0]] = ("SWAP", f"sell to fund {e.ticker}")
                     sig(e.cik, typ, why, size, rj)
@@ -843,7 +787,7 @@ class PortfolioSim:
             sig(e.cik, typ, why, size, rj)
             res.badges[e.cik] = (typ, why)
             n_owned += 1
-            if weakest and (e.rank_score or 0) - (weakest[1].rank_score or 0) >= st["swap_rank_gap"]:
+            if weakest and swap_rule and (e.rank_score or 0) - (weakest[1].rank_score or 0) >= float(swap_rule["x"] or 0):
                 old = res.badges.get(weakest[0])
                 if old and old[0] == "HOLD":
                     res.badges[weakest[0]] = ("HOLD", f"upgrade available: {e.ticker} ranks much higher")
@@ -863,6 +807,252 @@ class PortfolioSim:
                 res.badges[e.cik] = ("WATCH", f"wonderful, but pricey: buy below ${e.buy_below:,.2f}" if e.buy_below
                                      else "wonderful, but pricey")
         return res
+
+    # ------------------------------------------------------------ exit rules (0.19, see exits.py)
+    def _streak(self, stt: dict, key: str, hit: bool) -> int:
+        """Consecutive checks a rule's condition has held (stored per holding)."""
+        s = stt.get("_streaks")
+        if s is None:
+            s = stt["_streaks"] = json.loads(stt.get("streaks_json") or "{}")
+        s[key] = (s.get(key, 0) + 1) if hit else 0
+        return s[key]
+
+    def _reset_streak(self, stt: dict, key: str) -> None:
+        if stt.get("_streaks") is not None:
+            stt["_streaks"][key] = 0
+
+    def _rank_info(self, d: str) -> dict:
+        c = getattr(self, "_rank_cache", None)
+        if c is None or c[0] != d:
+            ranked = self.ranking(d)
+            c = self._rank_cache = (d, {cik: i for i, (*_, cik) in enumerate(ranked)},
+                                    {cik: x for x, *_, cik in ranked})
+        return {"pos": c[1], "comb": c[2]}
+
+    def _raw_flags(self, cik: int, d: str, e) -> list[dict]:
+        """The latest 10-Q's flags whatever the health-check setting (top-ranked tests used these)."""
+        snaps = getattr(self, "snaps", None)
+        if snaps is not None:
+            s = snaps.asof(cik, d)
+            q = snaps.quarterly(cik, d, s["filed"] if s else None)
+            return json.loads(q["flags_json"] or "[]") if q else []
+        return list(e.qflags or []) if e else []
+
+    def _trigger(self, r: dict, cik: int, e, d: str, pos: dict | None, w: float, n_pos: int) -> str | None:
+        """Why the rule's condition holds for this stock today, or None (not met, or no data to tell)."""
+        when, x, y = r["when"], r.get("x"), r.get("y")
+        st = self.st
+        snaps = getattr(self, "snaps", None)
+        q = e.quality if e else (snaps.asof(cik, d)["quality"] if snaps and snaps.asof(cik, d) else None)
+        if when == "fails_rules":
+            hard = [f for f in (e.failed if e else []) if f.get("id") != "u1"]
+            if hard and e and not e.gates_passed:
+                return "thesis broken: " + ", ".join(
+                    f"{f['name']} {_fmt(f.get('value'), self.fmt.get(f.get('id'), ''))} (limit "
+                    f"{_fmt(self.target.get(f.get('id')), self.fmt.get(f.get('id'), ''))})" for f in hard)
+            return None
+        if when == "quality_below":
+            return f"thesis broken: Quality {q:.0f} < {x:g}" if q is not None and x is not None and q < x else None
+        if when == "quality_drop":
+            qb = pos.get("quality_at_buy") if pos else None
+            if qb is not None and q is not None and x is not None and qb - q >= x:
+                return f"Quality down {qb - q:.0f} pts since purchase ({qb:.0f} → {q:.0f})"
+            return None
+        if when in ("wonder_below", "wonder_drop", "combined_below"):
+            if snaps is None:
+                return None
+            wv = snaps.wonder_asof(cik, d)
+            if wv is None or x is None:
+                return None
+            if when == "wonder_below":
+                return f"Wonderfulness {wv:.0f} < {x:g}" if wv < x else None
+            if when == "combined_below":
+                if q is None:
+                    return None
+                c = (wv + q) / 2
+                return f"combined score {c:.1f} < {x:g}" if c < x else None
+            if not pos:
+                return None
+            w0 = snaps.wonder_asof(cik, pos["opened_on"])
+            return (f"Wonderfulness down {w0 - wv:.0f} pts since purchase ({w0:.0f} → {wv:.0f})"
+                    if w0 is not None and w0 - wv >= x else None)
+        if when == "rank_below":
+            if snaps is None or x is None:
+                return None
+            ri = self._rank_info(d)
+            r_ = ri["pos"].get(cik)
+            if r_ is None:
+                return None if snaps.asof(cik, d) is None else "no longer ranked (no recent price or score)"
+            k = int(x)
+            return (f"fell to #{r_ + 1} by combined score ({ri['comb'][cik]:.1f}); sells outside the top {k}"
+                    if r_ >= k else None)
+        if when == "near_limit":
+            gm = e.gate_margin if e else None
+            if gm is not None and x is not None and gm < x and e.gate_margin_rule:
+                g = e.gate_margin_rule
+                return (f"{g['name']} close to its limit ({_fmt(g.get('value'), g.get('fmt', ''))} vs "
+                        f"{_fmt(g.get('target'), g.get('fmt', ''))})")
+            return None
+        if when == "price_over_value":
+            if not (e and e.iv and e.price and x is not None and e.price >= x * e.iv):
+                return None
+            if y is not None:
+                if not (e.pe_now and e.pe_median and e.pe_now >= y * e.pe_median):
+                    return None
+                return f"nose-bleed price: {e.price / e.iv:.1f}× value, P/E {e.pe_now:.0f} vs median {e.pe_median:.0f}"
+            return f"price {e.price / e.iv:.1f}× the estimated value"
+        if when == "pe_over_usual":
+            if e and e.pe_now and e.pe_median and x is not None and e.pe_now >= x * e.pe_median:
+                return f"P/E {e.pe_now:.0f} vs its usual {e.pe_median:.0f}"
+            return None
+        if when == "exp_return_below":
+            if e and e.er is not None and x is not None and e.er < x:
+                return f"expected 10-yr return {e.er:.1%} < {x:.0%}"
+            return None
+        if when in ("q_revenue", "q_profits", "q_loss"):
+            fid = {"q_revenue": "rev_decline", "q_profits": "profit_decline", "q_loss": "ttm_loss"}[when]
+            f = next((f for f in self._raw_flags(cik, d, e) if f.get("id") == fid), None)
+            return f"10-Q: {f['name']} ({f['detail']})" if f else None
+        if when in ("q_hard", "q_soft"):
+            want = when == "q_hard"
+            fl = [f for f in (e.qflags or []) if bool(f.get("hard")) == want] if e else []
+            return "; ".join(f"{f['name']}: {f['detail']} (10-Q {e.qfiled})" for f in fl) if fl else None
+        t = self.tk.get(cik)
+        px = self.pb.adj(t, d) if t else None
+        if when == "weight_above":
+            if not pos or n_pos < 2:
+                return None
+            mp = self._max_pos()
+            if x is not None:
+                cap = float(x)
+            elif mp:
+                cap = mp + float(st.get("max_position_tolerance", 0.05))
+            else:
+                cap = max(self.position_cap, 1.5 / n_pos) if n_pos else 1.0
+            return f"oversized: {w:.0%} of portfolio" if w > cap else None
+        if when in ("gain_above", "loss_below"):
+            if not pos or not px or not pos.get("avg_cost") or x is None:
+                return None
+            ch = px / pos["avg_cost"] - 1
+            if when == "gain_above":
+                return f"up {ch:.0%} from average cost" if ch >= x else None
+            return f"down {-ch:.0%} from average cost" if ch <= -x else None
+        if when == "trail_stop":
+            if not pos or not px or x is None:
+                return None
+            hi = max(self.pb.window_adj(t, pos["opened_on"], d) or [px])
+            return f"{1 - px / hi:.0%} below its high since bought" if px <= hi * (1 - x) else None
+        if when == "below_200d":
+            sma = self.pb.sma(t, d, 200) if t else None
+            return "below its 200-day average" if (px and sma and px < sma) else None
+        return None
+
+    def _better(self, cand, held, rule) -> bool:
+        """The switch rule: the candidate beats the weakest holding by x Oracle Rank points and y expected return."""
+        if rule is None:
+            return False
+        return ((cand.rank_score or 0) - (held.rank_score or 0) >= float(rule.get("x") or 0)
+                and (cand.er or 0) - (held.er or 0) >= float(rule.get("y") or 0))
+
+    def _exits(self, d, cik, e, pos, w, V, n_pos, rules_, stt, sig, res):
+        """Apply the exit rules to one holding (order in exits.py). Returns ("sell", 1) / ("trim", fraction) /
+        ("review", 0) when it acted or put the holding under REVIEW, else None."""
+        held = _days(pos["opened_on"], d) if pos else 0
+
+        def ok(r):
+            return r["on"] and held >= int(r.get("min_days") or 0)
+
+        # 1. sell now (or after N checks in a row)
+        for i, r in enumerate(rules_):
+            if not (r["on"] and r["do"] in ("sell", "switch") and r["when"] != "better_idea"
+                    and r["confirm"] in ("now", "checks")):
+                continue
+            if not ok(r):
+                continue
+            why = self._trigger(r, cik, e, d, pos, w, n_pos)
+            if r["confirm"] == "checks":
+                n = self._streak(stt, f"{i}:{r['when']}", why is not None)
+                if why and n < int(r.get("checks") or 1):
+                    why = None
+            if why:
+                self._reset_streak(stt, f"{i}:{r['when']}")
+                sig(cik, "SELL", why, 1.0, {"rule": r["when"], "quality": e.quality if e else None})
+                res.badges[cik] = ("SELL", why)
+                return ("sell", 1.0)
+        # 2. REVIEW: warnings, and actions that wait for the next filing to confirm them
+        hard, soft, hard_rule = [], [], None
+        for r in rules_:
+            if not ok(r) or r["when"] == "better_idea":
+                continue
+            if r["do"] == "warn":
+                why = self._trigger(r, cik, e, d, pos, w, n_pos)
+                if why:
+                    soft.append(why)
+            elif r["confirm"] == "filing":
+                why = self._trigger(r, cik, e, d, pos, w, n_pos)
+                if why:
+                    hard.append(why)
+                    hard_rule = hard_rule or r
+        latest_filing = max((e.filed or "") if e else "", (e.qfiled or "") if e else "")
+        if hard or soft:
+            if hard and stt["review"] and stt["review_filed"] and latest_filing > stt["review_filed"] \
+                    and (stt.get("review_reason") or "").startswith("hard"):
+                why = "REVIEW confirmed by next filing: " + "; ".join(hard)
+                if hard_rule["do"] in ("trim", "trim_to"):
+                    frac = self._trim_frac(hard_rule, w, n_pos)
+                    if frac > 0:
+                        sig(cik, "TRIM", why, frac)
+                        res.badges[cik] = ("TRIM", why)
+                        stt["review"], stt["review_reason"] = 0, None
+                        return ("trim", frac)
+                else:
+                    sig(cik, "SELL", why, 1.0, {"hard": hard, "soft": soft})
+                    res.badges[cik] = ("SELL", why)
+                    return ("sell", 1.0)
+            kind = "hard" if hard else "soft"
+            if not stt["review"] or (kind == "hard" and not (stt.get("review_reason") or "").startswith("hard")):
+                stt["review"], stt["review_filed"] = 1, latest_filing
+                stt["review_reason"] = kind + ": " + "; ".join(hard or soft)
+            res.badges[cik] = ("REVIEW", "; ".join(hard + soft) +
+                               (" · becomes SELL if the next filing confirms it" if hard else
+                                " · watch item, not a sell trigger"))
+            return ("review", 0.0)
+        stt["review"], stt["review_reason"] = 0, None
+        # 3. trims: the first that fires, once
+        for i, r in enumerate(rules_):
+            if not (r["on"] and r["do"] in ("trim", "trim_to") and r["confirm"] in ("now", "checks")):
+                continue
+            if not ok(r):
+                continue
+            why = self._trigger(r, cik, e, d, pos, w, n_pos)
+            if r["confirm"] == "checks":
+                n = self._streak(stt, f"{i}:{r['when']}", why is not None)
+                if why and n < int(r.get("checks") or 1):
+                    continue
+            if not why:
+                continue
+            frac = self._trim_frac(r, w, n_pos)
+            if frac <= 0:
+                continue
+            self._reset_streak(stt, f"{i}:{r['when']}")
+            if r["do"] == "trim_to":
+                why += f" → trim to {max(w * (1 - frac), 0):.0%}"
+            sig(cik, "TRIM", why, frac)
+            res.badges[cik] = ("TRIM", why)
+            return ("trim", frac)
+        return None
+
+    def _trim_frac(self, r, w, n_pos) -> float:
+        st = self.st
+        if r["do"] == "trim":
+            return min(max(float(r.get("amount") if r.get("amount") is not None else st.get("trim_fraction", 0.33)),
+                           0.0), 1.0)
+        if r.get("amount") is not None:
+            target = float(r["amount"])
+        else:
+            mp = self._max_pos()
+            target = mp if mp else max(self.trim_to, 1.0 / max(n_pos, 1))
+        return 1 - target / w if w > target else 0.0
 
     # ------------------------------------------------------------ top-ranked buying (0.18.1)
     def ranking(self, d: str) -> list[tuple[float, float, float, int]]:
@@ -890,25 +1080,13 @@ class PortfolioSim:
         out.sort(reverse=True)
         return out
 
-    def _revenue_flag(self, cik: int, d: str) -> dict | None:
-        """The latest 10-Q's 'Revenue shrinking' warning, if one is open (whatever the health-check setting)."""
-        snaps = self.snaps
-        s = snaps.asof(cik, d)
-        q = snaps.quarterly(cik, d, s["filed"] if s else None)
-        if not q:
-            return None
-        return next((f for f in json.loads(q["flags_json"] or "[]") if f.get("id") == "rev_decline"), None)
-
-    def _decide_ranked(self, d: str, res: DayResult, sig, V: float) -> DayResult:
-        """Once a week (the first signal day of each week): sell holdings that dropped out of the top
-        `ranked_sell_outside` by combined score, or whose latest 10-Q shows sales shrinking; then split all cash
-        (new money plus the sales) equally across the top `ranked_buy_count` that pass the same tests, at any
-        price. Holdings that stay highly ranked are never trimmed: in the tests (Guide, 'Top-ranked buying'),
-        every trim-on-the-way-up rule cost return."""
+    def _decide_ranked(self, d: str, res: DayResult, sig, V: float, by: dict | None = None) -> DayResult:
+        """Once a week (the first signal day of each week): apply the strategy's exit rules to every holding (by
+        default: sell below rank `ranked_sell_outside` by combined score, or when the latest 10-Q shows sales
+        shrinking), then split all cash (new money plus sales and trims) equally across the top
+        `ranked_buy_count` that no immediate sell rule would sell at once, at any price."""
         st = self.st
         n_buy = max(int(st.get("ranked_buy_count") or 4), 1)
-        k_sell = max(int(st.get("ranked_sell_outside") or 2 * n_buy), n_buy)
-        rev_rule = bool(st.get("ranked_sell_on_revenue", True))
         max_w = st.get("ranked_max_weight")
         ranked = self.ranking(d)
         pos_of = {c: i for i, (*_, c) in enumerate(ranked)}
@@ -927,24 +1105,30 @@ class PortfolioSim:
         self.last_deploy = d
         cash = self.cash
         leaving = set()
+        by = by or {}
+        rules_ = exits.rules_of(st)
+        n_pos = len(self.positions)
         for cik in list(self.positions):
-            r = pos_of.get(cik)
-            if r is None:
-                if self.snaps.asof(cik, d) is None:
-                    res.badges[cik] = ("HOLD", "no score yet")
-                    continue
-                why = "no longer ranked (no recent price or score)"
-            elif r >= k_sell:
-                why = f"fell to #{r + 1} by combined score ({comb[cik]:.1f}); sells outside the top {k_sell}"
-            elif rev_rule and (f := self._revenue_flag(cik, d)):
-                why = f"10-Q: {f['name']} ({f['detail']})"
-            else:
-                res.badges[cik] = ("HOLD", f"#{r + 1} by combined score ({comb[cik]:.1f}) · inside the top {k_sell}")
+            if self.snaps.asof(cik, d) is None:
+                res.badges[cik] = ("HOLD", "no score yet")
                 continue
-            sig(cik, "SELL", why, 1.0, {"rank": (r + 1) if r is not None else None})
-            res.badges[cik] = ("SELL", why)
-            leaving.add(cik)
-            cash += pos_value(cik)
+            pos = self.positions[cik]
+            stt = self._st(cik)
+            w = pos_value(cik) / V if V else 0.0
+            act = self._exits(d, cik, by.get(cik), pos, w, V, n_pos, rules_, stt, sig, res)
+            if act:
+                if act[0] == "sell":
+                    leaving.add(cik)
+                    cash += pos_value(cik)
+                elif act[0] == "trim":
+                    cash += pos_value(cik) * act[1]
+                continue
+            r = pos_of.get(cik)
+            res.badges[cik] = ("HOLD", (f"#{r + 1} by combined score ({comb[cik]:.1f})" if r is not None
+                                        else "not ranked today") + " · no exit rule applies")
+        # never buy what an immediate sell rule would sell at once (e.g. sales shrinking)
+        block = [r for r in rules_ if r["on"] and r["do"] in ("sell", "switch") and r["confirm"] == "now"
+                 and not r.get("min_days") and r["when"] != "better_idea"]
         total = sum(pos_value(c) for c in self.positions if c not in leaving)  # invested, without cash
         picks = []
         for x, w, q, cik in ranked:
@@ -952,9 +1136,11 @@ class PortfolioSim:
                 break
             if cik in leaving:
                 continue
-            if rev_rule and self._revenue_flag(cik, d):
+            stop = next((y for r in block if (y := self._trigger(r, cik, by.get(cik), d, self.positions.get(cik),
+                                                                 0.0, n_pos))), None)
+            if stop:
                 if pos_of[cik] < n_buy:
-                    res.badges.setdefault(cik, ("WATCH", "top ranked, but the latest 10-Q shows sales shrinking"))
+                    res.badges.setdefault(cik, ("WATCH", f"top ranked, but an exit rule applies: {stop}"))
                 continue
             if max_w and cik in self.positions and total > 0 and pos_value(cik) / total > float(max_w):
                 res.badges[cik] = ("HOLD", f"#{pos_of[cik] + 1} by combined score · already {pos_value(cik) / total:.0%}"
@@ -1031,9 +1217,10 @@ class PortfolioSim:
         )
         con.executemany(
             "INSERT OR REPLACE INTO signal_state(run_id,portfolio_id,cik,buy_streak,nose_streak,review,review_filed,"
-            "last_add,review_reason,adds) VALUES(?,?,?,?,?,?,?,?,?,?)",
+            "last_add,review_reason,adds,streaks_json) VALUES(?,?,?,?,?,?,?,?,?,?,?)",
             [(self.run_id, self.pid, c, s["buy_streak"], s["nose_streak"], s["review"], s["review_filed"], s["last_add"],
-              s.get("review_reason"), s.get("adds") or 0)
+              s.get("review_reason"), s.get("adds") or 0,
+              json.dumps(s["_streaks"]) if s.get("_streaks") else s.get("streaks_json"))
              for c, s in self.state.items() if s["buy_streak"] or s["nose_streak"] or s["review"] or s["last_add"]
              or c in self.positions],
         )

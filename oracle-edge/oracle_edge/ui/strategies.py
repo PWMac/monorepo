@@ -12,7 +12,7 @@ import json
 
 from nicegui import run, ui
 
-from .. import db, rules
+from .. import db, exits, rules
 from . import data
 from .layout import frame
 from .theme import pct
@@ -212,6 +212,106 @@ def _num(label, value, fmt="%.4g", w="w-44", **kw):
     return ui.number(label, value=value, format=fmt, **kw).props("outlined dense").classes(w)
 
 
+def _x_to_ui(v, unit):
+    if v is None:
+        return None
+    return round(float(v) * 100, 4) if unit == "pct" else v
+
+
+def _x_from_ui(v, unit):
+    if v in (None, ""):
+        return None
+    return round(float(v) / 100, 6) if unit == "pct" else float(v)
+
+
+def _exit_rules_editor(rs: list[dict], st: dict, locked: bool) -> None:
+    """Section 4: the strategy's exit rules as an editable list (exits.py). Edits change `rs` in place."""
+    trig = {k: f"{v['group']}: {v['label']}" for k, v in exits.TRIGGERS.items()}
+
+    @ui.refreshable
+    def table():
+        if not rs:
+            ui.label("No exit rules: it never sells, trims or switches on its own.").classes("oe-small")
+        for i, r in enumerate(rs):
+            t = exits.TRIGGERS[r["when"]]
+            with ui.row().classes("gap-2 items-end w-full flex-nowrap"):
+                ui.switch(value=r["on"], on_change=lambda ev, r=r: (r.update(on=ev.value), table.refresh())
+                          ).props("dense").tooltip("Use this rule")
+                ui.select(trig, value=r["when"], label="When",
+                          on_change=lambda ev, r=r: (_set_trigger(r, ev.value), table.refresh())).props(
+                    "outlined dense options-dense").classes("w-80").tooltip(t["help"])
+                if t.get("unit"):
+                    ui.number("X " + {"pct": "%", "x": "×", "rank": "#", "pts": "pts"}.get(t["unit"], ""),
+                              value=_x_to_ui(r.get("x"), t["unit"]), format="%.4g",
+                              on_change=lambda ev, r=r, u=t["unit"]: (r.update(x=_x_from_ui(ev.value, u)),
+                                                                     table.refresh())).props(
+                        "outlined dense clearable").classes("w-28")
+                if t.get("y_label"):
+                    yu = "pct" if r["when"] == "better_idea" else "x"
+                    ui.number(t["y_label"], value=_x_to_ui(r.get("y"), yu), format="%.4g",
+                              on_change=lambda ev, r=r, u=yu: (r.update(y=_x_from_ui(ev.value, u)), table.refresh())
+                              ).props("outlined dense clearable").classes("w-56")
+                acts = {"switch": exits.ACTIONS["switch"]} if r["when"] == "better_idea" else \
+                    {k: v for k, v in exits.ACTIONS.items() if k != "switch"}
+                ui.select(acts, value=r["do"] if r["do"] in acts else next(iter(acts)), label="Do",
+                          on_change=lambda ev, r=r: (r.update(do=ev.value), table.refresh())).props(
+                    "outlined dense").classes("w-52")
+                if r["do"] in ("trim", "trim_to"):
+                    ui.number("% of holding" if r["do"] == "trim" else "% of portfolio (blank = auto)",
+                              value=_x_to_ui(r.get("amount"), "pct"), format="%.0f", min=1, max=100,
+                              on_change=lambda ev, r=r: (r.update(amount=_x_from_ui(ev.value, "pct")),
+                                                         table.refresh())).props("outlined dense clearable"
+                                                                                 ).classes("w-44")
+                if r["when"] != "better_idea" and r["do"] != "warn":
+                    ui.select(exits.CONFIRMS, value=r["confirm"], label="Confirmed",
+                              on_change=lambda ev, r=r: (r.update(confirm=ev.value), table.refresh())).props(
+                        "outlined dense").classes("w-56")
+                    if r["confirm"] == "checks":
+                        ui.number("Checks", value=r.get("checks") or 1, format="%.0f", min=1,
+                                  on_change=lambda ev, r=r: (r.update(checks=int(ev.value or 1)), table.refresh())
+                                  ).props("outlined dense").classes("w-24")
+                ui.number("Held at least (days)", value=r.get("min_days") or 0, format="%.0f", min=0,
+                          on_change=lambda ev, r=r: (r.update(min_days=int(ev.value or 0)), table.refresh())
+                          ).props("outlined dense").classes("w-40")
+                ui.button(icon="arrow_upward", on_click=lambda i=i: _move(i, -1)).props("flat dense round"
+                                                                                         ).tooltip("Earlier")
+                ui.button(icon="delete", on_click=lambda i=i: (rs.pop(i), table.refresh())).props(
+                    "flat dense round color=negative").tooltip("Remove")
+            ui.label(("" if r["on"] else "(off) ") + exits.describe_rule(r)).classes(
+                "oe-small pl-12 " + ("" if r["on"] else "line-through"))
+
+    def _set_trigger(r, when):
+        t = exits.TRIGGERS[when]
+        r.update(when=when, x=t.get("x"), y=None)
+        if when == "better_idea":
+            r.update(do="switch", y=0.04, confirm="now")
+        elif r["do"] == "switch":
+            r["do"] = "sell"
+
+    def _move(i, step):
+        j = i + step
+        if 0 <= j < len(rs):
+            rs[i], rs[j] = rs[j], rs[i]
+            table.refresh()
+
+    def _preset(name):
+        rs[:] = exits.preset(name, st)
+        table.refresh()
+
+    ui.label("Each rule: when its condition holds, do the action. Every signal day the sell and switch rules are "
+             "checked first (the first that fires sells), then warnings and rules that wait for the next filing "
+             "(REVIEW), then trims (one at a time). The new money then goes where the buying rule says.").classes(
+        "oe-small")
+    table()
+    if not locked:
+        with ui.row().classes("gap-2 items-center"):
+            ui.button("Add rule", icon="add", on_click=lambda: (rs.append(exits.rule("quality_below", x=55)),
+                                                                table.refresh())).props("outline dense")
+            ui.label("Start from:").classes("oe-small")
+            for k, label in exits.PRESETS.items():
+                ui.button(label.split(" (")[0], on_click=lambda k=k: _preset(k)).props("flat dense").tooltip(label)
+
+
 def _editor(cur: rules.Profile) -> None:
     body = copy.deepcopy(cur.body)
     st = body["settings"]
@@ -287,8 +387,8 @@ def _editor(cur: rules.Profile) -> None:
             rmw.props("clearable")
         ui.label("Top-ranked ranks every scored company by (Wonderfulness + Quality) ÷ 2 as known each week, splits the "
                  "week's money (and any sales) equally across the top ones, and ignores the price test, Buy Zone, "
-                 "holdings limit, sizing, new-money settings, the Quality sell line and the health check; it sells "
-                 "only by its own two rules in section 4. It must be Focused.").classes("oe-small")
+                 "holdings limit, sizing and new-money settings; it sells, trims and warns by the rules in section 4 "
+                 "(start from 'Top-ranked' there). It must be Focused.").classes("oe-small")
         with ui.row().classes("gap-3 items-end"):
             pmode = ui.select({"focused": "Focused: hold only the best N", "variable": "Variable (old style)"},
                               value=st.get("portfolio_mode", "focused"), label="Portfolio style").props(
@@ -329,19 +429,15 @@ def _editor(cur: rules.Profile) -> None:
                        min=0, max=100)
             pfh = _num("Sell whole only after days held", st.get("fund_min_hold_days", 180), "%.0f", "w-56", min=0)
 
-        # ---- 4. selling and warnings
-        ui.label("4 · When it sells, and early warnings").classes("oe-h2 pt-2")
-        with ui.row().classes("gap-3 items-end"):
-            sq = _num("Sell when Quality falls below", st.get("sell_quality", 55), "%.0f", "w-60", min=0, max=100)
+        # ---- 4. exit rules and warnings
+        ui.label("4 · When it trims, sells or switches").classes("oe-h2 pt-2")
+        ex_rules = exits.copy_rules(exits.rules_of(st))
+        _exit_rules_editor(ex_rules, st, cur.locked)
+        with ui.row().classes("gap-3 items-end pt-2"):
             stq = _num("Strong buy needs Quality at least", st.get("strong_quality", 80), "%.0f", "w-64", min=0,
                        max=100)
             hc = ui.switch("Business health check: skip companies slipping now; sell when the next filing confirms it",
                            value=bool(st.get("health_check")))
-        with ui.row().classes("gap-3 items-end"):
-            rso = _num("Top-ranked: sell when it ranks below #", st.get("ranked_sell_outside", 8), "%.0f", "w-72",
-                       min=1, max=200)
-            rsr = ui.switch("Top-ranked: sell (and don't buy) while the latest 10-Q shows sales shrinking",
-                            value=st.get("ranked_sell_on_revenue", True))
         with ui.row().classes("gap-6 items-center"):
             qw = ui.switch("Quarterly early warnings (10-Q)", value=st.get("quarterly_warnings", True))
             qb = ui.switch("Block new buys while a hard 10-Q warning is open",
@@ -395,7 +491,7 @@ def _editor(cur: rules.Profile) -> None:
                 "initial_capital": float(10000 if pcap0.value in (None, "") else pcap0.value), "weekly_contribution": float(pwk.value or 0),
                 "new_money": ppol.value, "buy_rule": brule.value,
                 "ranked_buy_count": max(1, int(rbn.value or 4)), "ranked_max_weight": _frac(rmw.value),
-                "ranked_sell_outside": max(1, int(rso.value or 8)), "ranked_sell_on_revenue": rsr.value, "rank_quality_weight": round(float(rqw.value if rqw.value is not None else
+                "exit_rules": exits.copy_rules(ex_rules), "rank_quality_weight": round(float(rqw.value if rqw.value is not None else
                                                                             0.65), 4),
                 "min_rank_score": float(pmin.value or 0), "max_buy_weight": float(pmax.value or 25) / 100,
                 "max_adds": int(padds.value or 0), "add_requires_quality": paq.value,
@@ -404,7 +500,6 @@ def _editor(cur: rules.Profile) -> None:
                 "reserve_max_weeks": int(prwk.value or 0), "fund_strong": pfund.value,
                 "fund_extra_slots": int(pfx.value or 0), "fund_trim_max": _frac(pft.value, 0.34),
                 "fund_min_hold_days": int(pfh.value or 0),
-                "sell_quality": float(sq.value if sq.value is not None else 55),
                 "strong_quality": float(stq.value if stq.value is not None else 80), "health_check": hc.value,
                 "quarterly_warnings": qw.value, "block_buy_on_quarterly_flag": qb.value,
                 "deterioration_warnings": rdw.value,

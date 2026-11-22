@@ -78,7 +78,7 @@ footer { color:var(--muted); font-size:12.5px; margin-top:50px; border-top:1px s
   <h1><img src="brand/logo/oracle-edge-header-tagline.png" srcset="brand/logo/oracle-edge-header-tagline@2x.png 2x"
      alt="Oracle Edge: Screen, Rank, Signal"></h1>
   <p>A local stock screener that thinks like the Oracle. This guide explains <b>what</b> the app does,
-  <b>how</b> it decides, and <b>why</b> it was built this way. Version 0.18.1.</p>
+  <b>how</b> it decides, and <b>why</b> it was built this way. Version 0.19.0.</p>
   <p style="font-size:14px">Two documents: this <b>guide</b> is the user manual, kept current with every release and opened from
   "Guide" in the app. The <b>plan</b> (<code>docs/Value-Picker-Plan.html</code> with the source code) is the design record: the research, architecture,
   database layout and the decision log behind the app.</p>
@@ -110,6 +110,7 @@ footer { color:var(--muted); font-size:12.5px; margin-top:50px; border-top:1px s
   <a href="#signals">15. Buy and sell signals</a>
   <a href="#strength" style="padding-left:22px">How strong is a signal?</a>
   <a href="#selling">16. When it sells</a>
+  <a href="#exitrules" style="padding-left:22px">Your own exit rules</a>
   <a href="#targets">17. Price targets and alerts</a>
   <a href="#portfolio">18. Model portfolio: how many, new money</a>
   <a href="#newmoney" style="padding-left:22px">Where new money goes</a>
@@ -1059,6 +1060,8 @@ The Buy Zone list and the Signals log have sortable columns for them.</p>
 <p>The Oracle's favorite holding period is "forever". He sells for a few reasons: the business has deteriorated, he made a
 mistake, the price has become absurd, or he needs the money for something clearly better. Oracle Edge follows the
 same rules and <b>never sells because the price fell</b>. A lower price for an intact business is an ADD, not a SELL.</p>
+<p>What follows are the <b>standard exit rules</b>, the ones every strategy starts with. Since 0.19 each strategy can change,
+switch off or add to them; see <a href="#exitrules">Your own exit rules</a> below.</p>
 <h3>REVIEW: an early warning before a SELL</h3>
 <table>
 <tr><th></th><th>Triggers</th><th>What happens</th></tr>
@@ -1084,6 +1087,48 @@ filing, not "wait and hope".</div>
 <li><b>Nosebleed:</b> price at 2× value <i>and</i> P/E at twice its 10-year median, for 10 straight days. Sell a third.</li>
 <li><b>Oversized:</b> a holding above 40% of the portfolio (or 1.5 ÷ number of holdings when you own few) is trimmed back to 30%
 (or an equal share). It only applies with 2 or more holdings.</li>
+</ul>
+
+<h3 id="exitrules">Your own exit rules (0.19)</h3>
+<p>Strategies → section 4, <b>When it trims, sells or switches</b>, lists the strategy's exit rules. Each is one line:
+<b>when</b> a condition holds, <b>do</b> an action, <b>confirmed</b> at once, after N checks in a row, or when the next filing
+agrees, optionally only once the stock has been <b>held</b> some days. Rules can be switched off, reordered, removed and
+added; <i>Start from</i> loads the standard set (<b>Buffett classic</b>) or the tested top-ranked set.</p>
+<table>
+<tr><th>Group</th><th>Conditions you can use</th></tr>
+<tr><td>Scores</td><td>Quality below X · Quality down X points since bought · Wonderfulness below X · Wonderfulness down X points
+since bought · combined score ((Wonderfulness + Quality) ÷ 2) below X · ranks below #X by combined score among every scored company ·
+fails a must-pass rule · a must-pass rule within X points of failing</td></tr>
+<tr><td>Value</td><td>Price at least X × the estimated value (optionally also P/E at least Y × its usual) · P/E at least X × its
+usual · expected 10-year return below X%</td></tr>
+<tr><td>Business (10-Q)</td><td>Sales shrinking · profits falling · a loss over the last 12 months · any hard 10-Q warning · any
+other 10-Q warning</td></tr>
+<tr><td>Price and portfolio</td><td>More than X% of the portfolio (blank = the automatic limit above) · up X% from average cost ·
+down X% from average cost · X% below its high since bought · below its 200-day average</td></tr>
+<tr><td>Switch</td><td>A Buy Zone stock you don't own beats the weakest holding by X Oracle Rank points and Y points of expected
+return, when every slot is full</td></tr>
+</table>
+<table>
+<tr><th>Action</th><th>What it does</th></tr>
+<tr><td>Sell all</td><td>A SELL; the money goes where the buying rule sends new money.</td></tr>
+<tr><td>Trim %</td><td>A TRIM of that share of the holding.</td></tr>
+<tr><td>Trim back to % of the portfolio</td><td>A TRIM down to that weight (blank = the automatic target above).</td></tr>
+<tr><td>Switch</td><td>A SWAP: sell the weakest holding and buy the better stock (Buy Zone strategies).</td></tr>
+<tr><td>Warn only</td><td>A REVIEW badge; no trade. ADDs stop while it's open.</td></tr>
+</table>
+<ul>
+<li><b>Order each signal day:</b> sell and switch rules first (the first that fires sells); then warnings and rules waiting for
+the next filing (REVIEW); then trims, one at a time. A holding that was sold, trimmed or put under REVIEW isn't checked further
+that day.</li>
+<li><b>Confirmation:</b> <i>after N checks in a row</i> counts signal days (weeks for weekly backtests and top-ranked buying)
+and starts again after it acts; <i>when the next filing agrees</i> works like the hard REVIEW above.</li>
+<li><b>Top-ranked buying</b> applies the rules once a week and never buys a company that a "sell at once" rule would sell
+straight away (for example while its sales are shrinking).</li>
+<li><b>Upgrading changes nothing:</b> each strategy's old settings (sell line, review rules, nose-bleed and oversize trims, swap
+gaps; or the top-ranked rank and sales rules) become the equivalent rule list. Backtests of seven strategies and portfolio styles
+gave identical trades before and after.</li>
+<li>Rules are a strategy setting, so changing them never re-scores a company: run a backtest to see what they do. The tested
+evidence so far is in <a href="#ranked">Top-ranked buying, and when to sell</a>: trims on the way up cost return there.</li>
 </ul>
 
 <!-- ================================================================ 17 -->
@@ -1452,8 +1497,8 @@ and industries to keep or leave out. Companies you hold are always followed.</li
 as in <a href="#value">Judging the price</a>.</li>
 <li><b>How the portfolio is run:</b> holdings, sizing, starting money and weekly amount, where new money goes, adds, swaps, the
 reserve and funding strong buys (<a href="#portfolio">Model portfolio</a>).</li>
-<li><b>When it sells, and early warnings:</b> the Quality below which it sells, the Quality a strong buy needs, the business
-health check and the 10-Q warnings.</li>
+<li><b>When it trims, sells or switches:</b> the strategy's exit rules (<a href="#exitrules">Your own exit rules</a>), the
+Quality a strong buy needs, the business health check and the 10-Q warnings.</li>
 <li><b>Risk limits, timing and alerts:</b> position, sector and correlation caps, the market overlay, the timing filter,
 buying in thirds and price alerts.</li>
 </ol>
@@ -1757,7 +1802,7 @@ their old results until you recalculate them.</p>
 <tr><td><b>XBRL</b></td><td>The tagged data format companies use to file financial statements with the SEC</td></tr>
 </table>
 
-<footer>Oracle Edge v0.18.1 · research tool, not financial advice · MIT license. The full design plan, with research sources,
+<footer>Oracle Edge v0.19.0 · research tool, not financial advice · MIT license. The full design plan, with research sources,
 is in <code>docs/Value-Picker-Plan.html</code> with the source code.</footer>
 
 </main>

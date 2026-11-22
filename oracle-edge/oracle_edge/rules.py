@@ -221,10 +221,15 @@ def describe(body: dict) -> str:
     st = body.get("settings", {})
     if st.get("buy_rule") == "top_ranked":
         n = int(st.get("ranked_buy_count") or 4)
-        out = [f"Every week splits the money equally across the {n} best-scored companies by (Wonderfulness + "
-               f"Quality) ÷ 2, at any price. Sells a holding once it ranks below #{int(st.get('ranked_sell_outside') or 2 * n)}"
-               + (" or its latest 10-Q shows sales shrinking" if st.get("ranked_sell_on_revenue", True) else "")
-               + "; never trims a winner."]
+        if st.get("exit_rules") is None:
+            out = [f"Every week splits the money equally across the {n} best-scored companies by (Wonderfulness + "
+                   f"Quality) ÷ 2, at any price. Sells a holding once it ranks below "
+                   f"#{int(st.get('ranked_sell_outside') or 2 * n)}"
+                   + (" or its latest 10-Q shows sales shrinking" if st.get("ranked_sell_on_revenue", True) else "")
+                   + "; never trims a winner."]
+        else:
+            out = [f"Every week splits the money equally across the {n} best-scored companies by (Wonderfulness + "
+                   f"Quality) ÷ 2, at any price. {_exit_text(st)}"]
         if st.get("ranked_max_weight"):
             out.append(f"No new money into a holding above {_pct(st['ranked_max_weight'])} of the portfolio.")
         out.append(f"Starts with ${float(st.get('initial_capital') or 0):,.0f} and adds "
@@ -269,7 +274,16 @@ def describe(body: dict) -> str:
         extra.append(f"Oracle Rank of {st['min_rank_score']:.0f}+ to buy")
     if extra:
         out.append(extra[0][0].upper() + "; ".join(extra)[1:] + ".")
+    if st.get("exit_rules") is not None:
+        out.append(_exit_text(st))
     return " ".join(out)
+
+
+def _exit_text(st: dict) -> str:
+    from . import exits
+
+    on = [exits.describe_rule(r) for r in exits.rules_of(st) if r["on"]]
+    return ("Exit rules: " + "; ".join(on) + ".") if on else "No exit rules: it never sells or trims on its own."
 
 
 _DIFF_KEYS = [  # (setting, label, format)
@@ -288,11 +302,13 @@ _DIFF_KEYS = [  # (setting, label, format)
     ("fair_pe_mult", "fair P/E (x usual)", "num"), ("max_mos", "too-cheap guard", "pct"),
     ("buy_rule", "buying rule", "txt"), ("ranked_buy_count", "bought each week", "num"),
     ("ranked_sell_outside", "sells below rank", "num"), ("ranked_sell_on_revenue", "sells on shrinking sales", "bool"),
-    ("ranked_max_weight", "no new money above", "pct"),
+    ("ranked_max_weight", "no new money above", "pct"), ("exit_rules", "exit rules", "rules"),
 ]
 
 
 def _fmt(v, f) -> str:
+    if f == "rules":
+        return "the standard ones" if v is None else f"{len(v)} of its own"
     if v is None:
         return "off"
     if f == "pct":
