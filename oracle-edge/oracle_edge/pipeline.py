@@ -1291,6 +1291,14 @@ def ensure_snapshots(job, p: rules.Profile, start: str) -> None:
         quarterly.build(p, missing_q, since=since, progress=job.sub(0.29, 0.3, "Quarterly early warnings"))
 
 
+def score_strategy(job, profile_id: int) -> str:
+    """Work out every company's scores under a strategy's Oracle checklist (for the Screener and backtests)."""
+    p = rules.get_profile(profile_id)
+    ensure_snapshots(job, p, backfill_start())
+    ck = rules.house_view(rules.checklist_id(p.settings)) or {}
+    return f"Scored every company on {ck.get('name', 'its checklist')} ({p.name})."
+
+
 def rebuild_profile(job, profile_id: int) -> str:
     """After editing a profile: rescore and replay its live history."""
     p = rules.get_profile(profile_id)

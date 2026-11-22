@@ -38,7 +38,10 @@ def test_changing_the_house_view_rescores_everyone_once():
     assert rules.house_changed(b)
     v = rules.set_house_view(b)
     assert v == rules.house_view()["version"]
-    assert all(p.version == before[p.id] + 1 for p in rules.list_profiles())
+    cid = rules.app_checklist_id()
+    for p in rules.list_profiles():  # only the strategies on that Oracle checklist are re-scored
+        on = rules.checklist_id(p.settings) == cid
+        assert p.version == before[p.id] + (1 if on else 0), p.name
     assert rules.default_profile().rules[0]["target"] == pytest.approx(b["rules"][0]["target"])
 
 
@@ -138,3 +141,32 @@ def test_house_view_restore_defaults():
     rules.set_house_view(d)
     assert not rules.house_changed(d)
     assert rules.default_profile().rules[0]["target"] == pytest.approx(d["rules"][0]["target"])
+
+
+def test_oracle_checklists():
+    cks = rules.checklists()
+    assert cks and any(v["record"] == "short" for v in cks.values())   # 5-year record became its own checklist
+    app = rules.app_checklist_id()
+    assert rules.checklist_id(rules.default_profile().settings) == app
+    relaxed = next(p for p in rules.list_profiles() if p.name == "Relaxed backfill (5y)")
+    assert rules.scoring_standard(relaxed.settings) == "short" and rules.checklist_id(relaxed.settings) != app
+    # a copy with a different rule scores differently, so a strategy moved onto it gets its own scores
+    nid = rules.copy_checklist(app, "Lenient debt")
+    with pytest.raises(ValueError):
+        rules.copy_checklist(app, "Lenient debt")
+    b = json.loads(json.dumps(rules.house_view(nid)))
+    b["rules"][0]["target"] = float(b["rules"][0]["target"]) * 0.5
+    rules.set_house_view(b, nid)
+    cid = rules.save_as(rules.primary_id(), "on lenient", None)
+    body = json.loads(json.dumps(rules.get_profile(cid).body))
+    body["settings"]["checklist_id"] = nid
+    rules.update_profile(cid, body)
+    p = rules.get_profile(cid)
+    assert rules.checklist_id(p.settings) == nid and p.rules[0]["target"] == pytest.approx(b["rules"][0]["target"])
+    assert rules.scoring_hash(p.body) != rules.scoring_hash(rules.default_profile().body)
+    with pytest.raises(ValueError):
+        rules.delete_checklist(nid)                                  # still in use
+    rules.delete_profile(cid)
+    rules.rename_checklist(nid, "Lenient debt v2")
+    rules.delete_checklist(nid)
+    assert nid not in rules.checklists()

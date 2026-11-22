@@ -1,7 +1,7 @@
-"""Strategies (what the app used to call profiles) and the house view.
+"""Strategies (what the app used to call profiles) and the Oracle checklists.
 
-The house view is how every company is scored: one shared checklist. A strategy is a portfolio plan run on top of
-it: which companies it considers (its universe), what price it pays, how many it holds and how it buys, adds, trims
+An Oracle checklist is how companies are scored (the house view before 0.21). A strategy is a portfolio plan run
+on top of one: which companies it considers (its universe), what price it pays, how many it holds and how it buys, adds, trims
 and sells, its risk limits and its money. Every strategy that runs daily keeps its own paper portfolio; the primary
 one drives Today, the emails, the alerts and the Screener's buy prices."""
 
@@ -63,8 +63,9 @@ def universe_text(st: dict) -> str:
         bits.append(f"{n} industr{'y' if n == 1 else 'ies'} excluded")
     if not st.get("include_foreign", True):
         bits.append("no foreign filers")
-    if rules.scoring_standard(st) == "short":
-        bits.append("scored on 5 years of results")
+    ck = rules.house_view(rules.checklist_id(st)) or {}
+    if ck:
+        bits.append(f"scored on {ck.get('name')}" + (" (5 years of results)" if ck.get("record") == "short" else ""))
     return "; ".join(bits)
 
 
@@ -88,17 +89,20 @@ def strategies_page(pid: int | None = None, tab: str = "rules", hidden: int = 0)
         tab = tab if tab in ("rules", "results", "tests") else "rules"
         ui.label("Strategies").classes("oe-h1")
         ui.label("A strategy is a portfolio plan: which companies it considers, what price it pays, how many it holds "
-                 "and how it buys, adds, trims and sells. Every company is scored the same way for all of them (the "
-                 "house view), so changing a strategy never re-scores a company. Strategies that run daily keep "
+                 "and how it buys, adds, trims and sells. Companies are scored by an Oracle checklist the strategy "
+                 "picks; strategies on the same checklist share its scores, so changing a strategy's other settings "
+                 "never re-scores a company. Strategies that run daily keep "
                  "their own paper portfolio; the primary one (★) drives Today, the emails, the price alerts and the "
                  "Screener's buy prices. Built-in strategies (🔒) are kept as references: edit a copy with "
                  "Save as.").classes("oe-muted")
         hv = rules.house_view() or {}
+        n_ck = len(rules.checklists())
         with ui.row().classes("items-center gap-2"):
             ui.icon("rule").classes("text-gray-500")
-            ui.label(f"House view v{hv.get('version', 1)}: the checklist every company is scored on").classes("text-sm")
-            ui.button("Open the house view", icon="open_in_new", on_click=lambda: ui.navigate.to("/house")).props(
-                "flat dense no-caps")
+            ui.label(f"Oracle checklists ({n_ck}): how companies are scored. Used across the app: "
+                     f"{hv.get('name', 'Oracle checklist')} v{hv.get('version', 1)}").classes("text-sm")
+            ui.button("Open the Oracle checklists", icon="open_in_new", on_click=lambda: ui.navigate.to(
+                "/checklists")).props("flat dense no-caps")
 
         # ---- side by side: live paper record where there is one, otherwise the latest backtest
         from .. import pipeline
@@ -490,11 +494,15 @@ def _editor(cur: rules.Profile) -> None:
 
         # ---- 1. universe
         ui.label("1 · Which companies it considers").classes("oe-h2 pt-2")
-        ui.label("On top of the house view's must-pass rules. Wonderfulness is used as it was known on each day, so "
+        ui.label("On top of its Oracle checklist's must-pass rules. Wonderfulness is used as it was known on each day, so "
                  "backtests stay honest. Companies you hold are always followed.").classes("oe-small")
         with ui.row().classes("gap-3 items-end"):
-            std = ui.select({k: v["label"] for k, v in rules.STANDARDS.items()}, value=rules.scoring_standard(st),
-                            label="Scored on").props("outlined dense").classes("w-80")
+            cks = rules.checklists()
+            std = ui.select({k: v["name"] + ("" if "record" in v["name"].lower() else (
+                " · 10-year record" if v.get("record", "standard") == "standard" else " · 5-year record (research)"))
+                for k, v in cks.items()},
+                            value=rules.checklist_id(st), label="Oracle checklist (how companies are scored)").props(
+                "outlined dense").classes("w-[420px]")
             qmin = _num("Quality at least", st.get("quality_min", 70), "%.0f", "w-40", min=0, max=100)
             wmin = _num("Wonderfulness at least (blank = any)", st.get("universe_wonder_min"), "%.0f", "w-72",
                         min=0, max=100)
@@ -675,7 +683,8 @@ def _editor(cur: rules.Profile) -> None:
             b = copy.deepcopy(body)
             s = b["settings"]
             s.update({
-                "scoring_standard": std.value, "quality_min": float(qmin.value or 0),
+                "checklist_id": int(std.value) if std.value is not None else None,
+                "quality_min": float(qmin.value or 0),
                 "universe_wonder_min": float(wmin.value) if wmin.value not in (None, "") else None,
                 "min_market_cap": float(mcap.value or 0), "min_dollar_volume": float(dvol.value or 0),
                 "include_foreign": inf.value, "universe_industries": list(inc.value or []),
@@ -783,19 +792,51 @@ def _editor(cur: rules.Profile) -> None:
                                                                   f"{cur.name}.json")).props("flat")
 
 
-# ===================================================================== the house view
+# ===================================================================== the Oracle checklists
 @ui.page("/house")
-def house_page():
+def _old_house(cid: int | None = None):
+    ui.navigate.to(f"/checklists?cid={cid}" if cid else "/checklists")
+
+
+@ui.page("/checklists")
+def house_page(cid: int | None = None):
     with frame("Strategies"):
-        hv = rules.house_view() or {}
-        base = rules.default_profile()
+        cks = rules.checklists()
+        app_cid = rules.app_checklist_id()
+        cid = cid if cid in cks else app_cid
+        hv = cks[cid]
+        users = rules.users_of(cid)
+        base = users[0] if users else rules.default_profile()
         body = copy.deepcopy(base.body)
-        ui.label("The house view: how every company is scored").classes("oe-h1")
-        ui.label(f"Version {hv.get('version', 1)}, last changed {str(hv.get('updated_at', ''))[:10]}. One checklist for "
-                 "the whole app: the Quality score, the must-pass rules and the near-miss list are the same on every "
-                 "screen and for every strategy. Strategies choose which companies to consider and what to pay on top "
-                 "of it. Changing anything here re-scores every company once and replays every strategy that runs "
-                 "daily (allow a while).").classes("oe-muted")
+        for k in rules.HOUSE_KEYS:  # the selected checklist's rules, whichever strategy is used for the preview
+            body[k] = copy.deepcopy(hv[k])
+        ui.label("Oracle checklists: how companies are scored").classes("oe-h1")
+        ui.label("An Oracle checklist is everything about how a company is scored: the must-pass and scored rules for "
+                 "standard companies, banks and insurers, their weights, the near-miss margin and the record length. "
+                 "The Quality score comes from it. Each strategy uses one (Strategies → Rules → section 1); strategies on "
+                 "the same checklist share its scores. The checklist used across the app (Screener, stock pages, "
+                 "Today) is the primary strategy's (★). Copy a checklist to try a change on one strategy and compare "
+                 "backtests before changing the one everything uses.").classes("oe-muted")
+        rows = []
+        for k, v in cks.items():
+            us = rules.users_of(k)
+            rows.append(f"<tr style='cursor:pointer;{'background:#fbf6e6;' if k == cid else ''}' "
+                        f"onclick=\"location.href='/checklists?cid={k}'\"><td style='text-align:left'>"
+                        f"{'★ ' if k == app_cid else ''}{v.get('name')}</td>"
+                        f"<td>{'10 years' if v.get('record', 'standard') == 'standard' else '5 years (research)'}</td>"
+                        f"<td style='text-align:left'>{', '.join(p.name for p in us) or '—'}</td>"
+                        f"<td>v{v.get('version', 1)} · {str(v.get('updated_at', ''))[:10]}</td></tr>")
+        with ui.card().classes("oe-card w-full"):
+            ui.html("<table class='oe-cmp' style='width:100%;border-collapse:collapse;font-size:13px'><thead><tr>"
+                    "<th style='text-align:left'>Oracle checklist</th><th>Record</th><th style='text-align:left'>Used by"
+                    "</th><th>Version</th></tr></thead><tbody>" + "".join(rows) + "</tbody></table><style>.oe-cmp td,"
+                    ".oe-cmp th{padding:5px 10px;text-align:right;border-bottom:1px solid #eef0ee}.oe-cmp th{color:#6b7280;"
+                    "font-size:12px}</style>", sanitize=False).classes("w-full")
+            ui.label("★ used across the app (the primary strategy's). Click a checklist to edit it.").classes("oe-small")
+        ui.label(hv.get("name", "Oracle checklist")).classes("oe-h2 pt-2")
+        ui.label(f"Version {hv.get('version', 1)}, last changed {str(hv.get('updated_at', ''))[:10]}. Used by "
+                 f"{len(users)} strateg{'y' if len(users) == 1 else 'ies'}. Saving re-scores every company once for "
+                 "them and replays the ones that run daily (allow a while).").classes("oe-small")
         prev = ui.label("").classes("text-sm font-semibold text-green-800")
         rows_ui = []
         with ui.card().classes("oe-card w-full"):
@@ -837,8 +878,10 @@ def house_page():
                     "outlined dense").classes("w-96")
                 nmm = ui.number("Near miss: within points of the bar", value=body["settings"].get("near_miss_margin", 5),
                                 format="%.3g").props("outlined dense").classes("w-72")
-                ui.label("Record length is the strategy's choice: 10 years of results (standard) or 5 (short record, "
-                         "for research).").classes("oe-small")
+                rec = ui.select({"standard": "10 years of results (7 at least)",
+                                 "short": "5 years of results (research: backtests can start earlier)"},
+                                value=hv.get("record", "standard"), label="Record length").props(
+                    "outlined dense").classes("w-96")
 
         def collect() -> dict:
             b = copy.deepcopy(body)
@@ -853,6 +896,7 @@ def house_page():
                 if rr.get("id") == "r19":
                     rr["min_year_window"] = max(1, min(10, int(roew.value or rules.ROE_FLOOR_WINDOW)))
             b["settings"]["near_miss_margin"] = float(nmm.value or 0)
+            b["record"] = rec.value
             return b
 
         pv = {"seq": 0}
@@ -872,25 +916,30 @@ def house_page():
             if my != pv["seq"]:
                 return
             prev.text = (f"Live preview: {res['gates']} companies pass the must-pass rules · {res['wonderful']} with "
-                         f"Quality {base.settings['quality_min']:.0f}+ (the primary strategy's bar)")
+                         f"Quality {base.settings['quality_min']:.0f}+ ({base.name}'s bar)")
 
         ui.timer(0.2, preview, once=True)
 
         def save():
             b = collect()
-            if not rules.house_changed(b):
+            if not rules.house_changed(b, cid):
                 ui.notify("Nothing changed.", type="info")
                 return
+            if b.get("record") == "short" and any(p.id == rules.primary_id() for p in users):
+                ui.notify("The primary strategy uses this checklist, and it can't be on a 5-year record.",
+                          type="warning")
+                return
             with ui.dialog() as dlg, ui.card():
-                ui.label("Change how every company is scored?").classes("oe-h2")
-                ui.label("Every company is re-scored once and every strategy that runs daily is replayed on the new "
-                         "scores. Backtests keep their old results until recalculated.").classes("text-sm")
+                ui.label(f"Change {hv.get('name')}?").classes("oe-h2")
+                ui.label(f"Every company is re-scored once for the {len(users)} strateg"
+                         f"{'y' if len(users) == 1 else 'ies'} on it, and those that run daily are replayed. Backtests "
+                         "keep their old results until recalculated.").classes("text-sm")
 
                 def ok():
-                    v = rules.set_house_view(b)
+                    v = rules.set_house_view(b, cid)
                     dlg.close()
                     _launch("rebuild_all")
-                    ui.notify(f"House view v{v} saved; rebuilding.", type="positive")
+                    ui.notify(f"{hv.get('name')} v{v} saved; rebuilding.", type="positive")
                 with ui.row():
                     ui.button("Save and rebuild", on_click=ok).props("unelevated")
                     ui.button("Cancel", on_click=dlg.close).props("flat")
@@ -898,28 +947,80 @@ def house_page():
 
         def restore():
             d = rules.house_defaults()
-            if not rules.house_changed(d):
-                ui.notify("The house view already is the shipped checklist.", type="info")
+            if not rules.house_changed(d, cid):
+                ui.notify("This checklist already has the shipped rules.", type="info")
                 return
             with ui.dialog() as dlg, ui.card():
-                ui.label("Restore the shipped checklist?").classes("oe-h2")
+                ui.label(f"Restore {hv.get('name')} to the shipped rules?").classes("oe-h2")
                 ui.label("Every rule, weight, the bank and insurer rules and the near-miss margin go back to the "
-                         "defaults the app ships with (rules/oracle_classic.yaml). Every company is re-scored once and "
-                         "every strategy that runs daily is replayed. Your strategies' own settings don't change.").classes(
+                         "defaults the app ships with (rules/oracle_classic.yaml); the record length stays. Every company "
+                         "is re-scored once for the strategies on it. Your strategies' own settings don't change.").classes(
                     "text-sm")
 
                 def ok():
-                    v = rules.set_house_view(d)
+                    v = rules.set_house_view(d, cid)
                     dlg.close()
                     _launch("rebuild_all")
-                    ui.notify(f"House view v{v}: defaults restored; rebuilding.", type="positive")
+                    ui.notify(f"{hv.get('name')} v{v}: defaults restored; rebuilding.", type="positive")
                     ui.navigate.reload()
                 with ui.row():
                     ui.button("Restore defaults and rebuild", on_click=ok).props("unelevated")
                     ui.button("Cancel", on_click=dlg.close).props("flat")
             dlg.open()
 
+        def save_copy():
+            with ui.dialog() as dlg, ui.card():
+                ui.label("Save as a new Oracle checklist").classes("oe-h2")
+                nm = ui.input("Name", value=f"{hv.get('name')} (copy)").props("outlined dense").classes("w-96")
+                ui.label("The copy gets the rules as they are on screen now. No strategy uses it until you pick it in a "
+                         "strategy's section 1, so nothing is re-scored yet.").classes("oe-small")
+
+                def ok():
+                    try:
+                        nid = rules.copy_checklist(cid, nm.value)
+                    except ValueError as e:
+                        ui.notify(str(e), type="warning")
+                        return
+                    b = collect()
+                    if rules.house_changed(b, nid):
+                        rules.set_house_view(b, nid)
+                    dlg.close()
+                    ui.navigate.to(f"/checklists?cid={nid}")
+                with ui.row():
+                    ui.button("Save copy", on_click=ok).props("unelevated")
+                    ui.button("Cancel", on_click=dlg.close).props("flat")
+            dlg.open()
+
+        def rename():
+            with ui.dialog() as dlg, ui.card():
+                nm = ui.input("New name", value=hv.get("name")).props("outlined dense").classes("w-96")
+
+                def ok():
+                    try:
+                        rules.rename_checklist(cid, nm.value)
+                    except ValueError as e:
+                        ui.notify(str(e), type="warning")
+                        return
+                    dlg.close()
+                    ui.navigate.reload()
+                with ui.row():
+                    ui.button("Rename", on_click=ok).props("unelevated")
+                    ui.button("Cancel", on_click=dlg.close).props("flat")
+            dlg.open()
+
+        def delete():
+            try:
+                rules.delete_checklist(cid)
+            except ValueError as e:
+                ui.notify(str(e), type="warning")
+                return
+            ui.navigate.to("/checklists")
+
         with ui.row().classes("pt-2"):
             ui.button("Save", on_click=save).props("unelevated")
-            ui.button("Restore defaults", icon="restart_alt", on_click=restore).props("outline")
+            ui.button("Save as new checklist…", icon="content_copy", on_click=save_copy).props("outline")
+            ui.button("Rename", icon="edit", on_click=rename).props("flat")
+            ui.button("Restore defaults", icon="restart_alt", on_click=restore).props("flat")
+            ui.button("Delete", icon="delete", on_click=delete).props("flat color=negative").tooltip(
+                "Only a checklist no strategy uses can be deleted")
             ui.button("Back to strategies", on_click=lambda: ui.navigate.to("/strategies")).props("flat")

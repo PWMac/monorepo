@@ -708,6 +708,10 @@ def screener_page(compare: str = "", view: str = "both", pid: int | None = None)
         store["screener_pid"] = pid
     sid = store.get("screener_pid") if store.get("screener_pid") in choices else prof.id
     strat = rules.get_profile(sid)
+    unscored = None
+    if strat.snap != prof.snap and not db.scalar("SELECT 1 FROM snapshots WHERE profile_id=? AND profile_version=? "
+                                                 "LIMIT 1", strat.snap):
+        unscored, strat = strat, prof  # its checklist hasn't been scored yet: show the primary's until it is
     with frame("Screener"):
         ui.label("Screener: every business, screened and ranked").classes("oe-h1")
         ui.label("Screen and rank every company on three things. Wonderfulness: how it ranks against all the others on "
@@ -740,6 +744,15 @@ def screener_page(compare: str = "", view: str = "both", pid: int | None = None)
             elif not live:
                 ui.label(f"{strat.name} doesn't run daily: its buy prices were worked out for today's prices.").classes(
                     "oe-small")
+        if unscored:
+            ck = (rules.house_view(rules.checklist_id(unscored.settings)) or {}).get("name", "its Oracle checklist")
+            with ui.row().classes("items-center gap-2"):
+                ui.label(f"{unscored.name} is scored on {ck}, which hasn't been worked out yet; showing {prof.name} "
+                         "for now.").classes("oe-small text-amber-800")
+                from .pages_admin import _launch
+
+                ui.button("Work out the scores", icon="calculate", on_click=lambda: _launch(
+                    "score_strategy", {"profile_id": unscored.id})).props("flat dense no-caps")
         if pending:
             async def _fill():
                 await run.io_bound(pipeline.evaluate_now, strat)

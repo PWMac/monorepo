@@ -78,7 +78,7 @@ footer { color:var(--muted); font-size:12.5px; margin-top:50px; border-top:1px s
   <h1><img src="brand/logo/oracle-edge-header-tagline.png" srcset="brand/logo/oracle-edge-header-tagline@2x.png 2x"
      alt="Oracle Edge: Screen, Rank, Signal"></h1>
   <p>A local stock screener that thinks like the Oracle. This guide explains <b>what</b> the app does,
-  <b>how</b> it decides, and <b>why</b> it was built this way. Version 0.20.0.</p>
+  <b>how</b> it decides, and <b>why</b> it was built this way. Version 0.21.0.</p>
   <p style="font-size:14px">Two documents: this <b>guide</b> is the user manual, kept current with every release and opened from
   "Guide" in the app. The <b>plan</b> (<code>docs/Value-Picker-Plan.html</code> with the source code) is the design record: the research, architecture,
   database layout and the decision log behind the app.</p>
@@ -119,7 +119,8 @@ footer { color:var(--muted); font-size:12.5px; margin-top:50px; border-top:1px s
   <a href="#rebuild" style="padding-left:22px">Rebuilding the strategy</a>
   <a href="#risk" style="padding-left:22px">Risk controls</a>
   <a href="#market">19. Market temperature</a>
-  <a href="#backtest">20. Strategies, house view, backtests</a>
+  <a href="#backtest">20. Strategies, Oracle checklists, backtests</a>
+  <a href="#checklists" style="padding-left:22px">Oracle checklists</a>
   <a href="#ranked" style="padding-left:22px">Top-ranked buying and when to sell</a>
   <a href="#ops">21. Email, schedule, backups, security</a>
   <a href="#trouble" style="padding-left:22px">Troubleshooting</a>
@@ -273,8 +274,8 @@ what QQQ did after each kind of reading, the live record and recent market alert
 <tr><td><b>Strategies</b></td><td>One workspace for strategies and their backtests: every strategy side by side (live paper
 record and latest backtest, <i>Backtest all</i> to put them on the same dates); click one to open it, with tabs for its
 <b>Rules</b> (the editor), <b>Results &amp; backtests</b> and <b>Holdings test &amp; experiments</b>; hide built-ins, delete
-copies with their backtests, tidy up old backtests. <b>The house view</b> holds the checklist every company is scored on, with
-<i>Restore defaults</i> (<a href="#backtest">section 20</a>)</td></tr>
+copies with their backtests, tidy up old backtests. <b>Oracle checklists</b> hold how companies are scored (rules, weights,
+record length), with copies, <i>Restore defaults</i> (<a href="#backtest">section 20</a>)</td></tr>
 <tr><td><b>Data</b></td><td>Price sources (order, API keys, test), recent data problems, coverage gaps, foreign filers' ADR ratios, re-run first-time load, run the daily update now</td></tr>
 <tr><td><b>Settings</b></td><td>Market temperature (Bitcoin window, horizon, cut-offs, market alerts), SEC identity, email, daily schedule,
 database size and clean-up, backup folder and restore</td></tr>
@@ -402,7 +403,7 @@ the second.</div>
 <h3>The return-on-equity floor looks at the last 5 years (version 0.14.1)</h3>
 <p>The ROE gate asks for a 10-year average of 15%+ and no year under 10%. Until 0.14.1 that "no year" covered all ten years, so one
 weak year a decade ago (often right after an IPO or a big acquisition) kept an otherwise excellent business off the list. It now
-applies to the <b>last 5 years</b>; you can change it in the house view (Strategies → Open the house view → "ROE gate: no year under its floor in the last N
+applies to the <b>last 5 years</b>; you can change it in an Oracle checklist (Strategies → Open the Oracle checklists → "ROE gate: no year under its floor in the last N
 years"; 10 = the old rule). The test behind it, on companies with an average ROE of 15%+ (fiscal years 2012–2022, next 3 years):</p>
 <table>
 <tr><th>Weakest year (under 10% ROE)</th><th>Company-years</th><th>Went on to compound</th><th>Median ROE next 3 years</th><th>ROIC fell under 10%</th></tr>
@@ -1566,23 +1567,22 @@ until at least one eases.</li>
 </ul>
 
 <!-- ================================================================ 20 -->
-<h2 id="backtest"><span class="n">20</span>Strategies, the house view and backtests</h2>
+<h2 id="backtest"><span class="n">20</span>Strategies, Oracle checklists and backtests</h2>
 <p><b>Version 0.18</b> split what used to be "strategies" into two things, because the app now judges every company the same
 way on every screen (Quality, Wonderfulness, the CEO grade, the fair value) and only the portfolio decisions differ:</p>
 <table>
 <tr><th></th><th>What it is</th><th>How many</th></tr>
-<tr><td><b>The house view</b></td><td>How every company is scored: the checklist rules for standard companies, banks and insurers,
-their weights, the ROE gate's window and the near-miss margin. The Quality score and the must-pass rules come from it, so they're
-the same everywhere.</td><td>One. Strategies → <i>Open the house view</i>. Changing it re-scores every company once and replays
-every strategy that runs daily.</td></tr>
-<tr><td><b>A strategy</b></td><td>A portfolio plan run on top of the house view: which companies it considers, what price it
+<tr><td><b>An Oracle checklist</b> (the "house view" in 0.18–0.20)</td><td>How companies are scored: the rules for standard
+companies, banks and insurers, their weights, the ROE gate's window, the near-miss margin and the record length. The Quality
+score and the must-pass rules come from it.</td><td>One to start with; copy it to try changes. Strategies → <i>Open the Oracle
+checklists</i>. Changing one re-scores every company once for the strategies on it.</td></tr>
+<tr><td><b>A strategy</b></td><td>A portfolio plan run on an Oracle checklist: which companies it considers, what price it
 pays, how many it holds, how it buys, adds, trims and sells, its risk limits and its money.</td><td>As many as you like.
 Changing one never re-scores a company; it only replays that strategy.</td></tr>
 </table>
 <h3>What a strategy sets</h3>
 <ol>
-<li><b>Which companies it considers:</b> the record length it's scored on (standard: 10 years of results, at least 7; or
-<i>short record</i>: 5 years, for research), Quality at least (70 by default), <b>Wonderfulness at least</b> (as it was known
+<li><b>Which companies it considers:</b> the <b>Oracle checklist</b> it's scored on, Quality at least (70 by default), <b>Wonderfulness at least</b> (as it was known
 on each day, from each year's annual report, so backtests stay honest), market value and daily trading floors, foreign filers,
 and industries to keep or leave out. Companies you hold are always followed.</li>
 <li><b>What price it pays:</b> the hurdle (expected return a year), the margin of safety, the valuation model and the price test,
@@ -1624,8 +1624,25 @@ backfill (5y)</i> (the short record), <i>Oracle Classic + timing</i>, and the ed
 <i>Buffettology Quality Core</i>, <i>Top-ranked 4 · $200 a week</i> (<a href="#ranked">below</a>), <i>Data-tuned quality ·
 best 7</i> (<a href="#ondata">Buying and selling on data</a>) and <i>Wonderful &amp; rising · no limit</i> (<a href="#rising">its
 section</a>). Use <b>Save as</b> for an editable copy.</li>
-<li><b>The house view</b> (Strategies → <i>Open the house view</i>) has <b>Restore defaults</b>: every rule, weight and the near-miss
-margin go back to the shipped checklist, then every company is re-scored once.</li>
+</ul>
+<h3 id="checklists">Oracle checklists (0.21 naming; the house view before)</h3>
+<ul>
+<li><b>What one is:</b> everything about how a company is scored: the must-pass and scored rules for standard companies, banks
+and insurers, their weights, the ROE gate's window, the near-miss margin and the <b>record length</b> (10 years of results, at
+least 7; or 5 years, for research). The Quality score comes from it.</li>
+<li><b>Which one is used where:</b> each strategy picks one (Rules → section 1). The one used across the app (the Screener's
+Quality, stock pages, Today) is the <b>primary strategy's</b> (★), so they can't disagree; to change it, make a strategy on
+another checklist primary. A 5-year-record checklist is for research and can't be the primary's. The Screener's strategy
+picker also switches the Quality bar and scores to that strategy's checklist (<i>Work out the scores</i> the first time).</li>
+<li><b>Trying a change safely:</b> on the Oracle checklists page, <b>Save as new checklist…</b>, change a rule, pick the copy in a
+copied strategy's section 1, and backtest the two side by side (Strategies → <i>Backtest all</i>). Nothing used by the app
+changes until you edit the primary's checklist or make the other strategy primary.</li>
+<li><b>Cost:</b> strategies on the same checklist share its scores. Each checklist in use is scored once (about as long as a
+rebuild) and stored once (a few hundred MB). Wonderfulness doesn't depend on the checklist; it stays the same everywhere.</li>
+<li><b>Page actions:</b> Save (re-scores the strategies on it and replays those that run daily), Save as new checklist, Rename,
+<b>Restore defaults</b> (the shipped rules; the record length stays) and Delete (only when no strategy uses it).</li>
+<li><b>Upgrading to 0.21 changes no score:</b> the house view became <i>Oracle checklist</i> (10-year record) and the short-record
+strategy got <i>Oracle checklist · 5-year record</i> with the same rules.</li>
 </ul>
 <h3>Backtests</h3>
 <ul>
@@ -1861,7 +1878,7 @@ their old results until you recalculate them.</p>
 <tr><td><b>XBRL</b></td><td>The tagged data format companies use to file financial statements with the SEC</td></tr>
 </table>
 
-<footer>Oracle Edge v0.20.0 · research tool, not financial advice · MIT license. The full design plan, with research sources,
+<footer>Oracle Edge v0.21.0 · research tool, not financial advice · MIT license. The full design plan, with research sources,
 is in <code>docs/Value-Picker-Plan.html</code> with the source code.</footer>
 
 </main>

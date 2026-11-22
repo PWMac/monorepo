@@ -568,66 +568,183 @@ STANDARDS = {"standard": {"lookback_years": 10, "min_years": 7, "label": "Standa
              "short": {"lookback_years": 5, "min_years": 5, "label": "Short record: 5 years of results (for research)"}}
 
 
-def house_view() -> dict | None:
-    return db.cfg("house_view")
+# ------------------------------------------------------------------ Oracle checklists (0.21)
+# The house view became one of several named Oracle checklists. A checklist is everything about how a company is
+# scored: its rules (standard, bank, insurer), their weights, the near-miss margin and the record length (10 years
+# of results, or 5 for research). Each strategy uses one; strategies on the same checklist share its scores. The
+# checklist used across the app (the Screener's Quality, stock pages, Today) is the primary strategy's.
+def checklists() -> dict[int, dict]:
+    return {int(k): v for k, v in (db.cfg("checklists") or {}).items()}
 
 
-def scoring_standard(settings: dict) -> str:
+def _save_checklists(cks: dict[int, dict]) -> None:
+    db.set_cfg("checklists", {str(k): v for k, v in cks.items()})
+
+
+def _raw_settings(pid: int) -> dict:
+    r = db.one("SELECT body_json FROM profiles WHERE id=?", (pid,))
+    return json.loads(r["body_json"]).get("settings", {}) if r else {}
+
+
+def _legacy_standard(settings: dict) -> str:
     s = settings.get("scoring_standard")
     if s in STANDARDS:
         return s
     return "short" if int(settings.get("lookback_years") or 10) <= 5 else "standard"
 
 
+def checklist_id(settings: dict) -> int | None:
+    """The strategy's Oracle checklist: its own choice, else (saved before 0.21) the first one with its record length."""
+    cks = checklists()
+    if not cks:
+        return None
+    cid = settings.get("checklist_id")
+    if cid is not None and int(cid) in cks:
+        return int(cid)
+    rec = _legacy_standard(settings)
+    return next((k for k in sorted(cks) if cks[k].get("record", "standard") == rec), min(cks))
+
+
+def app_checklist_id() -> int | None:
+    """The checklist used across the app: the primary strategy's."""
+    pid = primary_id()
+    return checklist_id(_raw_settings(pid)) if pid else (min(checklists()) if checklists() else None)
+
+
+def house_view(cid: int | None = None) -> dict | None:
+    """A checklist (default: the one used across the app). Kept under its 0.18 name for existing callers."""
+    cks = checklists()
+    if not cks:
+        return db.cfg("house_view")
+    cid = cid if cid is not None else app_checklist_id()
+    return cks.get(cid) if cid is not None else None
+
+
+def scoring_standard(settings: dict) -> str:
+    cks = checklists()
+    cid = checklist_id(settings) if cks else None
+    if cid is not None:
+        return cks[cid].get("record", "standard")
+    return _legacy_standard(settings)
+
+
 def apply_house_view(body: dict) -> dict:
-    """A strategy's body with the house view's rules and its scoring standard's record length."""
-    hv = house_view()
+    """A strategy's body with its Oracle checklist's rules and record length."""
+    st = body["settings"]
+    cks = checklists()
+    cid = checklist_id(st) if cks else None
+    hv = cks.get(cid) if cid is not None else db.cfg("house_view")
     if hv:
         for k in HOUSE_KEYS:
             if k in hv:
                 body[k] = copy.deepcopy(hv[k])
         for k in HOUSE_SETTINGS:
             if k in hv:
-                body["settings"][k] = hv[k]
-    st = body["settings"]
-    std = scoring_standard(st)
+                st[k] = hv[k]
+    std = hv.get("record", _legacy_standard(st)) if (hv and cid is not None) else _legacy_standard(st)
     st["scoring_standard"] = std
+    if cid is not None:
+        st["checklist_id"] = cid
     if hv:
         st["lookback_years"], st["min_years"] = STANDARDS[std]["lookback_years"], STANDARDS[std]["min_years"]
     return body
 
 
 def ensure_house_view() -> None:
-    """First start of 0.18: the house view is the primary strategy's current rules, so no score changes."""
-    if house_view():
-        if not primary_id():
-            _pick_primary()
+    """First start of 0.18: the house view is the primary strategy's current rules, so no score changes. First start
+    of 0.21: the house view becomes the first Oracle checklist, plus a 5-year one for short-record strategies."""
+    if not db.cfg("house_view"):
+        pid = _pick_primary()
+        if not pid:
+            return
+        r = db.one("SELECT body_json FROM profiles WHERE id=?", (pid,))
+        raw = json.loads(r["body_json"])
+        base = load_yaml_profile()
+        hv = {k: copy.deepcopy(raw.get(k) or base[k]) for k in HOUSE_KEYS}
+        for k in HOUSE_SETTINGS:
+            hv[k] = raw.get("settings", {}).get(k, base["settings"].get(k))
+        hv.update(version=1, updated_at=db.now(), source=pid)
+        db.set_cfg("house_view", hv)
+    if not primary_id():
+        _pick_primary()
+    if checklists():
         return
-    pid = _pick_primary()
-    if not pid:
-        return
-    r = db.one("SELECT body_json FROM profiles WHERE id=?", (pid,))
-    raw = json.loads(r["body_json"])
-    base = load_yaml_profile()
-    hv = {k: copy.deepcopy(raw.get(k) or base[k]) for k in HOUSE_KEYS}
-    for k in HOUSE_SETTINGS:
-        hv[k] = raw.get("settings", {}).get(k, base["settings"].get(k))
-    hv.update(version=1, updated_at=db.now(), source=pid)
-    db.set_cfg("house_view", hv)
+    hv = copy.deepcopy(db.cfg("house_view"))
+    cks = {1: {**hv, "name": "Oracle checklist", "record": "standard"}}
+    shorts = [r["id"] for r in db.rows("SELECT id FROM profiles") if _legacy_standard(_raw_settings(r["id"])) == "short"]
+    if shorts:
+        cks[2] = {**copy.deepcopy(hv), "name": "Oracle checklist · 5-year record", "record": "short", "version": 1}
+    _save_checklists(cks)
+    for r in db.rows("SELECT id, body_json FROM profiles"):  # each strategy names its checklist from now on
+        b = json.loads(r["body_json"])
+        st = b.setdefault("settings", {})
+        if "checklist_id" not in st:
+            st["checklist_id"] = 2 if (r["id"] in shorts and 2 in cks) else 1
+            db.get().execute("UPDATE profiles SET body_json=? WHERE id=?", (json.dumps(b), r["id"]))
 
 
-def set_house_view(body: dict) -> int:
-    """Save new house rules. Every strategy's scores are now out of date: each one's version goes up, so the next
-    rebuild re-scores every company once (strategies sharing the standard share the new scores)."""
-    hv = house_view() or {}
-    new = {k: copy.deepcopy(body[k]) for k in HOUSE_KEYS if k in body}
+def users_of(cid: int) -> list["Profile"]:
+    return [p for p in list_profiles() if checklist_id(p.settings) == cid]
+
+
+def set_house_view(body: dict, cid: int | None = None) -> int:
+    """Save a checklist's rules (default: the app's). The strategies using it go up a version, so the next rebuild
+    re-scores every company once for them (they share the new scores)."""
+    cks = checklists()
+    if not cks:
+        ensure_house_view()
+        cks = checklists()
+    cid = cid if cid is not None else app_checklist_id()
+    old = cks[cid]
+    new = {**old, **{k: copy.deepcopy(body[k]) for k in HOUSE_KEYS if k in body}}
     for k in HOUSE_SETTINGS:
         if k in body.get("settings", {}):
             new[k] = body["settings"][k]
-    new.update(version=int(hv.get("version", 1)) + 1, updated_at=db.now(), source=hv.get("source"))
-    db.set_cfg("house_view", new)
-    db.get().execute("UPDATE profiles SET version=version+1, updated_at=?", (db.now(),))
+    if body.get("record") in STANDARDS:
+        new["record"] = body["record"]
+    new.update(version=int(old.get("version", 1)) + 1, updated_at=db.now())
+    cks[cid] = new
+    _save_checklists(cks)
+    _bump_users(cid)
     return new["version"]
+
+
+def _bump_users(cid: int) -> None:
+    ids = [p.id for p in users_of(cid)]
+    if ids:
+        db.get().execute(f"UPDATE profiles SET version=version+1, updated_at=? WHERE id IN ({','.join('?' * len(ids))})",
+                         (db.now(), *ids))
+
+
+def copy_checklist(cid: int, name: str) -> int:
+    cks = checklists()
+    name = (name or "").strip() or f"{cks[cid]['name']} (copy)"
+    if any(v.get("name") == name for v in cks.values()):
+        raise ValueError(f"There is already a checklist called {name}.")
+    nid = max(cks) + 1
+    cks[nid] = {**copy.deepcopy(cks[cid]), "name": name, "version": 1, "updated_at": db.now(), "copied_from": cid}
+    _save_checklists(cks)
+    return nid
+
+
+def rename_checklist(cid: int, name: str) -> None:
+    cks = checklists()
+    name = (name or "").strip()
+    if not name or any(k != cid and v.get("name") == name for k, v in cks.items()):
+        raise ValueError("Pick a new, unique name.")
+    cks[cid]["name"] = name
+    _save_checklists(cks)
+
+
+def delete_checklist(cid: int) -> None:
+    cks = checklists()
+    used = users_of(cid)
+    if used:
+        raise ValueError("In use by " + ", ".join(p.name for p in used) + ": move them to another checklist first.")
+    if len(cks) <= 1:
+        raise ValueError("The last checklist can't be deleted.")
+    cks.pop(cid)
+    _save_checklists(cks)
 
 
 def house_defaults() -> dict:
@@ -637,13 +754,15 @@ def house_defaults() -> dict:
             "settings": {k: base["settings"][k] for k in HOUSE_SETTINGS if k in base["settings"]}}
 
 
-def house_changed(body: dict) -> bool:
-    hv = house_view() or {}
+def house_changed(body: dict, cid: int | None = None) -> bool:
+    hv = house_view(cid) or {}
     a = {k: body.get(k) for k in HOUSE_KEYS}
     a.update({k: body.get("settings", {}).get(k) for k in HOUSE_SETTINGS})
     b = {k: hv.get(k) for k in HOUSE_KEYS}
     b.update({k: hv.get(k) for k in HOUSE_SETTINGS})
-    return json.dumps(_tidy(a), sort_keys=True, default=str) != json.dumps(_tidy(b), sort_keys=True, default=str)
+    rec_changed = body.get("record") in STANDARDS and body["record"] != hv.get("record", "standard")
+    return rec_changed or json.dumps(_tidy(a), sort_keys=True, default=str) != json.dumps(_tidy(b), sort_keys=True,
+                                                                                         default=str)
 
 
 # ------------------------------------------------------------------ the primary strategy
@@ -671,7 +790,7 @@ def set_primary(pid: int) -> None:
     """Today's actions, the emails, the alerts and the Screener's buy prices follow the primary strategy. It always
     runs daily."""
     if scoring_standard(get_profile(pid).settings) != "standard":
-        raise ValueError("A short-record strategy is for research and can't be the primary one.")
+        raise ValueError("A strategy on a 5-year-record checklist is for research and can't be the primary one.")
     db.set_cfg("primary_profile_id", int(pid))
     db.get().execute("UPDATE profiles SET active=1 WHERE id=?", (int(pid),))
 

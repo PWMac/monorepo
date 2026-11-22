@@ -678,7 +678,7 @@ def _aligned(hist: dict[str, list]) -> tuple[dict[str, list], int | None]:
 
 
 def ranking_rows(prof, evs: dict | None = None, strat=None) -> list[dict]:
-    """Rows for the Screener. Scores come from `prof` (the house view's shared scores); the Quality bar and the
+    """Rows for the Screener. Scores come from `prof` (the app's Oracle checklist); the Quality bar and the
     buy-price status from `strat` (the strategy picked on the page, default the primary)."""
     strat = strat or prof
     wonderful.ensure(prof)
