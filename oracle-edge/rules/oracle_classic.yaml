@@ -79,6 +79,11 @@ settings:
   overlay_caution_buy: 0.35     # share of normal new-money buying while SPY is below its 200-day average
   overlay_stress_buy: 0.10      # ...and while the VIX is also above overlay_vix_stress
   trade_cost_bps: 0             # trading cost per buy or sell, in basis points (backtests; 10 = 0.10%)
+  # ---- universe: which companies this strategy considers, beyond Quality and size (0.18) ----
+  scoring_standard: standard    # standard (10 years of results) | short (5 years, for research)
+  universe_wonder_min: null     # Wonderfulness at least this, as known on each day (null = any)
+  universe_industries: []       # only these industries (SEC industry names; empty = all)
+  universe_exclude_industries: []  # never these industries
   # ---- valuation ----
   valuation_model: classic      # classic | value_driver (0.16: one model, one required return) | enhanced
                                 #   (incremental ROIC, normalized earnings, dilution, maintenance capex, bear/base/bull)

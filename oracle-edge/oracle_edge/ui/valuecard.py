@@ -161,9 +161,9 @@ def render(s: dict, prof, snap: dict | None, ev: dict | None) -> None:
     with ui.card().classes("oe-card w-full"):
         with ui.row().classes("w-full items-center justify-between"):
             ui.label("What it's worth").classes("oe-h2")
-            ui.label(("Value-driver model: used for this profile's signals" if uses else
-                      "Value-driver model, for comparison: this profile's signals use the "
-                      f"{prof.settings.get('valuation_model', 'classic')} model (Profiles → Valuation)")).classes(
+            ui.label(("Value-driver model: used for this strategy's signals" if uses else
+                      "Value-driver model, for comparison: this strategy's signals use the "
+                      f"{prof.settings.get('valuation_model', 'classic')} model (Strategies → What price it pays)")).classes(
                 "oe-small")
         price = ev["price"] if ev else None
         with ui.grid(columns=4).classes("w-full gap-3 oe-kpis"):
@@ -211,7 +211,7 @@ def render(s: dict, prof, snap: dict | None, ev: dict | None) -> None:
                      f"; years 1–2 {pct(x['g12'], 1)} with analysts' estimates" if x.get("g12") is not None else "")),
                 ("Reinvested each year", pct(x["reinvest"], 0), "growth ÷ return on capital"),
                 ("Discount rate", pct(x["required_return"], 1),
-                 "the stock market's long-run return (Profiles → Valuation)"),
+                 "the stock market's long-run return (Strategies → What price it pays)"),
                 ("Your hurdle", pct(x.get("hurdle") or x["required_return"], 1),
                  "buy below = the cautious model's value at this rate, less the margin of safety (the buy signals' "
                  "rule)"),

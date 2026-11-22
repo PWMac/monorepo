@@ -1,8 +1,7 @@
-"""Setup wizard, Settings, Data sources, Profiles editor, Backtests."""
+"""Setup wizard, Settings, Data sources, Backtests (and the live preview the Strategies editor uses)."""
 
 from __future__ import annotations
 
-import copy
 import json
 import re
 from datetime import date
@@ -94,7 +93,7 @@ def setup_page():
                                value=db.cfg("exchanges", ["Nasdaq", "NYSE", "CBOE"]), label="Exchanges").props(
                     "outlined dense use-chips").classes("w-96")
                 ui.label("Small and foreign companies are included (Oracle-wide). Size floors and other rules "
-                         "live in the profile (Profiles page).").classes("oe-small")
+                         "live in each strategy (Strategies page).").classes("oe-small")
                 bf = ui.input("Backfill history from", value=db.cfg("backfill_start", "2019-01-01")).props(
                     "outlined dense").classes("w-56")
                 with ui.stepper_navigation():
@@ -339,10 +338,10 @@ def settings_page():
             _email_form()
         with ui.card().classes("oe-card w-full"):
             ui.label("Model portfolio").classes("oe-h2")
-            ui.label("How many stocks to hold, how to size them and how often to add are now part of each profile "
-                     "(Profiles → Portfolio), so backtests can test them. Backtest → 'Find the best number of "
+            ui.label("How many stocks to hold, how to size them and how often to add are now part of each strategy "
+                     "(Strategies → How the portfolio is run), so backtests can test them. Backtest → 'Find the best number of "
                      "holdings' finds the best size on your own history.").classes("text-sm")
-            ui.button("Open Profiles", on_click=lambda: ui.navigate.to("/profiles")).props("flat")
+            ui.button("Open Strategies", on_click=lambda: ui.navigate.to("/strategies")).props("flat")
         with ui.card().classes("oe-card w-full"):
             ui.label("Backups").classes("oe-h2")
             bdir = ui.input("Backup folder", value=str(backup.backup_dir())).props("outlined dense").classes("w-[560px]")
@@ -586,350 +585,7 @@ def _pct0(v):
     return None if v in (None, "") else round(100 * float(v), 4)
 
 
-@ui.page("/profiles")
-def profiles_page(pid: int | None = None):
-    with frame("Profiles"):
-        profs = rules.list_profiles()
-        cur = rules.get_profile(pid) if pid else rules.default_profile()
-        ui.label("Filter profiles").classes("oe-h1")
-        ui.label("A profile is a complete rule set: which businesses qualify, what price to pay, and how the "
-                 "portfolio is run. Built-in profiles (🔒) are locked so they always exist as references: edit a "
-                 "copy with 'Save as'. Active profiles are scored every day and have their own history on "
-                 "Performance. Click a card to open it.").classes("oe-muted")
-        with ui.element("div").classes("w-full grid gap-3").style(
-                "grid-template-columns: repeat(auto-fill, minmax(320px, 1fr))"):
-            for p in profs:
-                par = rules.parent_of(p.id)
-                diffs = rules.differences(p.body, par.body) if par else []
-                sel = p.id == cur.id
-                with ui.card().classes("oe-card cursor-pointer gap-1").style(
-                        "outline: 2px solid #C9A227" if sel else "").on(
-                        "click", lambda p=p: ui.navigate.to(f"/profiles?pid={p.id}")):
-                    with ui.row().classes("items-center gap-2 no-wrap"):
-                        ui.label(p.name).classes("font-semibold")
-                        if p.locked:
-                            ui.icon("lock", size="xs").classes("text-gray-500").tooltip("Built-in, locked")
-                    if p.notes:
-                        ui.label(p.notes).classes("text-sm")
-                    if par:
-                        ui.label(f"Copied from {par.name}: " + ("; ".join(diffs) if diffs else "no changes yet")
-                                 + ".").classes("text-sm" + ("" if not p.notes else " oe-small"))
-                    ui.label(rules.describe(p.body)).classes("oe-small")
-                    sw = ui.switch("Active (scored daily)", value=p.active).on("click.stop", lambda: None)
-                    sw.on_value_change(lambda e, p=p: _toggle_active(p, e.value))
-        body = copy.deepcopy(cur.body)
-        st = body["settings"]
-        with ui.card().classes("oe-card w-full"):
-            with ui.row().classes("w-full items-center justify-between"):
-                ui.label(f"{cur.name} · v{cur.version}{' · locked' if cur.locked else ''}").classes("oe-h2")
-                prev = ui.label("").classes("text-sm font-semibold text-green-800")
-            desc = ui.input("Description: what this profile is for (blank = describe it from its settings)",
-                            value=cur.notes).props("outlined dense autogrow" + (" readonly" if cur.locked else "")
-                                                   ).classes("w-full")
-            with ui.row().classes("gap-3 items-end"):
-                fields = {}
-                for k, label, fmt in [("hurdle", "Hurdle (exp. return)", "%"), ("mos_gate", "Margin of safety", "%"),
-                                      ("quality_min", "Quality ≥", ""), ("lookback_years", "Lookback yrs", ""),
-                                      ("min_years", "Min yrs", ""), ("rank_quality_weight", "Quality weight in rank", ""),
-                                      ("min_market_cap", "Min market cap $", ""),
-                                      ("min_dollar_volume", "Min $ volume/day", "")]:
-                    v = st[k] * 100 if fmt == "%" else st[k]
-                    fmt_s = "%.0f" if k in ("min_market_cap", "min_dollar_volume") else "%.4g"
-                    fields[k] = (ui.number(label, value=v, format=fmt_s).props("outlined dense").classes("w-44"), fmt)
-                rm = ui.switch("Raise MOS when market is expensive", value=st.get("regime_modifier", False))
-                inf = ui.switch("Include foreign filers", value=st.get("include_foreign", True))
-            rows_ui = []
-            with ui.tabs().classes("w-full").props("align=left dense") as tabs:
-                t_std = ui.tab("Standard companies")
-                t_bank = ui.tab("Banks")
-                t_ins = ui.tab("Insurers")
-            with ui.tab_panels(tabs, value=t_std).classes("w-full"):
-                for tab, book in ((t_std, "rules"), (t_bank, "bank_rules"), (t_ins, "insurer_rules")):
-                    with ui.tab_panel(tab).classes("p-0"):
-                        with ui.row().classes("w-full oe-small font-semibold gap-2 no-wrap border-b"):
-                            for w, t in [("w-56", "Rule"), ("w-36", "Mode"), ("w-28", "Floor (0)"),
-                                         ("w-28", "Target (70)"), ("w-28", "Excellent (100)"), ("w-24", "Weight"),
-                                         ("flex-1", "Formula")]:
-                                ui.label(t).classes(w)
-                        for idx, r in enumerate(body[book]):
-                            with ui.row().classes("w-full items-center gap-2 no-wrap py-1 border-b border-gray-100"):
-                                ui.label(r["name"]).classes("w-56 text-sm")
-                                mode = ui.select(["gate", "scored", "buy_gate", "info", "off"], value=r["mode"]).props(
-                                    "dense outlined").classes("w-36")
-                                scale = 100 if r.get("fmt") in ("pct", "ratio") else 1
-                                fl = ui.number(value=r["floor"] * scale, format="%.4g").props(
-                                    "dense outlined").classes("w-28")
-                                tg = ui.number(value=r["target"] * scale, format="%.4g").props(
-                                    "dense outlined").classes("w-28")
-                                ex = ui.number(value=r["excellent"] * scale, format="%.4g").props(
-                                    "dense outlined").classes("w-28")
-                                wt = ui.number(value=r.get("weight", 1.0), format="%.3g").props(
-                                    "dense outlined").classes("w-24")
-                                ui.label(r.get("formula", "") + (" (%)" if scale == 100 else "")).classes(
-                                    "oe-small flex-1")
-                                rows_ui.append((book, idx, mode, fl, tg, ex, wt, scale))
-                                for el in (mode, fl, tg, ex, wt):
-                                    el.on_value_change(lambda e: preview())
-            with ui.row().classes("gap-6 items-center"):
-                qw = ui.switch("Quarterly early warnings (10-Q)", value=st.get("quarterly_warnings", True))
-                qb = ui.switch("Block new buys while a hard 10-Q warning is open",
-                               value=st.get("block_buy_on_quarterly_flag", True))
-            r19 = next((r for r in body["rules"] if r.get("id") == "r19"), None)
-            with ui.row().classes("gap-3 items-end"):
-                roew = ui.number("ROE gate: no year under its floor in the last N years", format="%.0f", min=1, max=10,
-                                 value=int((r19 or {}).get("min_year_window") or rules.ROE_FLOOR_WINDOW)).props(
-                    "outlined dense").classes("w-96")
-                ui.label(f"Floor {((r19 or {}).get('min_year') or 0.10) * 100:.0f}%. 5 = default (tested: a weak year "
-                         "6–10 years back didn't hurt the next 3 years; one in the last 3 did). 10 = the whole "
-                         "record.").classes("oe-small")
-            ui.label("Value-trap guards and price test").classes("oe-h2 pt-2")
-            with ui.row().classes("gap-3 items-end"):
-                hc = ui.switch("Business health check: skip companies whose sales, profits or return on equity are "
-                               "slipping now; sell when the next filing confirms a bad slide",
-                               value=bool(st.get("health_check")))
-                ptest = ui.select({"dcf": "Margin of safety + expected return (DCF)",
-                                   "fair_pe": "Fair price: P/E vs the company's own usual P/E"},
-                                  value=st.get("price_test", "dcf"), label="Price test").props(
-                    "outlined dense").classes("w-96")
-                fpm = ui.number("Fair P/E: at most x usual", value=float(st.get("fair_pe_mult", 1.5)), format="%.2f",
-                                min=0.5, max=3, step=0.1).props("outlined dense").classes("w-48")
-                mmo = ui.number("Too cheap to trust: no buy more than % below value (blank = off)",
-                                value=_pct0(st.get("max_mos")), format="%.0f", min=0, max=95).props(
-                    "outlined dense clearable").classes("w-[420px]")
-            ui.label("Portfolio").classes("oe-h2 pt-2")
-            with ui.row().classes("gap-3 items-end"):
-                pmode = ui.select({"focused": "Focused: hold only the best N", "variable": "Variable (old style)"},
-                                  value=st.get("portfolio_mode", "focused"), label="Portfolio style").props(
-                    "outlined dense").classes("w-64")
-                pn = ui.number("Holdings (N)", value=st.get("max_holdings", 15), format="%.0f", min=1).props(
-                    "outlined dense").classes("w-32")
-                psz = ui.select({"equal": "Equal slices", "conviction": "Conviction (higher Rank, bigger slice)",
-                                 "value_quality": "Better business at a better price gets more",
-                                 "size": "Bigger company gets more (like an index)"},
-                                value=st.get("sizing", "equal"), label="Sizing").props("outlined dense").classes("w-72")
-                padds = ui.number("Max dip ADDs (variable style)", value=st.get("max_adds", 2), format="%.0f", min=0).props(
-                    "outlined dense").classes("w-40")
-                pswap = ui.number("Swap only after (days held)", value=st.get("swap_min_hold_days", 365),
-                                  format="%.0f", min=0).props("outlined dense").classes("w-52")
-                pcap0 = ui.number("Starting money $", value=st.get("initial_capital", 10000), format="%.0f",
-                                  min=0).props("outlined dense").classes("w-40")
-                pwk = ui.number("Add each week $", value=st.get("weekly_contribution", 0), format="%.0f", min=0).props(
-                    "outlined dense").classes("w-40")
-                ppol = ui.select({"best_value": "Best value (highest expected return)",
-                                  "best_rank": "Best Oracle Rank", "spread": "Spread evenly",
-                                  "patient": "Patient: wait for strong-buy prices",
-                                  "reserve": "Sliding reserve: part now, the rest for strong buys"},
-                                 value=st.get("new_money", "best_value"), label="New money goes to").props(
-                    "outlined dense").classes("w-80")
-                pmax = ui.number("Max weight a buy can reach %", value=100 * float(st.get("max_buy_weight", 0.25)),
-                                 format="%.0f", min=5, max=100).props("outlined dense").classes("w-56")
-                ppw = ui.number("Patient: max weeks waiting", value=st.get("patient_max_weeks", 26), format="%.0f",
-                                min=0).props("outlined dense").classes("w-52")
-                pmin = ui.number("Min Oracle Rank to buy", value=st.get("min_rank_score", 0), format="%.0f",
-                                 min=0).props("outlined dense").classes("w-48")
-                prmin = ui.number("Reserve: spend % at an ordinary buy", value=100 * float(st.get("reserve_min_deploy", 0.5)),
-                                  format="%.0f", min=0, max=100).props("outlined dense").classes("w-60")
-                prmax = ui.number("Reserve: max % of portfolio", value=100 * float(st.get("reserve_max", 0.20)),
-                                  format="%.0f", min=0, max=100).props("outlined dense").classes("w-52")
-                prwk = ui.number("Reserve: spend after weeks", value=st.get("reserve_max_weeks", 26), format="%.0f",
-                                 min=0).props("outlined dense").classes("w-48")
-                paq = ui.switch("No ADD while REVIEW or Quality slipped", value=st.get("add_requires_quality", True))
-            ui.label("Risk controls").classes("oe-h2 pt-2")
-
-            def _pct(v):
-                return None if v in (None, "") else round(100 * float(v), 4)
-
-            with ui.row().classes("gap-3 items-end"):
-                rmp = ui.number("Max position % (blank = off)", value=_pct(st.get("max_position")), format="%.0f",
-                                min=1, max=100).props("outlined dense clearable").classes("w-56")
-                rms = ui.number("Max sector % (blank = off)", value=_pct(st.get("max_sector")), format="%.0f",
-                                min=1, max=100).props("outlined dense clearable").classes("w-52")
-                rmc = ui.number("Max correlated % (blank = off)", value=_pct(st.get("max_correlated")), format="%.0f",
-                                min=1, max=100).props("outlined dense clearable").classes("w-56")
-                rct = ui.number("Correlated means ≥", value=st.get("corr_threshold", 0.7), format="%.2f", min=0,
-                                max=1, step=0.05).props("outlined dense").classes("w-40")
-                rtc = ui.number("Trading cost (bps per trade)", value=st.get("trade_cost_bps", 0), format="%.0f",
-                                min=0).props("outlined dense").classes("w-56")
-            with ui.row().classes("gap-3 items-end"):
-                rov = ui.switch("Market overlay: limit new purchases while the S&P 500 is below its 200-day average",
-                                value=bool(st.get("market_overlay")))
-                rocb = ui.number("…buy % of normal", value=100 * float(st.get("overlay_caution_buy", 0.35)),
-                                 format="%.0f", min=0, max=100).props("outlined dense").classes("w-40")
-                rosb = ui.number("…when VIX > 30, buy %", value=100 * float(st.get("overlay_stress_buy", 0.10)),
-                                 format="%.0f", min=0, max=100).props("outlined dense").classes("w-44")
-            with ui.row().classes("gap-3 items-end"):
-                rvm = ui.select({"classic": "Classic valuation (lower of two models)",
-                                 "value_driver": "Value-driver (one model, one required return; 0.16)",
-                                 "enhanced": "Enhanced valuation (incremental ROIC, normalized earnings, dilution, "
-                                             "maintenance capex, bear/base/bull)"},
-                                value=st.get("valuation_model", "classic"), label="Valuation").props(
-                    "outlined dense").classes("w-[520px]")
-                rvr = ui.number("Discount rate % for the value (blank = 9%, the market's long-run return)",
-                                value=_pct(st.get("vd_required_return")), format="%.1f", min=4, max=25).props(
-                    "outlined dense clearable").classes("w-72")
-                rvg = ui.number("Growth cap %", value=100 * float(st.get("vd_growth_cap", 0.12)), format="%.0f",
-                                min=0, max=30).props("outlined dense").classes("w-32")
-                rpm = ui.switch("Bigger margin of safety for less predictable earnings",
-                                value=bool(st.get("predictability_mos")))
-                rdw = ui.switch("Extra early warnings (ROIC, margins, receivables, inventory, acquisitions, stock pay)",
-                                value=st.get("deterioration_warnings", True))
-            with ui.row().classes("gap-3 items-end"):
-                pfund = ui.switch("When all slots are full, trim or sell clearly weaker holdings to buy a strong buy",
-                                  value=st.get("fund_strong", False))
-                pfx = ui.number("Extra slots for strong buys", value=st.get("fund_extra_slots", 1), format="%.0f",
-                                min=0).props("outlined dense").classes("w-48")
-                pft = ui.number("Trim at most % of a holding", value=100 * float(st.get("fund_trim_max", 0.34)),
-                                format="%.0f", min=0, max=100).props("outlined dense").classes("w-52")
-                pfh = ui.number("Sell whole only after days held", value=st.get("fund_min_hold_days", 180),
-                                format="%.0f", min=0).props("outlined dense").classes("w-56")
-            ui.label("Tip: Backtest → 'Find the best number of holdings' tests N = 5…30 on your own history and can "
-                     "save the winner here.").classes("oe-small")
-            with ui.row().classes("gap-6 items-center"):
-                pal = ui.switch("Price-target alerts", value=st.get("price_alerts", True))
-                stg = ui.switch("Buy in thirds while the price is sliding", value=st.get("stage_in_downtrend", True))
-                tmf = ui.switch("Timing filter: new buys wait while price is below a falling 50-day average",
-                                value=st.get("timing_filter", False))
-                tmw = ui.number("Max wait (signal days)", value=st.get("timing_max_wait", 60), format="%.0f").props(
-                    "outlined dense").classes("w-44")
-                bnd = ui.number("Alert band (× average daily range)", value=st.get("alert_band_atr", 1.5),
-                                format="%.3g").props("outlined dense").classes("w-56")
-
-            def collect() -> dict:
-                b = copy.deepcopy(body)
-                for k, (el, fmt) in fields.items():
-                    v = float(el.value or 0)
-                    b["settings"][k] = round(v / 100, 10) if fmt == "%" else (
-                        int(v) if k in ("lookback_years", "min_years") else v)
-                b["settings"]["regime_modifier"] = rm.value
-                b["settings"]["include_foreign"] = inf.value
-                b["settings"]["quarterly_warnings"] = qw.value
-                b["settings"]["block_buy_on_quarterly_flag"] = qb.value
-                for rr in b["rules"]:
-                    if rr.get("id") == "r19":
-                        rr["min_year_window"] = max(1, min(10, int(roew.value or rules.ROE_FLOOR_WINDOW)))
-                b["settings"]["health_check"] = hc.value
-                b["settings"]["price_test"] = ptest.value
-                b["settings"]["fair_pe_mult"] = round(float(fpm.value or 1.5), 4)
-                b["settings"]["max_mos"] = round(float(mmo.value) / 100, 6) if mmo.value not in (None, "") else None
-                b["settings"]["price_alerts"] = pal.value
-                b["settings"]["stage_in_downtrend"] = stg.value
-                b["settings"]["timing_filter"] = tmf.value
-                b["settings"]["timing_max_wait"] = int(tmw.value or 60)
-                b["settings"]["alert_band_atr"] = float(bnd.value or 1.5)
-                b["settings"].update({
-                    "portfolio_mode": pmode.value, "max_holdings": max(1, int(pn.value or 15)), "sizing": psz.value,
-                    "max_adds": int(padds.value or 0), "swap_min_hold_days": int(pswap.value or 0),
-                    "initial_capital": float(pcap0.value or 10000), "weekly_contribution": float(pwk.value or 0),
-                    "new_money": ppol.value, "max_buy_weight": float(pmax.value or 25) / 100,
-                    "patient_max_weeks": int(ppw.value or 26), "min_rank_score": float(pmin.value or 0),
-                    "add_requires_quality": paq.value,
-                    "reserve_min_deploy": round(float(prmin.value if prmin.value is not None else 50) / 100, 6),
-                    "reserve_max": round(float(prmax.value if prmax.value is not None else 20) / 100, 6),
-                    "reserve_max_weeks": int(prwk.value or 0), "fund_strong": pfund.value,
-                    "fund_extra_slots": int(pfx.value or 0),
-                    "fund_trim_max": round(float(pft.value if pft.value is not None else 34) / 100, 6),
-                    "fund_min_hold_days": int(pfh.value or 0),
-                    "vd_required_return": round(float(rvr.value) / 100, 6) if rvr.value not in (None, "") else None,
-                    "vd_growth_cap": round(float(rvg.value if rvg.value is not None else 12) / 100, 6),
-                    "max_position": round(float(rmp.value) / 100, 6) if rmp.value not in (None, "") else None,
-                    "max_sector": round(float(rms.value) / 100, 6) if rms.value not in (None, "") else None,
-                    "max_correlated": round(float(rmc.value) / 100, 6) if rmc.value not in (None, "") else None,
-                    "corr_threshold": round(float(rct.value or 0.7), 4), "trade_cost_bps": float(rtc.value or 0),
-                    "market_overlay": rov.value,
-                    "overlay_caution_buy": round(float(rocb.value if rocb.value is not None else 35) / 100, 6),
-                    "overlay_stress_buy": round(float(rosb.value if rosb.value is not None else 10) / 100, 6),
-                    "valuation_model": rvm.value, "predictability_mos": rpm.value,
-                    "deterioration_warnings": rdw.value})
-                for book, idx, mode, fl, tg, ex, wt, scale in rows_ui:
-                    rr = b[book][idx]
-                    rr["mode"] = mode.value
-                    rr["floor"], rr["target"], rr["excellent"] = (round(float(fl.value or 0) / scale, 10),
-                                                                  round(float(tg.value or 0) / scale, 10),
-                                                                  round(float(ex.value or 0) / scale, 10))
-                    rr["weight"] = float(wt.value or 0)
-                return b
-
-            pv = {"seq": 0}
-
-            async def preview():
-                """Runs in a worker thread and only the latest edit is shown, so typing never blocks the app."""
-                from nicegui import run
-
-                pv["seq"] += 1
-                my = pv["seq"]
-                b = collect()
-                prev.text = "Live preview: counting…"
-                try:
-                    res = await run.io_bound(live_preview, cur, b)
-                except Exception as ex:  # never break the editor over a preview
-                    prev.text = f"Live preview unavailable ({ex})"
-                    return
-                if my != pv["seq"]:
-                    return  # a newer edit is already being counted
-                prev.text = (f"Live preview: {res['gates']} pass gates · {res['wonderful']} wonderful (Q ≥ "
-                             f"{b['settings']['quality_min']:.0f}) · ~{res['buy']} in Buy Zone (estimate)")
-
-            for el, _ in fields.values():
-                el.on_value_change(lambda e: preview())
-            ui.timer(0.2, preview, once=True)
-
-            def save():
-                b = collect()
-                if cur.locked:
-                    ui.notify("Locked: use Save as", type="warning")
-                    return
-                rescore = rules.scoring_hash(b) != rules.scoring_hash(cur.body)
-                rules.update_profile(cur.id, b)
-                rules.set_notes(cur.id, desc.value)
-                with ui.dialog() as dlg, ui.card():
-                    ui.label("Saved. Rebuild this profile's live history now?").classes("oe-h2")
-                    ui.label("Scoring rules changed, so every company is rescored first (can take a while)." if rescore
-                             else "Only portfolio or signal settings changed: company scores are reused, so this is "
-                                  "quick.").classes("oe-small")
-                    with ui.row():
-                        ui.button("Rebuild now", on_click=lambda: (dlg.close(), _launch("rebuild",
-                                                                                         {"profile_id": cur.id}))
-                                  ).props("unelevated")
-                        ui.button("Later", on_click=dlg.close).props("flat")
-                dlg.open()
-
-            def save_as():
-                with ui.dialog() as dlg, ui.card():
-                    nm = ui.input("New profile name").props("outlined dense")
-
-                    def ok():
-                        if not nm.value:
-                            return
-                        try:
-                            new = rules.save_as(cur.id, nm.value.strip(), collect())
-                            if not cur.locked and (desc.value or "").strip() != (cur.notes or ""):
-                                rules.set_notes(new, desc.value)
-                        except Exception as e:
-                            ui.notify(str(e), type="warning")
-                            return
-                        dlg.close()
-                        ui.navigate.to(f"/profiles?pid={new}")
-
-                    ui.button("Create", on_click=ok).props("unelevated")
-                dlg.open()
-
-            with ui.row():
-                ui.button("Save", on_click=save).props("unelevated" + (" disable" if cur.locked else ""))
-                ui.button("Save as…", on_click=save_as).props("outline")
-                ui.button("Export JSON", on_click=lambda: ui.download(json.dumps(collect(), indent=1).encode(),
-                                                                      f"{cur.name}.json")).props("flat")
-
-
-def _toggle_active(p, value):
-    db.get().execute("UPDATE profiles SET active=? WHERE id=?", (int(value), p.id))
-    if value and not db.one("SELECT id FROM runs WHERE kind='live' AND profile_id=?", (p.id,)):
-        with ui.dialog() as dlg, ui.card():
-            ui.label(f"Build history for {p.name} now?").classes("oe-h2")
-            with ui.row():
-                ui.button("Build", on_click=lambda: (dlg.close(), _launch("rebuild", {"profile_id": p.id}))).props(
-                    "unelevated")
-                ui.button("Later", on_click=dlg.close).props("flat")
-        dlg.open()
+# the Profiles page became Strategies (ui/strategies.py, 0.18); the live preview below is shared
 
 
 _PREVIEW_CACHE: dict = {}
@@ -1014,7 +670,7 @@ def backtest_page():
 
     with frame("Backtest"):
         ui.label("Backtests").classes("oe-h1")
-        ui.label("Replays a profile over past dates using only data that was public on each day (point-in-time). "
+        ui.label("Replays a strategy over past dates using only data that was public on each day (point-in-time). "
                  "Results go into their own run and never mix with your live history.").classes("oe-muted")
         profs = {p.id: p for p in rules.list_profiles()}
 
@@ -1023,13 +679,13 @@ def backtest_page():
             ui.label("Find the best number of holdings, and where new money should go").classes("oe-h2")
             ui.label("Runs focused portfolios of the best 5, 6, 8, 10 and 12 stocks under each new-money rule (best "
                      "value, best Rank, spread evenly, patient, sliding reserve, and spread or reserve with weaker "
-                     "holdings sold to fund strong buys), starting with the profile's starting money and adding "
+                     "holdings sold to fund strong buys), starting with the strategy's starting money and adding "
                      "its weekly amount, all in one pass, plus the old 'variable' style for comparison. The winner beat "
                      "the S&P 500 most reliably in each third of the period, not just once. Dollar results are compared "
                      "with putting the same money into the S&P 500 on the same days.").classes("oe-small")
             with ui.row().classes("items-end gap-3"):
                 sprof = ui.select({k: v.name for k, v in profs.items()}, value=rules.default_profile().id,
-                                  label="Profile").props("outlined dense").classes("w-64")
+                                  label="Strategy").props("outlined dense").classes("w-64")
                 sstart = ui.input("Start", value=db.cfg("backfill_start", "2019-01-01")).props(
                     "outlined dense").classes("w-36")
                 send = ui.input("End", value=date.today().isoformat()).props("outlined dense").classes("w-36")
@@ -1048,12 +704,12 @@ def backtest_page():
                      "correlation limits, market overlay) in one replay, then G: the most robust of A–F with the enhanced "
                      "valuation (and G+ with a bigger margin of safety for less predictable earnings). Ranked by a "
                      "robustness score: 30% median CAGR across three independent periods, 25% maximum drawdown, 20% "
-                     "worst 12 months, 15% consistency, 10% turnover. Trading costs come from the profile "
+                     "worst 12 months, 15% consistency, 10% turnover. Trading costs come from the strategy "
                      "(Risk Optimized: 0.10% per trade).").classes("oe-small")
             with ui.row().classes("items-end gap-3"):
                 risk_id = db.scalar("SELECT id FROM profiles WHERE name=?", (rules.RISK_NAME,))
                 eprof = ui.select({k: v.name for k, v in profs.items()}, value=risk_id or rules.default_profile().id,
-                                  label="Profile").props("outlined dense").classes("w-72")
+                                  label="Strategy").props("outlined dense").classes("w-72")
                 estart = ui.input("Start", value=db.cfg("backfill_start", "2019-01-01")).props(
                     "outlined dense").classes("w-36")
                 eend = ui.input("End", value=date.today().isoformat()).props("outlined dense").classes("w-36")
@@ -1067,22 +723,22 @@ def backtest_page():
             ui.label("Run one backtest").classes("oe-h2")
             with ui.row().classes("items-end gap-3"):
                 prof = ui.select({k: v.name for k, v in profs.items()}, value=rules.default_profile().id,
-                                 label="Profile").props("outlined dense").classes("w-64")
+                                 label="Strategy").props("outlined dense").classes("w-64")
                 start = ui.input("Start", value=db.cfg("backfill_start", "2019-01-01")).props("outlined dense").classes(
                     "w-36")
                 end = ui.input("End", value=date.today().isoformat()).props("outlined dense").classes("w-36")
                 cad = ui.select({"weekly": "Weekly signals (fast)", "daily": "Daily signals"}, value="weekly",
                                 label="Cadence").props("outlined dense").classes("w-48")
-                hold = ui.number("Holdings (blank = profile's)", format="%.0f", min=0).props(
+                hold = ui.number("Holdings (blank = strategy's)", format="%.0f", min=0).props(
                     "outlined dense clearable").classes("w-52")
                 hint = ui.label("").classes("oe-small")
 
                 def show_hint():
                     st = profs[prof.value].settings
-                    hint.text = (f"Profile: best {st.get('max_holdings')} · "
+                    hint.text = (f"Strategy: best {st.get('max_holdings')} · "
                                  f"{pipeline.policy_label(st.get('new_money', 'best_value') + ('+fund' if st.get('fund_strong') else ''))} · "
                                  f"${st.get('initial_capital', 0):,.0f} + ${st.get('weekly_contribution', 0):,.0f}/week"
-                                 if st.get("portfolio_mode") == "focused" else "Profile: variable holdings")
+                                 if st.get("portfolio_mode") == "focused" else "Strategy: variable holdings")
                 prof.on_value_change(lambda e: show_hint())
                 show_hint()
                 ui.button("Run backtest", icon="play_arrow", on_click=lambda: _launch(
@@ -1095,14 +751,14 @@ def backtest_page():
                 ui.label("⚠ Free price sources don't include delisted stocks, so results are survivorship-biased "
                          "(likely optimistic). A paid source + 'Re-sync' removes this.").classes("oe-small")
             ui.label("Note: SEC data starts in 2009, so strict 10-year rules can only judge larger companies before "
-                     "~2021. Use the 'Relaxed backfill (5y)' profile for earlier tests.").classes("oe-small")
+                     "~2021. Use the 'Relaxed backfill (5y)' strategy (short record) for earlier tests.").classes("oe-small")
         runs = [r for r in data.all_runs() if r["kind"] == "backtest"]
         if not runs:
             empty("No backtests yet.")
             return
         with ui.row().classes("w-full items-center justify-between"):
             ui.label("Your backtests").classes("oe-h2")
-            ui.button("Recalculate all with current profile settings", icon="refresh",
+            ui.button("Recalculate all with current strategy settings", icon="refresh",
                       on_click=lambda: _launch("recalc_all")).props("flat")
         for r in runs:
             curve = data.equity(r["id"])
@@ -1128,7 +784,7 @@ def backtest_page():
                             "outline dense")
                         ui.button("Recalculate", icon="refresh", on_click=lambda r=r: _launch(
                             "recalc", {"run_id": r["id"]})).props("flat dense").tooltip(
-                            "Re-run with the profile's current settings (holdings, sizing, add limits)")
+                            "Re-run with the strategy's current settings (holdings, sizing, add limits)")
                         ui.button(icon="delete", on_click=lambda r=r: _delete_run(r["id"])).props("flat round dense")
 
 
@@ -1248,7 +904,7 @@ def _sweep_card(sw: dict, profs: dict):
             with ui.row().classes("items-center gap-3"):
                 opts = {f"{r['n']}|{r['sizing']}|{r.get('policy') or ''}": r["label"] for r in foc}
                 pick = ui.select(opts, value=f"{rec['n']}|{rec['sizing']}|{rec.get('policy') or ''}" if rec else None,
-                                 label="Use for this profile").props("outlined dense").classes("w-96")
+                                 label="Use for this strategy").props("outlined dense").classes("w-96")
 
                 def apply():
                     if not pick.value:
@@ -1260,7 +916,7 @@ def _sweep_card(sw: dict, profs: dict):
                         ui.notify(str(ex), type="warning")
                         return
                     _after_apply(pid, msg)
-                ui.button("Save to profile", icon="check", on_click=apply).props("unelevated")
+                ui.button("Save to strategy", icon="check", on_click=apply).props("unelevated")
 
 
 def _experiment_card(sw: dict, profs: dict):
@@ -1343,11 +999,11 @@ def _after_apply(pid: int, msg: str):
                 "backtest", {"profile_id": pid, "start": db.cfg("backfill_start", backfill_start()),
                              "end": date.today().isoformat(), "cadence": "weekly"}, then=ui.navigate.reload))
                       ).props("unelevated")
-            ui.button("Rebuild this profile's live signals with it", icon="sync", on_click=lambda: (
+            ui.button("Rebuild this strategy's paper portfolio with it", icon="sync", on_click=lambda: (
                 dlg.close(), db.get().execute("UPDATE profiles SET active=1 WHERE id=?", (pid,)),
                 _launch("rebuild", {"profile_id": pid}))).props("outline")
             ui.label("Rebuilding replays your live history from the start date with the new size, and makes the "
-                     "profile active so it gets daily signals.").classes("oe-small")
+                     "strategy run daily so it gets daily signals.").classes("oe-small")
             ui.button("Later", on_click=dlg.close).props("flat")
     dlg.open()
 

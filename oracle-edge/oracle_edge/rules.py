@@ -27,6 +27,7 @@ def seed_profiles() -> None:
         _seed_risk_optimized()
         _seed_quality_core()
         refresh_notes()
+        ensure_house_view()
         return
     classic = load_yaml_profile()
     _insert("Oracle Classic", classic, locked=True, active=True, notes=classic.get("description"))
@@ -37,12 +38,14 @@ def seed_profiles() -> None:
     relaxed = copy.deepcopy(classic)
     relaxed["settings"]["lookback_years"] = 5
     relaxed["settings"]["min_years"] = 5
+    relaxed["settings"]["scoring_standard"] = "short"
     relaxed["description"] = "5-year lookbacks so backtests can start earlier (less Oracle-faithful)."
     _insert("Relaxed backfill (5y)", relaxed, locked=True, active=False, notes=relaxed["description"])
     _seed_timing()
     _seed_risk_optimized()
     _seed_quality_core()
     refresh_notes()
+    ensure_house_view()
 
 
 TIMING_NAME = "Oracle Classic + timing"
@@ -127,7 +130,7 @@ def set_notes(pid: int, text: str | None) -> None:
 PURPOSE = {
     "Oracle Classic":
         "The baseline: the Oracle's rules of thumb applied as written. Locked, so there is always a reference "
-        "to compare every other profile against.",
+        "to compare every other strategy against.",
     "Buffettology 15%":
         "Oracle Classic with a higher bar: buys only when the expected 10-year return is at least 15% (the "
         "Buffettology test), so fewer stocks qualify and they have to be cheaper.",
@@ -138,7 +141,7 @@ PURPOSE = {
         "Oracle Classic with a timing filter: a BUY waits while the price is still sliding (below a falling "
         "50-day average), for up to 60 signal days. Backtest it against Classic to see whether waiting helps.",
     "Buffettology 15% · best 7":
-        "The live profile: Buffettology 15% concentrated in the best 7 stocks. Chosen on backtests that the "
+        "Buffettology 15% concentrated in the best 7 stocks. Chosen on backtests that the "
         "November 2026 audit showed were inflated; see the Guide, \"Rebuilding the strategy\".",
     "Buffettology Quality Core":
         "Buffett's portfolio principles, rebuilt after the November 2026 tests: wonderful businesses that are "
@@ -153,7 +156,10 @@ PURPOSE = {
 _OLD_DEFAULTS = ("Copy of ", "Buffett's rules of thumb", "The Oracle's rules of thumb, 10-year",
                  "Stricter: Mary Buffett", "Stricter: the Buffettology 15%", "5-year lookbacks so backtests",
                  "Oracle Classic, but a BUY waits", "Buffettology 15%, 7 holdings, sliding reserve",
-                 "The live profile: Buffettology 15% concentrated in the best 7 stocks. Chosen after")
+                 "The live profile: Buffettology 15% concentrated in the best 7 stocks. Chosen after",
+                 "The live profile: Buffettology 15% concentrated in the best 7 stocks. Chosen on backtests",
+                 "The baseline: the Oracle's rules of thumb applied as written. Locked, so there is always a reference "
+                 "to compare every other profile against.")
 
 
 def _is_default_note(text: str | None) -> bool:
@@ -380,6 +386,9 @@ def _snap_key(p: "Profile") -> tuple[int, int]:
 def _with_defaults(body: dict) -> dict:
     """Profiles saved by older versions get any new rulebooks/settings from the YAML defaults."""
     base = load_yaml_profile()
+    st0 = body.setdefault("settings", {})
+    if "scoring_standard" not in st0:  # saved before 0.18: the record length it was scored on decides
+        st0["scoring_standard"] = "short" if int(st0.get("lookback_years") or 10) <= 5 else "standard"
     for k in ("bank_rules", "insurer_rules"):
         if k not in body:
             body[k] = copy.deepcopy(base[k])
@@ -388,7 +397,120 @@ def _with_defaults(body: dict) -> dict:
     for r in body.get("rules", []):  # wording from before the ROE floor looked at the last 5 years only
         if r.get("id") == "r19" and "(10-yr avg; no year < 10%)" in (r.get("formula") or ""):
             r["formula"] = r["formula"].replace("(10-yr avg; no year < 10%)", "(10-yr avg; no year < 10% in the last 5)")
+    return apply_house_view(body)
+
+
+# ------------------------------------------------------------------ the house view (0.18)
+# How every company is scored is one shared standard, the house view: the checklist rules (standard, bank and
+# insurer rulebooks), their category weights and the near-miss margin. A strategy (what the app used to call a
+# profile) only chooses which of two record lengths it scores on, and everything about which companies qualify,
+# what price to pay and how the portfolio is run. So every strategy sees the same Quality score, and changing a
+# strategy never re-scores a company.
+HOUSE_KEYS = ("rules", "bank_rules", "insurer_rules", "category_weights")
+HOUSE_SETTINGS = ("near_miss_margin",)
+STANDARDS = {"standard": {"lookback_years": 10, "min_years": 7, "label": "Standard: 10 years of results (7 at least)"},
+             "short": {"lookback_years": 5, "min_years": 5, "label": "Short record: 5 years of results (for research)"}}
+
+
+def house_view() -> dict | None:
+    return db.cfg("house_view")
+
+
+def scoring_standard(settings: dict) -> str:
+    s = settings.get("scoring_standard")
+    if s in STANDARDS:
+        return s
+    return "short" if int(settings.get("lookback_years") or 10) <= 5 else "standard"
+
+
+def apply_house_view(body: dict) -> dict:
+    """A strategy's body with the house view's rules and its scoring standard's record length."""
+    hv = house_view()
+    if hv:
+        for k in HOUSE_KEYS:
+            if k in hv:
+                body[k] = copy.deepcopy(hv[k])
+        for k in HOUSE_SETTINGS:
+            if k in hv:
+                body["settings"][k] = hv[k]
+    st = body["settings"]
+    std = scoring_standard(st)
+    st["scoring_standard"] = std
+    if hv:
+        st["lookback_years"], st["min_years"] = STANDARDS[std]["lookback_years"], STANDARDS[std]["min_years"]
     return body
+
+
+def ensure_house_view() -> None:
+    """First start of 0.18: the house view is the primary strategy's current rules, so no score changes."""
+    if house_view():
+        if not primary_id():
+            _pick_primary()
+        return
+    pid = _pick_primary()
+    if not pid:
+        return
+    r = db.one("SELECT body_json FROM profiles WHERE id=?", (pid,))
+    raw = json.loads(r["body_json"])
+    base = load_yaml_profile()
+    hv = {k: copy.deepcopy(raw.get(k) or base[k]) for k in HOUSE_KEYS}
+    for k in HOUSE_SETTINGS:
+        hv[k] = raw.get("settings", {}).get(k, base["settings"].get(k))
+    hv.update(version=1, updated_at=db.now(), source=pid)
+    db.set_cfg("house_view", hv)
+
+
+def set_house_view(body: dict) -> int:
+    """Save new house rules. Every strategy's scores are now out of date: each one's version goes up, so the next
+    rebuild re-scores every company once (strategies sharing the standard share the new scores)."""
+    hv = house_view() or {}
+    new = {k: copy.deepcopy(body[k]) for k in HOUSE_KEYS if k in body}
+    for k in HOUSE_SETTINGS:
+        if k in body.get("settings", {}):
+            new[k] = body["settings"][k]
+    new.update(version=int(hv.get("version", 1)) + 1, updated_at=db.now(), source=hv.get("source"))
+    db.set_cfg("house_view", new)
+    db.get().execute("UPDATE profiles SET version=version+1, updated_at=?", (db.now(),))
+    return new["version"]
+
+
+def house_changed(body: dict) -> bool:
+    hv = house_view() or {}
+    a = {k: body.get(k) for k in HOUSE_KEYS}
+    a.update({k: body.get("settings", {}).get(k) for k in HOUSE_SETTINGS})
+    b = {k: hv.get(k) for k in HOUSE_KEYS}
+    b.update({k: hv.get(k) for k in HOUSE_SETTINGS})
+    return json.dumps(_tidy(a), sort_keys=True, default=str) != json.dumps(_tidy(b), sort_keys=True, default=str)
+
+
+# ------------------------------------------------------------------ the primary strategy
+def primary_id() -> int | None:
+    v = db.cfg("primary_profile_id")
+    if v and db.scalar("SELECT 1 FROM profiles WHERE id=?", (int(v),)):
+        return int(v)
+    return None
+
+
+def _pick_primary() -> int | None:
+    """The primary strategy: the one set, else the first active (the old live profile), else the first."""
+    pid = primary_id()
+    if pid:
+        return pid
+    r = db.one("SELECT id FROM profiles WHERE active=1 ORDER BY id LIMIT 1") or db.one(
+        "SELECT id FROM profiles ORDER BY id LIMIT 1")
+    if not r:
+        return None
+    db.set_cfg("primary_profile_id", r["id"])
+    return r["id"]
+
+
+def set_primary(pid: int) -> None:
+    """Today's actions, the emails, the alerts and the Screener's buy prices follow the primary strategy. It always
+    runs daily."""
+    if scoring_standard(get_profile(pid).settings) != "standard":
+        raise ValueError("A short-record strategy is for research and can't be the primary one.")
+    db.set_cfg("primary_profile_id", int(pid))
+    db.get().execute("UPDATE profiles SET active=1 WHERE id=?", (int(pid),))
 
 
 def get_profile(pid: int) -> Profile:
@@ -404,10 +526,20 @@ def list_profiles() -> list[Profile]:
 
 
 def active_profiles() -> list[Profile]:
-    return [p for p in list_profiles() if p.active]
+    """Strategies that run daily, the primary first."""
+    pid = primary_id()
+    act = [p for p in list_profiles() if p.active]
+    return sorted(act, key=lambda p: (p.id != pid, p.id))
 
 
 def default_profile() -> Profile:
+    """The primary strategy."""
+    pid = primary_id()
+    if pid:
+        try:
+            return get_profile(pid)
+        except KeyError:
+            pass
     act = active_profiles()
     return act[0] if act else list_profiles()[0]
 

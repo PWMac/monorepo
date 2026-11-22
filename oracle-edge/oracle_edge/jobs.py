@@ -145,7 +145,7 @@ def execute(job_id: int) -> None:
     beat.start()
     try:
         fn = {"initial_load": pipeline.initial_load, "daily": pipeline.daily_run, "backtest": pipeline.run_backtest,
-              "rebuild": pipeline.rebuild_profile, "backup": pipeline.backup_job,
+              "rebuild": pipeline.rebuild_profile, "rebuild_all": pipeline.rebuild_all, "backup": pipeline.backup_job,
               "recalc": pipeline.recalc_backtest, "sweep": pipeline.run_sweep,
               "recalc_all": pipeline.recalc_all, "experiments": pipeline.run_experiments,
               "calc_fixes": pipeline.apply_calc_fixes, "prices_all": pipeline.prices_all_job,

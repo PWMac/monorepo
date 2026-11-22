@@ -11,6 +11,7 @@ from nicegui import app, ui
 from .. import btcsignal, db, rules, strength, targets
 from . import data, outlook, quote, valuecard, wonder, wonder_page  # noqa: F401 (registers /screener)
 from . import growth as growth_tab
+from . import strategies  # noqa: F401 (registers /strategies and /house)
 from .charts import zoom_chart
 from .layout import empty, frame, kpi
 from .theme import BADGES, BRAND, BTC_COL, badge_html, fmt_value, ladder_html, money, num, pct, sparkline
@@ -27,7 +28,7 @@ def _run_picker(current: int | None, live_only: bool = True, on_change=None):
             opts[current] = r["name"]
         else:
             current = next(iter(opts), None)
-    ui.select(opts, value=current, label="Profile" if live_only else "Run",
+    ui.select(opts, value=current, label="Strategy" if live_only else "Run",
               on_change=lambda e: on_change(e.value) if on_change else None).props("dense outlined").classes("w-72")
     return current
 
@@ -346,7 +347,7 @@ def list_page(kind: str = "buy"):
         price_cols = [
             _col("price", "Price", _USD, 100),
             _col("iv", "Intrinsic value", _USD, 120, "What the business is worth per share (average of the two models)."),
-            _col("buy_below", "Buy below", _USD, 110, "Price that gives the profile's margin of safety."),
+            _col("buy_below", "Buy below", _USD, 110, "Price that gives the strategy's margin of safety."),
             _col("strong", "Strong buy below", _USD, 125, "Price that gives an extra 15% margin of safety."),
             _col("mos", "Margin of safety", _PCT, 120, "How far the price is below value. The Oracle: buy with a big margin."),
             _col("away", "% above buy price", _PCT, 125, "How far the price must fall to reach the buy price (pricey list).",
@@ -470,7 +471,7 @@ def stock_page(ticker: str):
                          f"{' · foreign filer (' + s['currency'] + ')' if s['is_foreign'] else ''}").classes("oe-muted")
                 if bd:
                     ui.label(bd["reason"]).classes("text-sm")
-            ui.label(f"Profile: {prof.name} · latest annual report filed {snap['filed'] if snap else '—'}").classes(
+            ui.label(f"Strategy: {prof.name} · latest annual report filed {snap['filed'] if snap else '—'}").classes(
                 "oe-small")
         with ui.tabs().props("dense no-caps align=left active-color=primary indicator-color=primary").classes(
                 "w-full border-b border-gray-200") as tabs:
@@ -772,7 +773,7 @@ def _targets_card(s, tp, t, owned, st=None):
                     f"P/E {st.get('fair_pe_mult', 1.5):g}× its usual" if st.get("price_test") == "fair_pe" else
                     f"{pct(mos, 0)} margin of safety and a {pct(hur, 0)} yearly return")
                 kpi(money(tp["strong"]), "Strong buy below", f"a further {pct(extra, 0)} lower")
-                kpi(money(tp["iv"]), "Value (this profile's model)", "not a sell price")
+                kpi(money(tp["iv"]), "Value (this strategy's model)", "not a sell price")
                 kpi(money(tp["trim_above"]), "Trim above", f"{st.get('nosebleed_iv_mult', 2.0):g}× value with the "
                     "P/E 2× its norm" + ("" if owned else " (if owned)"), "#a24d00")
             ui.label(tp["note"]).classes("text-sm")
@@ -1340,7 +1341,7 @@ def market_page():
             kpi(_tn(us["gdp"]) if us else "—", "US GDP (yearly rate)", _gdp_note(us) if us else "")
             kpi(pct(reg.mos_gate), "Margin of safety required",
                 "raised when expensive (profile setting on)" if rules.default_profile().settings.get("regime_modifier")
-                else "fixed (the profile doesn't raise it when expensive)")
+                else "fixed (the strategy doesn't raise it when expensive)")
         with ui.card().classes("oe-card w-full"):
             ui.label("US Buffett Indicator, market value and GDP").classes("oe-h2")
             ui.label("The indicator (thick line, right axis, coloured by zone) is the stock market's value (blue) ÷ GDP "
