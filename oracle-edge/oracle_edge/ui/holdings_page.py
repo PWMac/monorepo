@@ -206,28 +206,8 @@ def _scope_bar(s: dict):
 
 
 def _sync_all():
-    async def go():
-        n = ui.notification("Syncing…", spinner=True, timeout=None)
-        msgs = []
-        for src, cls in (("schwab", brokers.Schwab), ("snaptrade", brokers.SnapTrade)):
-            if not any(a["source"] == src for a in holdings.accounts()):
-                continue
-            try:
-                r = await run.io_bound(lambda c=cls: c().sync())
-                msgs += r["messages"]
-            except Exception as e:
-                msgs.append(f"{src}: {e}")
-        try:
-            from ..pipeline import fetch_prices_for
-
-            await run.io_bound(fetch_prices_for, holdings.held_tickers())
-        except Exception as e:
-            msgs.append(f"prices: {e}")
-        n.message = " · ".join(msgs)[:400] or "Nothing to sync"
-        n.spinner = False
-        n.timeout = 8
-        ui.timer(2, ui.navigate.reload, once=True)
-    ui.timer(0.05, go, once=True)
+    srcs = [src for src in ("schwab", "snaptrade") if any(a["source"] == src for a in holdings.accounts())]
+    _sync_dialog(srcs)
 
 
 def _tiles(scope: Scope, hs, sm: dict, s: dict):
@@ -941,6 +921,15 @@ def _accounts_tab():
     with ui.row().classes("w-full gap-4 items-start"):
         with ui.card().classes("oe-card").style("flex:1;min-width:380px"):
             _import_card(accs)
+            log = brokers.sync_log()
+            if log:
+                with ui.expansion("Connection and import log", value=not log[0]["ok"]).classes("w-full mt-2"):
+                    for r in log:
+                        with ui.row().classes("items-start gap-2 no-wrap"):
+                            ui.icon("check" if r["ok"] else "error").style(
+                                f"color:{BRAND if r['ok'] else NEGATIVE}")
+                            ui.label(f"{r['ts'][:16].replace('T', ' ')} · {r['source']} · {r['detail']}").classes(
+                                "text-sm")
         with ui.card().classes("oe-card").style("flex:1;min-width:380px"):
             _schwab_card()
             ui.separator().classes("my-3")
@@ -1036,19 +1025,56 @@ def _schwab_card():
 
 
 async def _sync(cls, days=None):
-    n = ui.notification("Syncing…", spinner=True, timeout=None)
-    try:
-        r = await run.io_bound(lambda: cls().sync(days) if days else cls().sync())
-        from ..pipeline import fetch_prices_for
+    _sync_dialog(["schwab" if cls is brokers.Schwab else "snaptrade"], days)
 
-        await run.io_bound(fetch_prices_for, holdings.held_tickers())
-        n.message = " · ".join(r["messages"])[:500] or "Done"
-    except Exception as e:
-        n.message = f"Sync failed: {e}"
-        n.type = "negative"
-    n.spinner = False
-    n.timeout = 10
-    ui.timer(2, ui.navigate.reload, once=True)
+
+def _sync_dialog(sources: list[str], days: int | None = None):
+    """Runs the sync with a window that stays open until you close it: what happened for each connection, in plain
+    words, including any error (also kept in the connection log below)."""
+    names = {"schwab": "Schwab", "snaptrade": "SnapTrade"}
+    with ui.dialog().props("persistent") as d, ui.card().style("min-width:min(620px,95vw)"):
+        ui.label("Syncing " + " and ".join(names[s] for s in sources) if sources else "Nothing to sync").classes(
+            "oe-h2")
+        body = ui.column().classes("w-full gap-1")
+        with body:
+            spin = ui.row().classes("items-center gap-2")
+            with spin:
+                ui.spinner(size="sm")
+                step = ui.label("Connecting…").classes("text-sm")
+        close = ui.button("Close", on_click=lambda: (d.close(), ui.navigate.reload())).props("unelevated")
+        close.set_visibility(False)
+    d.open()
+
+    async def go():
+        any_ok = False
+        for src in sources:
+            step.text = f"{names[src]}: downloading accounts, positions, cash and transactions…"
+            r = await run.io_bound(brokers.run_sync, src, days)
+            any_ok |= r["ok"]
+            with body:
+                with ui.row().classes("items-start gap-2 no-wrap w-full"):
+                    ui.icon("check_circle" if r["ok"] else "error").style(f"color:{BRAND if r['ok'] else NEGATIVE}")
+                    with ui.column().classes("gap-0"):
+                        ui.label(names[src] + (" synced" if r["ok"] else " didn't sync")).classes("font-semibold")
+                        for m in r["messages"]:
+                            ui.label(m).classes("text-sm").style("white-space:pre-wrap")
+        if any_ok:
+            step.text = "Updating prices for your holdings…"
+            try:
+                from ..pipeline import fetch_prices_for
+
+                await run.io_bound(fetch_prices_for, holdings.held_tickers())
+            except Exception as e:
+                with body:
+                    ui.label(f"Prices not updated: {e}").classes("oe-small")
+        spin.set_visibility(False)
+        close.text = "Show my holdings" if any_ok else "Close"
+        close.set_visibility(True)
+    if sources:
+        ui.timer(0.1, go, once=True)
+    else:
+        spin.set_visibility(False)
+        close.set_visibility(True)
 
 
 def _snaptrade_card():

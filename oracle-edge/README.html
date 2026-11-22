@@ -78,7 +78,7 @@ footer { color:var(--muted); font-size:12.5px; margin-top:50px; border-top:1px s
   <h1><img src="brand/logo/oracle-edge-header-tagline.png" srcset="brand/logo/oracle-edge-header-tagline@2x.png 2x"
      alt="Oracle Edge: Screen, Rank, Signal"></h1>
   <p>A local stock screener that thinks like the Oracle. This guide explains <b>what</b> the app does,
-  <b>how</b> it decides, and <b>why</b> it was built this way. Version 0.22.0.</p>
+  <b>how</b> it decides, and <b>why</b> it was built this way. Version 0.22.1.</p>
   <p style="font-size:14px">Two documents: this <b>guide</b> is the user manual, kept current with every release and opened from
   "Guide" in the app. The <b>plan</b> (<code>docs/Value-Picker-Plan.html</code> with the source code) is the design record: the research, architecture,
   database layout and the decision log behind the app.</p>
@@ -1738,7 +1738,9 @@ activity</td><td>Free for personal use at <a href="https://snaptrade.com/persona
 Vanguard, Robinhood, E*TRADE and others there, then paste the Personal client ID and consumer key.</td></tr>
 </table>
 <p>Keys, secrets and sign-ins are stored in Windows Credential Manager, never in the app folder. Nothing is ever traded: the
-connections only read. After a sync or positions import, <b>share counts to check</b> lists any holding where the broker's share
+connections only read. Each sync opens a window that stays until you close it and says what came in for each account, or why it
+didn't (wrong keys, no brokerage connected yet in SnapTrade, an expired Schwab sign-in, no internet); the same lines are kept in
+<b>Connection and import log</b> on Accounts &amp; imports. After a sync or positions import, <b>share counts to check</b> lists any holding where the broker's share
 count and your purchases differ; <i>Match the broker</i> adds an undated purchase or scales the ones on file.</p>
 <h3 id="investcash">Invest my cash</h3>
 <figure class="shot"><img src="docs/guide/holdings-invest.jpg" alt="Invest my cash: today's market and the suggested cash to keep, the totals, and the order list with sells, trims and buys, each with shares and a limit price (demo data)." loading="lazy"><figcaption>Invest my cash (demo data): the market's state and the suggested reserve, then editable orders.</figcaption></figure>

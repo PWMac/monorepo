@@ -259,3 +259,16 @@ def test_order_plan_reserve_sells_and_buys(clean, monkeypatch):
     assert buy["limit"] == 48.0  # the lower of today's price and the strategy's buy price
     assert p["buys"] <= p["cash"] + p["proceeds"] - p["reserve"] + 1e-6
     assert "ZZX" in orderplan.to_csv(p) and "SELL" in orderplan.to_text(p)
+
+
+def test_sync_failures_are_reported_and_logged(monkeypatch):
+    monkeypatch.setattr(brokers.SnapTrade, "get", lambda self, path, params=None: [])
+    r = brokers.run_sync("snaptrade")
+    assert not r["ok"] and "no brokerage account connected" in r["messages"][0]
+    assert brokers.sync_log(1)[0]["ok"] == 0
+
+    def boom(self, path, params=None):
+        raise brokers.SnapTradeError("SnapTrade error 401 on /accounts: bad signature")
+    monkeypatch.setattr(brokers.SnapTrade, "get", boom)
+    r = brokers.run_sync("snaptrade")
+    assert not r["ok"] and "401" in r["messages"][0] and "401" in brokers.sync_log(1)[0]["detail"]
