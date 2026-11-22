@@ -255,3 +255,25 @@ def test_missing_start_date_comes_from_filings_and_coverage_says_why(monkeypatch
     with db.tx() as con:
         con.execute("DELETE FROM ceo_grades WHERE cik IN (990040, 990041)")
         con.execute("DELETE FROM ceo_cache WHERE key LIKE 'secstart:99004%'")
+
+
+def test_the_table_follows_the_map_zoom_and_legend():
+    rows = [{"ticker": "A", "quality": 85.0, "score": 80.0, "passes": True},    # best of both
+            {"ticker": "B", "quality": 60.0, "score": 75.0, "passes": False},   # wonderful, fails checklist
+            {"ticker": "C", "quality": 40.0, "score": 30.0, "passes": False},   # neither
+            {"ticker": "D", "quality": None, "score": 50.0, "passes": False}]   # not on the map
+    assert wp.norm_zoom([20, 100], [0, 100]) is None  # the whole map
+    z = wp.norm_zoom([55.2, 100], [60, 100])
+    assert z == {"x": [55.2, 100.0], "y": [60.0, 100.0]}
+    assert [r["ticker"] for r in wp.map_view(rows, None, set())] == ["A", "B", "C", "D"]
+    assert [r["ticker"] for r in wp.map_view(rows, z, set())] == ["A", "B"]
+    assert [r["ticker"] for r in wp.map_view(rows, z, {"both"})] == ["B"]
+    assert [r["ticker"] for r in wp.map_view(rows, None, {"neither"})] == ["A", "B"]
+    lab = wp.legend_counts(rows, rows, z)
+    assert lab["Best of both"] == "Best of both (1)" and lab["Neither"] == "Neither (0 of 1)"
+    for r in rows:
+        r.update(name=r["ticker"], streak70=0)
+    opt = wp.map_options(rows, {"A", "B"}, 70, z, {"neither"}, lab)
+    assert opt["dataZoom"][0]["startValue"] == 55.2 and opt["dataZoom"][1]["startValue"] == 60.0
+    assert opt["legend"]["selected"]["Neither"] is False and "(0 of 1)" in opt["legend"][":formatter"]
+    assert [s["name"] for s in opt["series"]] == list(wp.QUAD_NAME.values())  # stable names keep legend clicks working

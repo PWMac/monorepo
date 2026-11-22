@@ -74,7 +74,7 @@ footer { color:var(--muted); font-size:12.5px; margin-top:50px; border-top:1px s
   <h1><img src="brand/logo/oracle-edge-header-tagline.png" srcset="brand/logo/oracle-edge-header-tagline@2x.png 2x"
      alt="Oracle Edge: Screen, Rank, Signal"></h1>
   <p>A local stock screener that thinks like the Oracle. This guide explains <b>what</b> the app does,
-  <b>how</b> it decides, and <b>why</b> it was built this way. Version 0.17.6.</p>
+  <b>how</b> it decides, and <b>why</b> it was built this way. Version 0.17.7.</p>
   <p style="font-size:14px">Two documents: this <b>guide</b> is the user manual, kept current with every release and opened from
   "Guide" in the app. The <b>plan</b> (<code>docs/Value-Picker-Plan.html</code> with the source code) is the design record: the research, architecture,
   database layout and the decision log behind the app.</p>
@@ -416,13 +416,16 @@ one year in the decade fell under 10%, even for companies whose average is 25% o
 <li><b>The map</b>: every company as a dot, Quality across and Wonderfulness up, with dashed lines at the checklist bar and at 70.
 The top-right corner is the best of both; dots outside the current view fade. Each dot also shows:
 <ul>
-<li><b>Colour</b>: the group (best of both, wonderful but fails the checklist, passes but not wonderful, neither).</li>
+<li><b>Colour</b>: the group (best of both, wonderful but fails the checklist, passes but not wonderful, neither). The legend
+counts the companies of each group that are in the table, "12 of 134" when the view, the filters or the zoom leave some out.</li>
 <li><b>Shape</b>: Wonderfulness over the last 3 fiscal years: ▲ rising (+5 or more), ▼ falling (−5 or more), ● steady, ◆ new.</li>
 <li><b>Size</b>: how many years in a row it has been 70+ (the longer, the bigger). On the app's history, consistency predicted
 staying on top better than a rising score, so the big dots are the proven ones.</li>
 </ul>
-<b>Zoom</b> with the sliders under and beside the chart, the box tool (top right; ⟲ resets) or Shift + mouse wheel. Hover a dot
-for the details; <b>click it to open the company in a new tab</b>; click a legend entry to hide a group.</li>
+<b>Zoom</b> with the sliders under and beside the chart, the box tool (top right; ⟲ resets) or Shift + mouse wheel. <b>The table
+follows the map</b> (version 0.17.7): zoomed in, it lists only the companies in view, and a group hidden by clicking its legend
+entry leaves the table too. A line above the table says how many are shown and why, with <i>Show the whole map</i> to undo both.
+Hover a dot for the details; <b>click it to open the company in a new tab</b>.</li>
 <li><b>Quick filters</b>: text search, market value ($2B+ by default), hide companies slipping now (a business-health or hard
 warning in the latest 10-Q), and only those in the Buy Zone today.</li>
 <li><b>Add filter</b> (version 0.17.0): pick any column from the menu. Numbers get an "at least" and "at most" box in the units
@@ -1519,7 +1522,7 @@ their old results until you recalculate them.</p>
 <tr><td><b>XBRL</b></td><td>The tagged data format companies use to file financial statements with the SEC</td></tr>
 </table>
 
-<footer>Oracle Edge v0.17.6 · research tool, not financial advice · MIT license. The full design plan, with research sources,
+<footer>Oracle Edge v0.17.7 · research tool, not financial advice · MIT license. The full design plan, with research sources,
 is in <code>docs/Value-Picker-Plan.html</code> with the source code.</footer>
 </main>
 </div>

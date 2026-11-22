@@ -13,6 +13,8 @@ value.
 
 from __future__ import annotations
 
+import asyncio
+import json
 from collections import Counter
 
 from nicegui import app, ui
@@ -53,7 +55,54 @@ def _quad(r) -> str:
     return "both" if w and q else "nocheck" if w else "notwonder" if q else "neither"
 
 
-def map_options(rows: list[dict], inview: set[str], bar: float) -> dict:
+X_RANGE, Y_RANGE = (20.0, 100.0), (0.0, 100.0)  # the map's axes
+
+
+def norm_zoom(x: list[float] | None, y: list[float] | None) -> dict | None:
+    """The map's visible window from its axis extents; None when it shows the whole map."""
+    if not x or not y:
+        return None
+    x = [max(X_RANGE[0], float(x[0])), min(X_RANGE[1], float(x[1]))]
+    y = [max(Y_RANGE[0], float(y[0])), min(Y_RANGE[1], float(y[1]))]
+    if x[0] <= X_RANGE[0] + 0.5 and x[1] >= X_RANGE[1] - 0.5 and y[0] <= Y_RANGE[0] + 0.5 and y[1] >= Y_RANGE[1] - 0.5:
+        return None
+    return {"x": x, "y": y}
+
+
+def in_zoom(r: dict, zoom: dict | None) -> bool:
+    if not zoom:
+        return True
+    if r.get("quality") is None:
+        return False
+    (x0, x1), (y0, y1) = zoom["x"], zoom["y"]
+    return x0 - 0.05 <= r["quality"] <= x1 + 0.05 and y0 - 0.05 <= r["score"] <= y1 + 0.05
+
+
+def map_view(xs: list[dict], zoom: dict | None, hidden: set[str]) -> list[dict]:
+    """The table follows the map: only companies inside the zoomed window, and not in a group hidden in the
+    legend. With the whole map shown and every group on, everything (also companies without a Quality score)."""
+    if not zoom and not hidden:
+        return xs
+    return [r for r in xs if r.get("quality") is not None and _quad(r) not in hidden and in_zoom(r, zoom)]
+
+
+def legend_counts(allx: list[dict], xs: list[dict], zoom: dict | None) -> dict[str, str]:
+    """Legend label per group: how many of the group are in the table's view (filters and zoom), "of" the group's
+    total when that's fewer."""
+    out = {}
+    for k in QUAD_COL:
+        tot = sum(1 for r in allx if r.get("quality") is not None and _quad(r) == k)
+        shown = sum(1 for r in xs if r.get("quality") is not None and _quad(r) == k and in_zoom(r, zoom))
+        out[QUAD_NAME[k]] = f"{QUAD_NAME[k]} ({shown:,})" if shown == tot else f"{QUAD_NAME[k]} ({shown:,} of {tot:,})"
+    return out
+
+
+def legend_formatter(labels: dict[str, str]) -> str:
+    return f"n => ({json.dumps(labels)})[n] || n"
+
+
+def map_options(rows: list[dict], inview: set[str], bar: float, zoom: dict | None = None,
+                hidden: set[str] | None = None, labels: dict[str, str] | None = None) -> dict:
     groups: dict[str, list] = {k: [] for k in QUAD_COL}
     for r in rows:
         if r["quality"] is not None:
@@ -67,7 +116,7 @@ def map_options(rows: list[dict], inview: set[str], bar: float) -> dict:
                          "value": [round(r["quality"], 1), round(r["score"], 1), r["name"], r.get("trend_dir") or "new",
                                    r["streak70"], None if r.get("trend") is None else round(r["trend"], 0)],
                          "itemStyle": {"opacity": 0.92 if r["ticker"] in inview else 0.15}})
-        series.append({"type": "scatter", "name": f"{QUAD_NAME[g]} ({len(xs)})", "itemStyle": {"color": QUAD_COL[g]},
+        series.append({"type": "scatter", "name": QUAD_NAME[g], "itemStyle": {"color": QUAD_COL[g]},
                        "data": data, "emphasis": {"focus": "none", "scale": 1.6}})
     series[0]["markLine"] = {"silent": True, "symbol": "none", "lineStyle": {"type": "dashed", "color": "#6b7280"},
                              "label": {"show": False}, "data": [{"xAxis": bar}, {"yAxis": 70}]}
@@ -76,23 +125,31 @@ def map_options(rows: list[dict], inview: set[str], bar: float) -> dict:
            " return `<b>${p.name}</b> ${v[2]}<br>Wonderfulness <b>${v[1]}</b> · Quality <b>${v[0]}</b>"
            "<br>${d}${c}<br>${v[4] ? v[4] + (v[4] === 1 ? ' year' : ' years') + ' in a row at 70+' : 'not at 70+ now'}"
            "<br><i>click to open in a new tab</i>`; }")
+    zx = zoom["x"] if zoom else list(X_RANGE)
+    zy = zoom["y"] if zoom else list(Y_RANGE)
+    win_x = {"startValue": zx[0], "endValue": zx[1]}
+    win_y = {"startValue": zy[0], "endValue": zy[1]}
+    legend = {"top": 0, "icon": "circle", "selected": {QUAD_NAME[k]: k not in (hidden or set()) for k in QUAD_COL}}
+    if labels:
+        legend[":formatter"] = legend_formatter(labels)
     return {"tooltip": {":formatter": fmt},
-            "legend": {"top": 0, "icon": "circle"},
+            "legend": legend,
             "grid": {"left": 50, "right": 56, "top": 40, "bottom": 70},
             "toolbox": {"right": 8, "top": 0, "feature": {"dataZoom": {"title": {"zoom": "Drag a box to zoom",
                                                                                  "back": "Undo zoom"}},
                                                           "restore": {"title": "Reset"}}},
             "dataZoom": [{"type": "slider", "xAxisIndex": 0, "bottom": 8, "height": 16, "filterMode": "none",
-                          "showDataShadow": False},
+                          "showDataShadow": False, **win_x},
                          {"type": "slider", "yAxisIndex": 0, "right": 8, "width": 16, "filterMode": "none",
-                          "showDataShadow": False},
+                          "showDataShadow": False, **win_y},
                          {"type": "inside", "xAxisIndex": 0, "filterMode": "none", "zoomOnMouseWheel": "shift",
-                          "moveOnMouseMove": False},
+                          "moveOnMouseMove": False, **win_x},
                          {"type": "inside", "yAxisIndex": 0, "filterMode": "none", "zoomOnMouseWheel": "shift",
-                          "moveOnMouseMove": False}],
-            "xAxis": {"name": "Quality (Oracle checklist)", "nameLocation": "middle", "nameGap": 26, "min": 20,
-                      "max": 100},
-            "yAxis": {"name": "Wonderfulness", "nameLocation": "middle", "nameGap": 34, "min": 0, "max": 100},
+                          "moveOnMouseMove": False, **win_y}],
+            "xAxis": {"name": "Quality (Oracle checklist)", "nameLocation": "middle", "nameGap": 26, "min": X_RANGE[0],
+                      "max": X_RANGE[1]},
+            "yAxis": {"name": "Wonderfulness", "nameLocation": "middle", "nameGap": 34, "min": Y_RANGE[0],
+                      "max": Y_RANGE[1]},
             "series": series}
 
 
@@ -104,7 +161,8 @@ MAP_KEY = ("<div style='display:flex;gap:22px;flex-wrap:wrap;font-size:12px;colo
            + "".join(f"<span style='display:inline-flex;align-items:center;gap:4px'><span style='display:inline-block;"
                      f"width:{s}px;height:{s}px;border-radius:50%;background:#6b7280'></span>{lab}</span>"
                      for s, lab in ((6, "0"), (9, "2"), (11, "3–4"), (14, "5–6"), (17, "7+")))
-           + "<span style='margin-left:10px'><b>Colour</b>: group (legend above)</span></div>")
+           + "<span style='margin-left:10px'><b>Colour</b>: group (legend above: click one to hide it; the counts "
+             "are the companies in the table)</span></div>")
 
 # ---------------------------------------------------------------- table cells
 _LINK = """p => {
@@ -642,13 +700,12 @@ def screener_page(compare: str = "", view: str = "both"):
 
         # ---- the map
         with ui.card().classes("oe-card w-full"):
-            with ui.row().classes("w-full items-center justify-between"):
-                ui.label("Quality vs Wonderfulness").classes("oe-h2")
-                counts = ui.label("").classes("oe-small")
+            ui.label("Quality vs Wonderfulness").classes("oe-h2")
             ui.label(f"Each dot is a company. Right of the dashed line = passes the Oracle checklist (Quality {bar:.0f}+ and "
                      "every must-pass rule); above it = wonderful (70+). Zoom with the sliders (bottom and right), the "
-                     "box tool (top right; ⟲ resets) or Shift + mouse wheel. Click a dot to open the company in a new "
-                     "tab; click a legend entry to hide a group.").classes("oe-small")
+                     "box tool (top right; ⟲ resets) or Shift + mouse wheel: the table below then lists only the "
+                     "companies in view. Click a legend entry to hide a group (from the table too). Click a dot to open "
+                     "the company in a new tab.").classes("oe-small")
             chart = ui.echart({}, on_point_click=lambda e: ui.navigate.to(f"/stock/{e.name}", new_tab=True)
                               if e.name else None).classes("w-full").style("height:480px")
             ui.html(MAP_KEY, sanitize=False).classes("w-full")
@@ -678,6 +735,11 @@ def screener_page(compare: str = "", view: str = "both"):
                         ui.separator()
                         ui.switch("Trend arrows in cells", value=arrows["on"],
                                   on_change=lambda e: set_arrows(e.value)).classes("px-3 pb-2")
+        with ui.row().classes("items-center gap-2") as map_note_row:
+            map_note = ui.label("").classes("text-sm").style("color:#2c5d8f")
+            ui.button("Show the whole map", icon="zoom_out_map", on_click=lambda: reset_map()).props(
+                "flat dense no-caps size=sm")
+        map_note_row.set_visibility(False)
         ceo_status = ui.label("").classes("oe-small")
         g = ui.aggrid({"columnDefs": cols, "rowData": [], "context": ctx, ":getRowId": "p => p.data.ticker",
                        "defaultColDef": {"sortable": True, "resizable": True, "filter": True, "wrapHeaderText": True,
@@ -752,12 +814,8 @@ def screener_page(compare: str = "", view: str = "both"):
             label, t, _f, _k = VIEWS[st["view"]]
             tip.text = f"{label}: {t} {len(xs):,} companies."
             allx = base()
-            n = {k: sum(1 for r in allx if r["quality"] is not None and _quad(r) == k) for k in QUAD_COL}
-            counts.text = (f"{n['both']:,} best of both · {n['nocheck']:,} wonderful but fail the checklist · "
-                           f"{n['notwonder']:,} pass the checklist but aren't wonderful")
-            g.options["rowData"] = xs
-            st["last_view"] = xs
-            g.run_grid_method("setGridOption", "rowData", xs)
+            st["view_rows"], st["all_rows"] = xs, allx
+            show_rows()
             # grade the CEOs of the companies in view first (best first): never looked up, or stuck without a start date
             # or a CEO since before this version could find more (0.17.6: SEC certifications)
             retry_from = ceo.retry_from_date()
@@ -766,9 +824,66 @@ def screener_page(compare: str = "", view: str = "both"):
             todo = todo[:400]
             st.setdefault("watch", set()).update(r["cik"] for r in todo)
             ceo.queue_grades([(r["cik"], r["ticker"]) for r in todo], front=True)
+            draw_chart()
+
+        def draw_chart():
+            """The map from the page state (view, zoom window, hidden groups), so redrawing never jumps the zoom."""
+            xs, allx, zoom = st.get("view_rows", []), st.get("all_rows", []), st.get("zoom")
             chart.options.clear()
-            chart.options.update(map_options(allx, {r["ticker"] for r in xs}, bar))
+            chart.options.update(map_options(allx, {r["ticker"] for r in xs}, bar, zoom,
+                                             st.setdefault("hidden_groups", set()), legend_counts(allx, xs, zoom)))
             chart.update()
+
+        def show_rows():
+            """The table follows the map: rows in the zoomed window and not in a hidden group."""
+            xs, zoom, hidden = st.get("view_rows", []), st.get("zoom"), st.setdefault("hidden_groups", set())
+            shown = map_view(xs, zoom, hidden)
+            g.options["rowData"] = shown
+            st["last_view"] = shown
+            g.run_grid_method("setGridOption", "rowData", shown)
+            why = (["the zoomed area of the map"] if zoom else []) + (
+                ["hiding " + ", ".join(QUAD_NAME[k] for k in QUAD_COL if k in hidden)] if hidden else [])
+            map_note.text = f"Showing {len(shown):,} of {len(xs):,} companies: " + " · ".join(why) if why else ""
+            map_note_row.set_visibility(bool(why))
+
+        async def on_zoom(_e=None):
+            # zoom events stream while a slider is dragged: act once it settles
+            st["zseq"] = st.get("zseq", 0) + 1
+            me = st["zseq"]
+            await asyncio.sleep(0.35)
+            if me != st["zseq"]:
+                return
+            try:
+                ext = await ui.run_javascript(
+                    f"const c = getElement({chart.id}).chart, m = c.getModel();"
+                    " return [m.getComponent('xAxis', 0).axis.scale.getExtent(),"
+                    " m.getComponent('yAxis', 0).axis.scale.getExtent()];", timeout=3)
+            except Exception:
+                return
+            zoom = norm_zoom(*(ext or [None, None]))
+            if zoom == st.get("zoom"):
+                return
+            st["zoom"] = zoom
+            show_rows()
+            draw_chart()  # legend counts for the new window
+
+        def on_restore(_e=None):
+            st["zoom"] = None
+            refresh()
+
+        def on_legend(e):
+            sel = (e.args or {}).get("selected") or {}
+            st["hidden_groups"] = {k for k in QUAD_COL if sel.get(QUAD_NAME[k]) is False}
+            show_rows()
+            draw_chart()
+
+        def reset_map():
+            st["zoom"], st["hidden_groups"] = None, set()
+            refresh()
+
+        chart.on("chart:datazoom", on_zoom, [])
+        chart.on("chart:restore", on_restore, [])
+        chart.on("chart:legendselectchanged", on_legend, ["selected"])
 
         def set_view(k):
             st["view"] = k
