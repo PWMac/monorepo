@@ -619,7 +619,8 @@ def evaluate(date: str, profile: Profile, snaps: SnapshotBook, pb: PriceBook, re
 
     bpr = st.get("buy_price_rule") or "strict"
     need_fair = bpr != "strict" or exits.needs_fair(st)
-    floors = st.get("buy_min_sales_growth") is not None or st.get("buy_min_wonder") is not None
+    floors = (st.get("buy_min_sales_growth") is not None or st.get("buy_min_wonder") is not None
+              or bool(st.get("buy_trend")))
     for cik in snaps.ciks():
         s = snaps.asof(cik, date)
         if s is None:
@@ -733,6 +734,17 @@ def evaluate(date: str, profile: Profile, snaps: SnapshotBook, pb: PriceBook, re
             sg = extra_d.get("sales_g")
             if sg is None or sg < float(st["buy_min_sales_growth"]):
                 val_ok, why_not = False, "sales growth below the strategy's floor"
+        if val_ok and st.get("buy_trend"):
+            tr = st["buy_trend"]
+            a_now = pb.adj(t, date)
+            if tr in ("above_200d", "both"):
+                sma = pb.sma(t, date, 200)
+                if not (a_now and sma and a_now > sma):
+                    val_ok, why_not = False, "price below its 200-day average (the strategy buys only on the rise)"
+            if val_ok and tr in ("beating_market_6m", "both"):
+                rel = rel_return(pb, t, date, 182)
+                if rel is None or rel <= 0:
+                    val_ok, why_not = False, "behind the S&P 500 over 6 months (the strategy buys only on the rise)"
         if val_ok and st.get("buy_min_wonder") is not None:
             wv = extra_d.get("wonder")
             if wv is None or wv < float(st["buy_min_wonder"]):
@@ -774,6 +786,17 @@ def evaluate(date: str, profile: Profile, snaps: SnapshotBook, pb: PriceBook, re
     for i, e in enumerate(buys, 1):
         e.rank = i
     return out
+
+
+def rel_return(pb: PriceBook, t: str, d: str, days: int, bench: str = "SPY") -> float | None:
+    """The stock's total return over the last `days` calendar days relative to the S&P 500 (0.10 = 10% ahead)."""
+    from datetime import date as _date, timedelta as _td
+
+    d0 = (_date.fromisoformat(d) - _td(days=days)).isoformat()
+    p0, p1, s0, s1 = pb.adj(t, d0), pb.adj(t, d), pb.adj(bench, d0), pb.adj(bench, d)
+    if not (p0 and p1 and s0 and s1):
+        return None
+    return (p1 / p0) / (s1 / s0) - 1
 
 
 def _days_between(a: str, b: str) -> int:

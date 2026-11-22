@@ -103,7 +103,9 @@ def strategies_page(pid: int | None = None):
         def size_txt(st):
             if ranked(st):
                 return f"top {int(st.get('ranked_buy_count') or 4)} weekly, sells below #{int(st.get('ranked_sell_outside') or 8)}"
-            return st.get("max_holdings") if st.get("portfolio_mode", "focused") == "focused" else "variable"
+            if st.get("portfolio_mode", "focused") != "focused":
+                return "variable"
+            return "no limit" if st.get("max_holdings") == 0 else st.get("max_holdings")
 
         def price_txt(st):
             return "any price" if ranked(st) else f"{pct(st.get('hurdle'), 0)} · {pct(st.get('mos_gate'), 0)}"
@@ -247,7 +249,7 @@ def _exit_rules_editor(rs: list[dict], st: dict, locked: bool) -> None:
                                                                      table.refresh())).props(
                         "outlined dense clearable").classes("w-28")
                 if t.get("y_label"):
-                    yu = "pct" if r["when"] == "better_idea" else "x"
+                    yu = "pct" if r["when"] == "better_idea" else t.get("y_unit", "x")
                     ui.number(t["y_label"], value=_x_to_ui(r.get("y"), yu), format="%.4g",
                               on_change=lambda ev, r=r, u=yu: (r.update(y=_x_from_ui(ev.value, u)), table.refresh())
                               ).props("outlined dense clearable").classes("w-56")
@@ -403,6 +405,10 @@ def _editor(cur: rules.Profile) -> None:
             bwm = _num("Only buy when Wonderfulness is at least (blank = any)", st.get("buy_min_wonder"), "%.0f",
                        "w-[360px]", min=0, max=100)
             bwm.props("clearable")
+            btr = ui.select({"": "Any price trend", "above_200d": "Only when the price is above its 200-day average",
+                             "beating_market_6m": "Only when ahead of the S&P 500 over 6 months",
+                             "both": "Both"}, value=st.get("buy_trend") or "", label="Only buy on the rise").props(
+                "outlined dense").classes("w-[380px]")
             brk = ui.select({"oracle_rank": "Oracle Rank (Quality and cheapness)",
                              "combined": "Combined score: (Wonderfulness + Quality) ÷ 2"},
                             value=st.get("buy_rank_by") or "oracle_rank", label="Rank buy candidates by").props(
@@ -431,7 +437,7 @@ def _editor(cur: rules.Profile) -> None:
             pmode = ui.select({"focused": "Focused: hold only the best N", "variable": "Variable (old style)"},
                               value=st.get("portfolio_mode", "focused"), label="Portfolio style").props(
                 "outlined dense").classes("w-64")
-            pn = _num("Holdings (N)", st.get("max_holdings", 15), "%.0f", "w-32", min=1)
+            pn = _num("Holdings (N, 0 = no limit)", st.get("max_holdings", 15), "%.0f", "w-48", min=0)
             psz = ui.select({"equal": "Equal slices", "conviction": "Conviction (higher Rank, bigger slice)",
                              "value_quality": "Better business at a better price gets more",
                              "size": "Bigger company gets more (like an index)"},
@@ -525,12 +531,12 @@ def _editor(cur: rules.Profile) -> None:
                 "fair_pe_mult": round(float(fpm.value or 1.5), 4), "max_mos": _frac(mmo.value),
                 "vd_required_return": _frac(rvr.value), "vd_growth_cap": _frac(rvg.value, 0.12),
                 "predictability_mos": rpm.value,
-                "portfolio_mode": pmode.value, "max_holdings": max(1, int(pn.value or 15)), "sizing": psz.value,
+                "portfolio_mode": pmode.value, "max_holdings": max(0, int(pn.value)) if pn.value not in (None, "") else 15, "sizing": psz.value,
                 "initial_capital": float(10000 if pcap0.value in (None, "") else pcap0.value), "weekly_contribution": float(pwk.value or 0),
                 "new_money": ppol.value, "buy_rule": brule.value,
                 "ranked_buy_count": max(1, int(rbn.value or 4)), "ranked_max_weight": _frac(rmw.value),
                 "exit_rules": exits.copy_rules(ex_rules),
-                "buy_price_rule": bpr.value, "buy_rank_by": brk.value, "buy_fair_mult": round(float(bfm.value or 1.0), 4),
+                "buy_price_rule": bpr.value, "buy_rank_by": brk.value, "buy_trend": btr.value or None, "buy_fair_mult": round(float(bfm.value or 1.0), 4),
                 "buy_growth_gap": _frac(bgg.value, 0.10), "buy_min_return": _frac(bmr.value, 0.0),
                 "buy_min_sales_growth": _frac(bsg.value), "buy_min_wonder": float(bwm.value) if bwm.value not in (None, "")
                 else None, "rank_quality_weight": round(float(rqw.value if rqw.value is not None else

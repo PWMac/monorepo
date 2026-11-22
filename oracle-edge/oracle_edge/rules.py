@@ -28,6 +28,7 @@ def seed_profiles() -> None:
         _seed_quality_core()
         _seed_ranked()
         _seed_data_tuned()
+        _seed_rising()
         refresh_notes()
         ensure_house_view()
         return
@@ -48,6 +49,7 @@ def seed_profiles() -> None:
     _seed_quality_core()
     _seed_ranked()
     _seed_data_tuned()
+    _seed_rising()
     refresh_notes()
     ensure_house_view()
 
@@ -150,6 +152,30 @@ def _seed_data_tuned() -> None:
     _insert(DATA_NAME, body, locked=False, active=False, notes=PURPOSE[DATA_NAME])
 
 
+RISING_NAME = "Wonderful & rising · no limit"
+RISING_SETTINGS = {
+    "valuation_model": "value_driver", "hurdle": 0.15, "portfolio_mode": "focused", "max_holdings": 0,
+    "new_money": "spread", "sizing": "equal", "fund_strong": False, "buy_rank_by": "combined",
+    "buy_price_rule": "growth_gap", "buy_growth_gap": 0.10, "buy_min_return": 0.05, "buy_min_wonder": 75,
+    "buy_min_sales_growth": 0.10, "buy_trend": "above_200d",
+}
+
+
+def _seed_rising() -> None:
+    """Every wonderful, quality company at a sensible price whose sales and share price are rising, with no limit
+    on holdings and early warnings (Guide, "Wonderful & rising"). Editable and off."""
+    if db.scalar("SELECT COUNT(*) FROM profiles WHERE name=?", (RISING_NAME,), 0):
+        return
+    src = db.one("SELECT body_json FROM profiles WHERE name=?", ("Buffettology 15% · best 7",))
+    body = _with_defaults(json.loads(src["body_json"])) if src else load_yaml_profile()
+    body["settings"].update(RISING_SETTINGS)
+    from . import exits
+
+    body["settings"]["exit_rules"] = exits.rising_rules(body["settings"])
+    body["description"] = PURPOSE[RISING_NAME]
+    _insert(RISING_NAME, body, locked=False, active=False, notes=PURPOSE[RISING_NAME])
+
+
 def _insert(name, body, locked=False, active=False, parent_id=None, notes=None) -> int:
     cur = db.get().execute(
         "INSERT INTO profiles(name,parent_id,version,locked,active,body_json,notes,created_at,updated_at) "
@@ -205,6 +231,13 @@ PURPOSE = {
         "margin of safety below a cautious value most good companies never reach), best combined score first; trims "
         "only far above fair value or above 2× when sales stall; sells on a broken business, a very low expected "
         "return or shrinking sales. Backtest 2019 on: 13.4% a year vs 1.0% for the old rules (S&P 500 13.9%).",
+    "Wonderful & rising · no limit":
+        "Owns every wonderful, quality company (Wonderfulness 75+, Quality 70+) at a sensible price (it implies no more "
+        "than 10 points more growth than delivered, 5%+ expected return) whose sales grow 10%+ and whose price is above "
+        "its 200-day average; no limit on holdings, new money spread across them. Sells early when the price lags the "
+        "S&P 500 by 15%+ over 6 months or breaks its 200-day average while sales stall, or when Quality or "
+        "Wonderfulness drop 5+ points or sales shrink. Backtest: 14.3% a year from 2015 (S&P 500 13.3%), 10.7% from "
+        "2019 (13.9%).",
     "Top-ranked 4 · $200 a week":
         "Starts at $0 and puts $200 a week, $50 each, into the 4 companies with the highest (Wonderfulness + "
         "Quality) ÷ 2, at any price. Sells a holding once it ranks below #8 or a 10-Q shows sales shrinking, and "
@@ -287,6 +320,12 @@ def describe(body: dict) -> str:
         floors.append(f"sales growing {_pct(st['buy_min_sales_growth'])}+")
     if st.get("buy_min_wonder") is not None:
         floors.append(f"Wonderfulness {float(st['buy_min_wonder']):.0f}+")
+    if st.get("buy_trend") == "above_200d":
+        floors.append("the price above its 200-day average")
+    elif st.get("buy_trend") == "beating_market_6m":
+        floors.append("the stock ahead of the S&P 500 over 6 months")
+    elif st.get("buy_trend") == "both":
+        floors.append("the price above its 200-day average and ahead of the S&P 500 over 6 months")
     if floors and st.get("buy_rule") != "top_ranked":
         out.append("Only buys with " + " and ".join(floors) + ".")
     if st.get("buy_rank_by") == "combined" and st.get("buy_rule") != "top_ranked":
@@ -295,8 +334,11 @@ def describe(body: dict) -> str:
         nm = _NEW_MONEY.get(st.get("new_money"), "new money to the best value")
         if st.get("new_money") == "best_rank" and st.get("buy_rank_by") == "combined":
             nm = "new money to the best combined score"
-        out.append(f"Holds the best {st.get('max_holdings', 15)} ({_SIZING.get(st.get('sizing'), 'equal slices')}); "
-                   f"{nm}.")
+        if st.get("max_holdings") == 0:
+            out.append(f"No limit on holdings: owns every company that qualifies; {nm}.")
+        else:
+            out.append(f"Holds the best {st.get('max_holdings', 15)} ({_SIZING.get(st.get('sizing'), 'equal slices')}); "
+                       f"{nm}.")
     else:
         out.append("Variable portfolio (the old style): buys every Buy Zone stock.")
     extra = []
@@ -357,7 +399,7 @@ _DIFF_KEYS = [  # (setting, label, format)
     ("buy_price_rule", "buy price rule", "txt"), ("buy_fair_mult", "buy at most × fair value", "num"),
     ("buy_growth_gap", "growth gap", "pct"), ("buy_min_return", "expected return at least", "pct"),
     ("buy_min_sales_growth", "sales growth floor", "pct"), ("buy_min_wonder", "Wonderfulness floor", "num"),
-    ("buy_rank_by", "ranks candidates by", "txt"),
+    ("buy_rank_by", "ranks candidates by", "txt"), ("buy_trend", "only on the rise", "txt"),
 ]
 
 

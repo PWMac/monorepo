@@ -160,3 +160,35 @@ def test_data_preset_reads_plainly():
     lines = [exits.describe_rule(r) for r in exits.preset("data", {})]
     assert any("3× its fair value" in x for x in lines) and any("below 4%" in x for x in lines)
     assert exits.needs_fair({"exit_rules": exits.preset("data", {})}) and not exits.needs_fair({})
+
+
+def test_lagging_the_market_unless_growing():
+    falling = {d: (100.0 if d < DAYS[3] else 80.0) for d in DAYS}
+    rule = exits.rule("lagging_market", "sell", x=0.15, y=0.23, unless="sales_growth_at_least", ux=0.05)  # ~1 week
+    sim = _focused(610, n=1, prices={"AAA": falling}, exit_rules=[rule])
+    ev = _ev(1, "AAA")
+    for d in DAYS[:3]:
+        _step(sim, d, [ev])
+    growing = _ev(1, "AAA")
+    growing.detail = {"sales_g": 0.12}
+    r = _step(sim, DAYS[7], [growing])
+    assert not r.signals                                   # 20% behind the S&P 500, but sales grow 12%: keep it
+    stalled = _ev(1, "AAA")
+    stalled.detail = {"sales_g": 0.01}
+    r = _step(sim, DAYS[8], [stalled])
+    assert [s["type"] for s in r.signals] == ["SELL"] and "behind the S&P 500" in r.signals[0]["reason"]
+    six = exits.rule("lagging_market", "sell", x=0.15, y=6, unless="sales_growth_at_least", ux=0.05)
+    assert exits.describe_rule(six) == ("Sell all when it is 15% or more behind the S&P 500 over 6 months, "
+                                        "unless sales are growing 5% or more")
+
+
+def test_no_holdings_limit():
+    from oracle_edge import db
+    from oracle_edge.signals import ensure_portfolio
+
+    p = rules.default_profile()
+    db.get().execute("INSERT INTO runs(id,kind,name,profile_id,start_date) VALUES(?,?,?,?,?)",
+                     (611, "backtest", "t", p.id, DAYS[0]))
+    pid = ensure_portfolio(611, p, mode="focused", overrides={"max_holdings": 0})
+    assert db.scalar("SELECT max_positions FROM portfolios WHERE id=?", (pid,)) is None
+    assert "No limit on holdings" in rules.describe({"settings": {**p.settings, "max_holdings": 0}})

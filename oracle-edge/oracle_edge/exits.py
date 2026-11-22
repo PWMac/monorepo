@@ -88,6 +88,12 @@ TRIGGERS: dict[str, dict] = {
                    "help": "The price is X or more below the average cost."},
     "trail_stop": {"group": "Price and portfolio", "label": "Down from its high since bought %", "unit": "pct",
                    "x": 0.35, "help": "The price is X or more below its highest close since the first purchase."},
+    "lagging_market": {"group": "Price and portfolio", "label": "Behind the S&P 500 by % (over Y months)",
+                       "unit": "pct", "x": 0.15, "y_label": "over how many months", "y_unit": "num",
+                       "help": "The stock's total return is X or more behind the S&P 500's over the last Y months "
+                               "(default 6). Tests: lagging 15%+ over 6 months while sales grew under 5% kept "
+                               "lagging the next 6-12 months in both 2013-18 and 2019-25; with sales growing it "
+                               "usually recovered, so pair it with 'unless sales are growing'."},
     "below_200d": {"group": "Price and portfolio", "label": "Below its 200-day average", "unit": None,
                    "help": "The price closed below its 200-day average."},
     # ---- switching
@@ -115,6 +121,8 @@ PRESETS = {
     "classic": "Buffett classic (sell on a broken thesis; REVIEW, then sell if the next filing confirms; trim "
                "nose-bleed prices and oversized holdings; switch for a clearly better idea)",
     "ranked": "Top-ranked, as tested (sell below rank 8 or when sales shrink)",
+    "rising": "Wonderful & rising (sell early when the price lags and the business stalls, or Quality, "
+              "Wonderfulness or sales drop)",
     "data": "Data-tuned (November 2026 tests: sell on a broken business, a very low expected return or shrinking "
             "sales; trim only far above fair value, or above 2× fair value when sales aren't growing)",
 }
@@ -141,6 +149,28 @@ def data_rules(st: dict) -> list[dict]:
         rule("weight_above", "trim_to", x=None, amount=None),
         rule("better_idea", "switch", x=st.get("swap_rank_gap", 15), y=st.get("swap_er_gap", 0.04),
              min_days=int(st.get("swap_min_hold_days", 0) or 0)),
+    ]
+
+
+def rising_rules(st: dict) -> list[dict]:
+    """'Wonderful & rising' (November 2026 tests): early warnings that combine a falling price with a stalling
+    business, plus drops in Quality, Wonderfulness and sales; trims only far above fair value."""
+    return [
+        rule("fails_rules", "sell"),
+        rule("quality_below", "sell", x=st.get("sell_quality", 55)),
+        rule("fair_return_below", "sell", x=0.04),
+        rule("quality_drop", "sell", x=5),
+        rule("wonder_drop", "sell", x=5),
+        rule("sales_growth_below", "sell", x=0.0),
+        rule("lagging_market", "sell", x=0.15, y=6, unless="sales_growth_at_least", ux=0.05),
+        rule("below_200d", "sell", unless="sales_growth_at_least", ux=0.05),
+        rule("q_profits", "warn"),
+        rule("q_hard", "warn"),
+        rule("q_soft", "warn"),
+        rule("fair_over", "trim", x=3.0, amount=0.33, confirm="checks", checks=2),
+        rule("fair_over", "trim", x=2.0, amount=0.33, confirm="checks", checks=2, unless="sales_growth_at_least",
+             ux=0.05),
+        rule("weight_above", "trim_to", x=None, amount=None),
     ]
 
 
@@ -179,6 +209,8 @@ def legacy_rules(st: dict) -> list[dict]:
 def preset(name: str, st: dict) -> list[dict]:
     if name == "data":
         return data_rules(st)
+    if name == "rising":
+        return rising_rules(st)
     if name == "ranked":
         return legacy_rules({**st, "buy_rule": "top_ranked", "portfolio_mode": "focused"})
     return legacy_rules({**st, "buy_rule": "buy_zone"})
@@ -233,6 +265,7 @@ SAY = {
     "growth_gap_above": "the price implies {x} more growth a year than the company delivers",
     "fair_return_below": "the expected return at today's price is below {x}",
     "sales_growth_below": "sales growth over the last 12 months is below {x}",
+    "lagging_market": "it is {x} or more behind the S&P 500 over {y} months",
 }
 
 
@@ -243,8 +276,10 @@ def describe_rule(r: dict) -> str:
     if r["when"] == "better_idea":
         cond = SAY["better_idea"].format(x=f"{float(r.get('x') or 0):g}", y=f"{float(r.get('y') or 0) * 100:.0f}%")
     else:
-        cond = SAY.get(r["when"], r["when"]).format(x=x)
-        if r["when"] == "price_over_value" and r.get("y") is not None:
+        cond = SAY.get(r["when"], r["when"]).format(x=x, y=int(r.get("y") or 6))
+        if r["when"] == "lagging_market":
+            pass
+        elif r["when"] == "price_over_value" and r.get("y") is not None:
             cond += f" and the P/E is {float(r['y']):g}× its usual"
         if r["when"] == "pe_over_usual":
             cond += " or more"

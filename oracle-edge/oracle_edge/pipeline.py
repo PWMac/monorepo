@@ -806,6 +806,8 @@ def policy_label(policy) -> str:
 def _portfolio_label(mode, n, sizing, policy=None) -> str:
     if mode != "focused":
         return f"variable holdings{f' (limit {n})' if n else ''}"
+    if n == 0:
+        return "no holdings limit" + (f" · {policy_label(policy)}" if policy else "")
     if policy:
         return f"best {n} · {policy_label(policy)}"
     return f"best {n}, {'conviction' if sizing == 'conviction' else 'equal'} weights"
@@ -817,7 +819,11 @@ def run_backtest(job, profile_id: int, start: str, end: str, cadence: str = "wee
     p = rules.get_profile(profile_id)
     st = p.settings
     mode = mode or st.get("portfolio_mode", "variable")
-    n = int(max_holdings or st.get("max_holdings") or 15) if mode == "focused" else max_holdings
+    if mode == "focused":
+        n = int(max_holdings) if max_holdings else (0 if st.get("max_holdings") == 0 else
+                                                     int(st.get("max_holdings") or 15))
+    else:
+        n = max_holdings
     sizing = sizing or st.get("sizing", "equal")
     ensure_snapshots(job, p, start)
     pol = st.get("new_money", "best_value") + ("+fund" if st.get("fund_strong") else "")

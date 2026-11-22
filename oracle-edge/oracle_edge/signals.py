@@ -43,7 +43,8 @@ def ensure_portfolio(run_id: int, profile: Profile, name: str = "Model portfolio
     mode = mode or st.get("portfolio_mode", "variable")
     weekly = 0.0
     if mode == "focused":
-        max_pos = int(max_holdings or st.get("max_holdings") or 15)
+        mh = max_holdings if max_holdings is not None else st.get("max_holdings")
+        max_pos = None if mh == 0 else int(mh or 15)  # 0 = no limit on the number of holdings (0.19)
         ic = st.get("initial_capital")
         cash = last_value = float(10000.0 if ic is None else ic)  # $0 is allowed: start from new money only
         weekly = float(st.get("weekly_contribution") or 0.0)
@@ -960,6 +961,13 @@ class PortfolioSim:
                 return None
             hi = max(self.pb.window_adj(t, pos["opened_on"], d) or [px])
             return f"{1 - px / hi:.0%} below its high since bought" if px <= hi * (1 - x) else None
+        if when == "lagging_market":
+            from .engine import rel_return
+
+            months = float(y or 6)
+            rr = rel_return(self.pb, t, d, int(months * 30.44)) if t else None
+            return (f"{-rr:.0%} behind the S&P 500 over {months:g} months" if rr is not None and x is not None
+                    and rr <= -x else None)
         if when == "below_200d":
             sma = self.pb.sma(t, d, 200) if t else None
             return "below its 200-day average" if (px and sma and px < sma) else None
