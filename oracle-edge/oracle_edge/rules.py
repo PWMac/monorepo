@@ -26,6 +26,7 @@ def seed_profiles() -> None:
         _seed_timing()
         _seed_risk_optimized()
         _seed_quality_core()
+        _seed_ranked()
         refresh_notes()
         ensure_house_view()
         return
@@ -44,6 +45,7 @@ def seed_profiles() -> None:
     _seed_timing()
     _seed_risk_optimized()
     _seed_quality_core()
+    _seed_ranked()
     refresh_notes()
     ensure_house_view()
 
@@ -103,6 +105,26 @@ def _seed_quality_core() -> None:
     _insert(CORE_NAME, body, locked=False, active=False, notes=PURPOSE[CORE_NAME])
 
 
+RANKED_NAME = "Top-ranked 4 · $200 a week"
+RANKED_SETTINGS = {
+    "buy_rule": "top_ranked", "portfolio_mode": "focused", "ranked_buy_count": 4, "ranked_sell_outside": 8,
+    "ranked_sell_on_revenue": True, "ranked_max_weight": None, "initial_capital": 0, "weekly_contribution": 200,
+    "trade_cost_bps": 0,
+}
+
+
+def _seed_ranked() -> None:
+    """The weekly top-4 plan tested in November 2026 (Guide, "Top-ranked buying"): $200 a week split across the 4
+    best-scored companies, sold when they drop out of the top 8 or sales start shrinking."""
+    if db.scalar("SELECT COUNT(*) FROM profiles WHERE name=?", (RANKED_NAME,), 0):
+        return
+    src = db.one("SELECT body_json FROM profiles WHERE name=?", ("Buffettology 15% · best 7",))
+    body = _with_defaults(json.loads(src["body_json"])) if src else load_yaml_profile()
+    body["settings"].update(RANKED_SETTINGS)
+    body["description"] = PURPOSE[RANKED_NAME]
+    _insert(RANKED_NAME, body, locked=False, active=False, notes=PURPOSE[RANKED_NAME])
+
+
 def _insert(name, body, locked=False, active=False, parent_id=None, notes=None) -> int:
     cur = db.get().execute(
         "INSERT INTO profiles(name,parent_id,version,locked,active,body_json,notes,created_at,updated_at) "
@@ -152,6 +174,11 @@ PURPOSE = {
         "Buffettology 15% with risk limits: 7 holdings, a cash reserve for strong buys, bigger slices for better "
         "businesses at better prices, and caps of 35% per stock, 50% per sector and 60% in stocks that move "
         "together.",
+    "Top-ranked 4 · $200 a week":
+        "Starts at $0 and puts $200 a week, $50 each, into the 4 companies with the highest (Wonderfulness + "
+        "Quality) ÷ 2, at any price. Sells a holding once it ranks below #8 or a 10-Q shows sales shrinking, and "
+        "puts the money back into the top 4. In the November 2026 tests it about matched the S&P 500 (2019 on: "
+        "13.8% a year vs 13.5%) with deeper drops and only 4 to 8 stocks; never selling earned 5.7%.",
 }
 _OLD_DEFAULTS = ("Copy of ", "Buffett's rules of thumb", "The Oracle's rules of thumb, 10-year",
                  "Stricter: Mary Buffett", "Stricter: the Buffettology 15%", "5-year lookbacks so backtests",
@@ -192,6 +219,17 @@ _NEW_MONEY = {"best_value": "new money to the best value", "best_rank": "new mon
 def describe(body: dict) -> str:
     """What a profile does, in one plain paragraph, built from its settings so it is always accurate."""
     st = body.get("settings", {})
+    if st.get("buy_rule") == "top_ranked":
+        n = int(st.get("ranked_buy_count") or 4)
+        out = [f"Every week splits the money equally across the {n} best-scored companies by (Wonderfulness + "
+               f"Quality) ÷ 2, at any price. Sells a holding once it ranks below #{int(st.get('ranked_sell_outside') or 2 * n)}"
+               + (" or its latest 10-Q shows sales shrinking" if st.get("ranked_sell_on_revenue", True) else "")
+               + "; never trims a winner."]
+        if st.get("ranked_max_weight"):
+            out.append(f"No new money into a holding above {_pct(st['ranked_max_weight'])} of the portfolio.")
+        out.append(f"Starts with ${float(st.get('initial_capital') or 0):,.0f} and adds "
+                   f"${float(st.get('weekly_contribution') or 0):,.0f} a week.")
+        return " ".join(out)
     if st.get("price_test") == "fair_pe":
         out = [f"Buys when Quality is at least {st.get('quality_min', 70):.0f} on {st.get('lookback_years', 10)} years "
                f"of results and the P/E is at most {float(st.get('fair_pe_mult', 1.5)):g} times the company's own "
@@ -248,6 +286,9 @@ _DIFF_KEYS = [  # (setting, label, format)
     ("trade_cost_bps", "trading cost (bps)", "num"), ("rank_quality_weight", "Quality weight in rank", "num"),
     ("health_check", "business health check", "bool"), ("price_test", "price test", "txt"),
     ("fair_pe_mult", "fair P/E (x usual)", "num"), ("max_mos", "too-cheap guard", "pct"),
+    ("buy_rule", "buying rule", "txt"), ("ranked_buy_count", "bought each week", "num"),
+    ("ranked_sell_outside", "sells below rank", "num"), ("ranked_sell_on_revenue", "sells on shrinking sales", "bool"),
+    ("ranked_max_weight", "no new money above", "pct"),
 ]
 
 

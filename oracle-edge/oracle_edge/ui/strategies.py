@@ -97,6 +97,17 @@ def strategies_page(pid: int | None = None):
         # ---- side by side
         recs = {p.id: record(p) for p in profs}
         rows = []
+        def ranked(st):
+            return st.get("buy_rule") == "top_ranked" and st.get("portfolio_mode", "focused") == "focused"
+
+        def size_txt(st):
+            if ranked(st):
+                return f"top {int(st.get('ranked_buy_count') or 4)} weekly, sells below #{int(st.get('ranked_sell_outside') or 8)}"
+            return st.get("max_holdings") if st.get("portfolio_mode", "focused") == "focused" else "variable"
+
+        def price_txt(st):
+            return "any price" if ranked(st) else f"{pct(st.get('hurdle'), 0)} · {pct(st.get('mos_gate'), 0)}"
+
         for p in profs:
             r = recs[p.id]
             st = p.settings
@@ -105,8 +116,8 @@ def strategies_page(pid: int | None = None):
                 f"{'★ ' if p.id == prim else ''}<a href='/strategies?pid={p.id}' style='color:inherit'>{p.name}</a>"
                 f"{' 🔒' if p.locked else ''}</td>"
                 f"<td>{'yes' if p.active else '—'}</td>"
-                f"<td>{st.get('max_holdings') if st.get('portfolio_mode', 'focused') == 'focused' else 'variable'}</td>"
-                f"<td>{pct(st.get('hurdle'), 0)} · {pct(st.get('mos_gate'), 0)}</td>"
+                f"<td>{size_txt(st)}</td>"
+                f"<td>{price_txt(st)}</td>"
                 f"<td>{r.get('holdings', '—')}</td>"
                 f"<td>{pct(r.get('cagr'), 1) if r.get('cagr') is not None else '—'}</td>"
                 f"<td>{pct(r.get('bench_cagr'), 1) if r.get('bench_cagr') is not None else '—'}</td>"
@@ -265,6 +276,20 @@ def _editor(cur: rules.Profile) -> None:
         # ---- 3. portfolio
         ui.label("3 · How the portfolio is run").classes("oe-h2 pt-2")
         with ui.row().classes("gap-3 items-end"):
+            brule = ui.select({"buy_zone": "Buy Zone: buy below the buy price (section 2)",
+                               "top_ranked": "Top-ranked: every week, the best-scored companies at any price"},
+                              value=st.get("buy_rule", "buy_zone"), label="Buying rule").props(
+                "outlined dense").classes("w-[430px]")
+            rbn = _num("Top-ranked: companies bought each week", st.get("ranked_buy_count", 4), "%.0f", "w-72",
+                       min=1, max=20)
+            rmw = _num("Top-ranked: no new money above % of portfolio (blank = off)", _pct(st.get("ranked_max_weight")),
+                       "%.0f", "w-[400px]", min=5, max=100)
+            rmw.props("clearable")
+        ui.label("Top-ranked ranks every scored company by (Wonderfulness + Quality) ÷ 2 as known each week, splits the "
+                 "week's money (and any sales) equally across the top ones, and ignores the price test, Buy Zone, "
+                 "holdings limit, sizing, new-money settings, the Quality sell line and the health check; it sells "
+                 "only by its own two rules in section 4. It must be Focused.").classes("oe-small")
+        with ui.row().classes("gap-3 items-end"):
             pmode = ui.select({"focused": "Focused: hold only the best N", "variable": "Variable (old style)"},
                               value=st.get("portfolio_mode", "focused"), label="Portfolio style").props(
                 "outlined dense").classes("w-64")
@@ -312,6 +337,11 @@ def _editor(cur: rules.Profile) -> None:
                        max=100)
             hc = ui.switch("Business health check: skip companies slipping now; sell when the next filing confirms it",
                            value=bool(st.get("health_check")))
+        with ui.row().classes("gap-3 items-end"):
+            rso = _num("Top-ranked: sell when it ranks below #", st.get("ranked_sell_outside", 8), "%.0f", "w-72",
+                       min=1, max=200)
+            rsr = ui.switch("Top-ranked: sell (and don't buy) while the latest 10-Q shows sales shrinking",
+                            value=st.get("ranked_sell_on_revenue", True))
         with ui.row().classes("gap-6 items-center"):
             qw = ui.switch("Quarterly early warnings (10-Q)", value=st.get("quarterly_warnings", True))
             qb = ui.switch("Block new buys while a hard 10-Q warning is open",
@@ -362,8 +392,10 @@ def _editor(cur: rules.Profile) -> None:
                 "vd_required_return": _frac(rvr.value), "vd_growth_cap": _frac(rvg.value, 0.12),
                 "predictability_mos": rpm.value,
                 "portfolio_mode": pmode.value, "max_holdings": max(1, int(pn.value or 15)), "sizing": psz.value,
-                "initial_capital": float(pcap0.value or 10000), "weekly_contribution": float(pwk.value or 0),
-                "new_money": ppol.value, "rank_quality_weight": round(float(rqw.value if rqw.value is not None else
+                "initial_capital": float(10000 if pcap0.value in (None, "") else pcap0.value), "weekly_contribution": float(pwk.value or 0),
+                "new_money": ppol.value, "buy_rule": brule.value,
+                "ranked_buy_count": max(1, int(rbn.value or 4)), "ranked_max_weight": _frac(rmw.value),
+                "ranked_sell_outside": max(1, int(rso.value or 8)), "ranked_sell_on_revenue": rsr.value, "rank_quality_weight": round(float(rqw.value if rqw.value is not None else
                                                                             0.65), 4),
                 "min_rank_score": float(pmin.value or 0), "max_buy_weight": float(pmax.value or 25) / 100,
                 "max_adds": int(padds.value or 0), "add_requires_quality": paq.value,

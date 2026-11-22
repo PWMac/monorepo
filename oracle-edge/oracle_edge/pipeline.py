@@ -242,6 +242,7 @@ def replay_many(run_ids: list[int], profile: rules.Profile, end: str, cadence: s
     sims = [PortfolioSim(rid, pid, profile, pb, tk) for rid, pid in zip(run_ids, pids)]
     for sim in sims:
         sim.macro = macro  # VIX for the market overlay
+        sim.snaps = snaps  # the top-ranked rule ranks every scored company itself
     st = profile.settings
     con = db.get()
     n = 0
@@ -762,6 +763,9 @@ def run_backtest(job, profile_id: int, start: str, end: str, cadence: str = "wee
     ensure_snapshots(job, p, start)
     pol = st.get("new_money", "best_value") + ("+fund" if st.get("fund_strong") else "")
     label = _portfolio_label(mode, n, sizing, pol if mode == "focused" else None)
+    if mode == "focused" and st.get("buy_rule") == "top_ranked":
+        k = int(st.get("ranked_buy_count") or 4)
+        label = f"top-ranked {k} every week, sells below #{int(st.get('ranked_sell_outside') or 2 * k)}"
     cur = db.get().execute(
         "INSERT INTO runs(kind,name,profile_id,start_date,end_date,status,started_at,settings_json) "
         "VALUES('backtest',?,?,?,?, 'running', ?, ?)",
@@ -818,6 +822,10 @@ def run_sweep(job, profile_id: int, start: str, end: str, cadence: str = "weekly
     focused portfolio for every size x new-money policy (plus the old variable style for reference), using the
     profile's starting money and weekly amount, then score each robustly."""
     p = rules.get_profile(profile_id)
+    if p.settings.get("buy_rule") == "top_ranked":
+        return (f"{p.name} uses the top-ranked buying rule, which ignores the number of holdings and where new money "
+                "goes, so this test would give the same result for every size. Change 'Companies bought each week' "
+                "or 'Sell when it ranks below #' and run an ordinary backtest instead.")
     sizes = sorted({int(x) for x in (sizes or SWEEP_SIZES) if int(x) > 0})
     policies = policies or SWEEP_POLICIES
     sz0 = (sizings or [p.settings.get("sizing", "equal")])[0]
