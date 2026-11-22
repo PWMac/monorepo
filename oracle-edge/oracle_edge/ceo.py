@@ -1,7 +1,8 @@
 """CEO track record: how the company did for its owners while a chief executive was in charge.
 
-Who and when come from Wikidata (sources/wikidata.py), checked against Yahoo's officer list, and can be corrected by
-you (the ceo_manual table). The record itself is computed from the app's own data: SEC filings for the business and
+Who and when come first from the company's SEC filings (sources/sec_ceo.py: the principal executive officer signs
+every 10-K and 10-Q), with Wikidata for exact start dates and careers and Yahoo's officer list as a last resort; you
+can correct both (the ceo_manual table). The record itself is computed from the app's own data: SEC filings for the business and
 adjusted prices for the stock, from the last annual report before the CEO started to the latest one in office.
 
 Four parts, 25 points each, on fixed scales so any two CEOs compare directly:
@@ -265,27 +266,64 @@ def _same_person(a: str | None, b: str | None) -> bool:
     return bool(la and lb and (la[-1] in lb or lb[-1] in la))
 
 
-def who(cik: int, ticker: str, yahoo_officers: list[dict] | None = None) -> dict:
+def _sec_start(sec: dict) -> str | None:
+    return sec.get("since")
+
+
+def _sec_label(sec: dict) -> str:
+    if sec.get("at_least"):
+        return (f"SEC certifications: signed every report on file back to the {sec.get('first_form')} filed "
+                f"{sec.get('first_filed')}")
+    r = sec.get("since_range") or ["?", "?"]
+    return (f"SEC certifications: first signed the {sec.get('first_form')} filed {r[1]}"
+            + (f"; {sec['prev_name']} signed the one filed {r[0]}" if sec.get("prev_name") else ""))
+
+
+def who(cik: int, ticker: str, yahoo_officers: list[dict] | None = None, sec: dict | None = None) -> dict:
     """The current CEO and the company's CEO history.
-    Returns {current: {name, start, source, qid?}, history: [...], conflict: str?}."""
+    Returns {current: {name, start, source, qid?}, history: [...], conflict: str?, sec: {...}}.
+
+    Sources, most trusted first: your entry; the SEC certifications (the person who signed the latest 10-K / 10-Q /
+    20-F as principal executive officer; start from the first report they signed); Wikidata (exact start dates and
+    the CEO's other companies, used whenever it names the same person); Yahoo's officer list (name only)."""
     from .sources import wikidata
 
     hist = wikidata.ceos(cik, ticker)
     ycea = next((o for o in yahoo_officers or [] if o.get("title") and
                  ("chief executive" in o["title"].lower() or "ceo" in o["title"].lower().replace(",", " ").split())),
                 None)
-    out: dict = {"history": hist or [], "wikidata_ok": hist is not None, "yahoo_ceo": ycea["name"] if ycea else None}
+    sec = sec or {}
+    out: dict = {"history": hist or [], "wikidata_ok": hist is not None, "yahoo_ceo": ycea["name"] if ycea else None,
+                 "sec": sec, "sec_ok": bool(sec.get("name"))}
     m = manual(cik)
     if m:
-        out["current"] = {"name": m["name"] or (ycea or {}).get("name") or "CEO", "start": m["start"], "source": "you"}
+        out["current"] = {"name": m["name"] or sec.get("name") or (ycea or {}).get("name") or "CEO", "start": m["start"],
+                          "source": "you"}
         return out
     cur = [h for h in hist or [] if not h["end"] or h["end"] >= date.today().isoformat()]
     cur = sorted(cur, key=lambda h: h["start"] or "0000")
-    if cur:
-        c = cur[-1]
-        out["current"] = {"name": c["name"], "start": c["start"], "qid": c["qid"], "source": "Wikidata"}
-        if ycea and not _same_person(c["name"], ycea["name"]):
-            out["conflict"] = (f"Yahoo lists {ycea['name']} as CEO but Wikidata has {c['name']}; Wikidata may be out "
+    wd = cur[-1] if cur else None
+    if sec.get("name"):
+        # the SEC names today's CEO; Wikidata adds an exact start date when it has the same person (anywhere in its
+        # list: it may still show the predecessor as current)
+        same = next((h for h in reversed(sorted(hist or [], key=lambda h: h["start"] or "0000"))
+                     if _same_person(h["name"], sec["name"])), None)
+        if same and same.get("start") and not (same.get("end") and same["end"] < sec.get("filed", "")):
+            out["current"] = {"name": same["name"], "start": same["start"], "qid": same.get("qid"),
+                              "source": "SEC certification and Wikidata"}
+        else:
+            out["current"] = {"name": sec["name"], "start": _sec_start(sec), "qid": (same or {}).get("qid"),
+                              "source": _sec_label(sec), "approx": True, "at_least": bool(sec.get("at_least"))}
+        if wd and not _same_person(wd["name"], sec["name"]):
+            out["wikidata_stale"] = wd["name"]
+        if ycea and not _same_person(ycea["name"], sec["name"]):
+            out["conflict"] = (f"Yahoo lists {ycea['name']} as CEO; the latest SEC report ({sec.get('form')} filed "
+                               f"{sec.get('filed')}) was signed by {sec['name']}. If the CEO changed since, enter the "
+                               "new CEO and start date below.")
+    elif wd:
+        out["current"] = {"name": wd["name"], "start": wd["start"], "qid": wd["qid"], "source": "Wikidata"}
+        if ycea and not _same_person(wd["name"], ycea["name"]):
+            out["conflict"] = (f"Yahoo lists {ycea['name']} as CEO but Wikidata has {wd['name']}; Wikidata may be out "
                                "of date. Enter the right CEO and start date below.")
     elif ycea:
         out["current"] = {"name": ycea["name"], "start": None, "source": "Yahoo (no start date)"}
@@ -301,12 +339,18 @@ def assess(cik: int, ticker: str, hint_start: str | None = None, refresh: bool =
     refresh: look again now (drop the cached Wikidata answer and Yahoo profile). hint_start: the filing date of an
     SEC 8-K reporting an officer change; when Yahoo then names a different CEO than Wikidata (which often lags by
     weeks), Yahoo's name is taken, starting on that date."""
-    from .sources import company, wikidata
+    from .sources import company, sec_ceo, wikidata
 
     if refresh:
         db.get().execute("DELETE FROM ceo_cache WHERE key=?", (f"ceos:{cik}",))
     info = company.get(ticker, refresh=refresh)
-    res = who(cik, ticker, (info or {}).get("officers"))
+    try:
+        sec = sec_ceo.current(cik, refresh=refresh)
+    except Exception as e:
+        db.log("sec", "ceo certifications", False, f"{cik}: {e}"[:200])
+        sec = None
+    res = who(cik, ticker, (info or {}).get("officers"), sec)
+    res["sec_reached"] = sec is not None
     cur = res.get("current")
     if hint_start and res.get("yahoo_ceo") and (cur or {}).get("source") != "you" and (
             not cur or not _same_person(cur.get("name"), res["yahoo_ceo"])):
@@ -314,11 +358,16 @@ def assess(cik: int, ticker: str, hint_start: str | None = None, refresh: bool =
         res["current"] = cur
         res.pop("conflict", None)
     res["change_source"] = source
-    if cur and cur.get("name") and not cur.get("start") and cur.get("source") != "you":
+    # no start date, or only "at least since" the oldest report on file: look for the date in the CEO's biography
+    # (proxy statement / annual report)
+    if cur and cur.get("name") and cur.get("source") != "you" and (not cur.get("start") or cur.get("at_least")):
         found = start_from_filings(cik, cur["name"])
-        if found:
-            cur = {**cur, "start": found["start"],
-                   "source": f"{cur.get('source') or 'Wikidata'}; start date from the {found['form']} filed {found['filed']}"}
+        if found and (not cur.get("start") or found["start"] < cur["start"]):
+            src = cur.get("source") or "Wikidata"
+            if cur.get("at_least"):
+                src = "SEC certification"
+            cur = {**cur, "start": found["start"], "approx": False, "at_least": False,
+                   "source": f"{src}; start date from the {found['form']} filed {found['filed']}"}
             res["current"] = cur
             res["start_note"] = found["sentence"]
     if cur and cur.get("start"):
@@ -327,8 +376,8 @@ def assess(cik: int, ticker: str, hint_start: str | None = None, refresh: bool =
         res["tenures"] = career_tenures(cik, ticker, cur, led)
         res["record"] = res["tenures"][0]["record"]
         res["career"] = career(res["tenures"])
-    # save only a real answer: when Wikidata couldn't be reached, a missing CEO means "unknown", not "none"
-    res["saved"] = bool(res.get("wikidata_ok") or (cur or {}).get("source") == "you")
+    # save only a real answer: when neither the SEC nor Wikidata gave one, a missing CEO means "unknown", not "none"
+    res["saved"] = bool(res.get("wikidata_ok") or res.get("sec_ok") or (cur or {}).get("source") == "you")
     if res["saved"]:
         save_grade(cik, res)
     return res
@@ -410,10 +459,12 @@ def recent_changes(days: int = 365) -> dict[int, dict]:
     return out
 
 
-def check_changes(eightk: dict[int, str], annual: set[int] | None = None) -> dict:
+def check_changes(eightk: dict[int, str], annual: set[int] | None = None, periodic: set[int] | None = None) -> dict:
     """The daily update's CEO step. eightk: companies that filed an 8-K since the last check (cik -> first filing
     date). Those we follow (graded, or Wonderfulness 60+) whose 8-K reports item 5.02 are looked up again now
-    (fresh Wikidata and Yahoo). Companies with a new annual report are re-graded (their record changed)."""
+    (fresh Wikidata and Yahoo). periodic: companies that filed a 10-K / 10-Q / 20-F; for those graded, the new
+    report's CEO certification is read, and a different signer is looked up again as a CEO change. Companies with a
+    new annual report are re-graded (their record changed)."""
     from datetime import date as _d, timedelta as _td
 
     from . import rules
@@ -438,6 +489,22 @@ def check_changes(eightk: dict[int, str], annual: set[int] | None = None) -> dic
                 assess(cik, tick[cik], hint_start=dates[0], refresh=True, source=f"SEC 8-K item 5.02 filed {dates[0]}")
         except Exception as e:
             db.log("ceo", "8-K check", False, f"{tick.get(cik)}: {e}"[:200])
+    from .sources import sec_ceo
+
+    out["checked_reports"] = 0
+    on_record = {r["cik"]: r["name"] for r in db.rows("SELECT cik, name FROM ceo_grades WHERE name IS NOT NULL")}
+    for cik in sorted((periodic or set()) & set(on_record)):
+        if cik not in tick or (manual(cik) is not None):
+            continue
+        try:
+            out["checked_reports"] += 1
+            s = sec_ceo.current(cik, refresh=True) or {}
+            if s.get("name") and not _same_person(s["name"], on_record[cik]):
+                out["officer_changes"] += 1
+                assess(cik, tick[cik], refresh=True,
+                       source=f"SEC: the {s.get('form')} filed {s.get('filed')} was certified by {s['name']}")
+        except Exception as e:
+            db.log("ceo", "certification check", False, f"{tick.get(cik)}: {e}"[:200])
     graded = {r["cik"] for r in db.rows("SELECT cik FROM ceo_grades")}
     for cik in sorted((annual or set()) & graded):
         if cik in tick:
@@ -465,8 +532,8 @@ def to_rate(min_score: float = 60.0, max_age_days: int = 30, profile=None) -> li
 
     p = profile or rules.default_profile()
     old = (date.today() - timedelta(days=max_age_days)).isoformat()
-    # 0.17.5 can find a missing start date in the company's filings: companies stuck without one (or without a CEO)
-    # are looked at once more, whenever they were last tried
+    # companies stuck without a start date or a CEO are looked at once more by each version that can find more
+    # (0.17.6: the SEC certifications), whenever they were last tried
     retry_from = retry_from_date()
     return [(r["cik"], r["ticker"]) for r in db.rows(
         "SELECT w.cik, s.ticker FROM wonder w JOIN securities s ON s.cik=w.cik LEFT JOIN ceo_grades g ON g.cik=w.cik "
@@ -475,13 +542,17 @@ def to_rate(min_score: float = 60.0, max_age_days: int = 30, profile=None) -> li
         "'CEO not found') AND g.updated_at < ?)) ORDER BY w.score DESC", (p.snap[0], min_score, old, retry_from))]
 
 
+RETRY_KEY = "ceo_retry_from:0.17.6"
+
+
 def retry_from_date() -> str:
     """When this version first ran: companies left without a start date or a CEO before then get one more look
-    (0.17.5 can read start dates from filings). Set once."""
-    v = db.cfg("ceo_retry_from")
+    (0.17.5 read start dates from proxy statements; 0.17.6 reads the CEO and start from the SEC certifications).
+    Set once per version that can find more."""
+    v = db.cfg(RETRY_KEY)
     if not v:
         v = db.now()
-        db.set_cfg("ceo_retry_from", v)
+        db.set_cfg(RETRY_KEY, v)
     return v
 
 

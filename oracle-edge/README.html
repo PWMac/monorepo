@@ -74,7 +74,7 @@ footer { color:var(--muted); font-size:12.5px; margin-top:50px; border-top:1px s
   <h1><img src="brand/logo/oracle-edge-header-tagline.png" srcset="brand/logo/oracle-edge-header-tagline@2x.png 2x"
      alt="Oracle Edge: Screen, Rank, Signal"></h1>
   <p>A local stock screener that thinks like the Oracle. This guide explains <b>what</b> the app does,
-  <b>how</b> it decides, and <b>why</b> it was built this way. Version 0.17.5.</p>
+  <b>how</b> it decides, and <b>why</b> it was built this way. Version 0.17.6.</p>
   <p style="font-size:14px">Two documents: this <b>guide</b> is the user manual, kept current with every release and opened from
   "Guide" in the app. The <b>plan</b> (<code>docs/Value-Picker-Plan.html</code> with the source code) is the design record: the research, architecture,
   database layout and the decision log behind the app.</p>
@@ -450,19 +450,21 @@ buy price, and the live profile's own Buy Zone status (which uses that profile's
 filtered with Add filter. Banks and insurers aren't valued this way and show blank.</li>
 <li><b>CEO grade</b>: the CEO's track-record grade (A–F, with the score; career-weighted when they ran other companies; see
 CEO track record). Hover for the name and since when. Opening the Screener starts grading the CEOs of the companies in
-the current view in the background, best first (a few Wikidata and Yahoo look-ups each, so a second or two apiece); the
+the current view in the background, best first (a dozen or so SEC documents plus Wikidata and Yahoo each the first time, so a few seconds apiece); the
 column shows "rating…" and fills in as the grades arrive, with a progress line above the table. The daily update grades up to
 150 more a day, opening a stock's Wonderful? tab grades it at once, and grades are refreshed after 30 days. A company without a
 grade says why: <i>new CEO</i> (under two fiscal years in the role and no record elsewhere), <i>no start date</i> (the CEO is
-known but not when they started, so there's no record to grade), or <i>not found</i> (no CEO in Wikidata or Yahoo); the line
-above the table counts each for the current view. If Wikidata can't be reached nothing is recorded, so the company is simply
-tried again later (since 0.17.2).</li>
+known but not when they started, so there's no record to grade), or <i>not found</i> (no CEO in the SEC filings, Wikidata or
+Yahoo); the line above the table counts each for the current view. If neither the SEC nor Wikidata can be reached nothing is
+recorded, so the company is simply tried again later (since 0.17.2).</li>
 <li><b>Start dates from SEC filings</b> (version 0.17.5): Wikidata often names a CEO without saying when they started. The app
 then reads the company's latest proxy statement (DEF 14A), or its annual report, for the biography sentence ("has served as
 Chief Executive Officer since March 2014", "was appointed CEO in 2019"); the sentence must name the person and the CEO role,
 and interim or former roles don't count. The stock's CEO card shows where the date came from. Companies that were left without
 a start date or a CEO before 0.17.5 are looked up once more. You can always enter the right CEO and start date yourself on the
 stock's Wonderful? tab.</li>
+<li><b>The CEO from the SEC certifications</b> (version 0.17.6): see <i>Who and since when</i> under CEO track record. Companies
+left without a CEO or a start date before 0.17.6 are looked up once more.</li>
 </ul>
 
 <h4>CEO track record</h4>
@@ -485,9 +487,19 @@ part is weighted the same way. The card lists every CEO role with its years, gra
 counted: a private, foreign or no-longer-listed company isn't in the app's data, and records end where the data start (2010). The
 card also rates the company's earlier CEOs.</p>
 <ul>
-<li><b>Who and since when</b> comes from Wikidata (free, volunteer-edited), checked against Yahoo's list of officers. If they
-disagree, the card says so. Wikidata covers large companies well and small ones patchily, so you can <b>correct the CEO and start
-date</b> on the card; your entry always wins.</li>
+<li><b>Who and since when</b> comes first from the company's own SEC filings (version 0.17.6). Since the Sarbanes-Oxley Act,
+every 10-K and 10-Q must include a certification signed by the principal executive officer (Exhibit 31.1: "I, Jane Smith,
+certify that I have reviewed this report…"); foreign companies certify their 20-F the same way (Exhibit 12.1). So the latest
+report names today's CEO for every US-listed company, large or small. To find <b>since when</b>, the app steps back through the
+company's earlier reports, a few at a time and then halving the gap (about a dozen documents for twenty years of reports), to
+the first report this person signed: they took over between the predecessor's last report and their own first, so the start is
+known to within about a quarter (the card says "since about" and names both reports and the predecessor). If they signed every
+report on file, the card says "at least since" the oldest, and the app also looks for the exact date in their biography in the
+proxy statement. Every report's signer is remembered, so later look-ups read only new reports.
+<br>Wikidata (free, volunteer-edited) is used alongside: when it names the same person, its exact start date is used, and it
+lists the CEO's roles at other companies for the career grade. When Wikidata still lists the predecessor, the SEC wins. Yahoo's
+officer list is the last resort, and if it names someone other than the latest report's signer the card says so (the CEO may
+have changed since that report). You can always <b>correct the CEO and start date</b> on the card; your entry always wins.</li>
 <li><b>Read it as "how owners fared under this CEO", not proof of skill.</b> A CEO inherits a business, an industry and a market;
 under about five years the result is partly luck; and integrity, candor and culture aren't in any data feed. Read the shareholder
 letters and the proxy statement too.</li>
@@ -501,6 +513,8 @@ is appointed (item 5.02). Every day the app reads the SEC's list of new 8-Ks; fo
 and every company with Wonderfulness 60+) whose 8-K reports item 5.02, it looks the CEO up again at once, skipping the cached
 answers. Wikidata often takes weeks to catch up, so when Yahoo already names a different CEO, Yahoo's name is used, starting on
 the 8-K's filing date.</li>
+<li><b>New quarterly and annual reports</b> (version 0.17.6). When a company with a CEO on record files a 10-Q, 10-K or 20-F,
+the app reads who certified it; a different signer is a CEO change and is looked up again at once.</li>
 <li><b>New annual reports.</b> A company that files a new annual report is re-graded (the CEO's record now has another year).</li>
 <li><b>Monthly refresh.</b> Every grade is looked up again after 30 days (up to 150 a day), which also catches changes Yahoo or
 Wikidata show without an 8-K.</li>
@@ -1505,7 +1519,7 @@ their old results until you recalculate them.</p>
 <tr><td><b>XBRL</b></td><td>The tagged data format companies use to file financial statements with the SEC</td></tr>
 </table>
 
-<footer>Oracle Edge v0.17.5 · research tool, not financial advice · MIT license. The full design plan, with research sources,
+<footer>Oracle Edge v0.17.6 · research tool, not financial advice · MIT license. The full design plan, with research sources,
 is in <code>docs/Value-Picker-Plan.html</code> with the source code.</footer>
 </main>
 </div>
