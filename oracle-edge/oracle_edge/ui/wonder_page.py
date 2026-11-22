@@ -18,7 +18,7 @@ import json
 import re
 from collections import Counter
 
-from nicegui import app, ui
+from nicegui import app, run, ui
 
 from .. import ceo, db, rules, wonderful
 from .layout import empty, frame
@@ -697,10 +697,19 @@ def _old_address(compare: str = "", view: str = "both"):
 
 
 @ui.page("/screener")
-def screener_page(compare: str = "", view: str = "both"):
+def screener_page(compare: str = "", view: str = "both", pid: int | None = None):
     prof = rules.default_profile()
     view = view if view in VIEWS else "both"
     store = app.storage.user
+    # the strategy whose buy prices, Quality bar and universe the page shows (scores are the same for all)
+    choices = {p.id: ("★ " if p.id == prof.id else "") + p.name + (" · runs daily" if p.active else "")
+               for p in rules.list_profiles(include_hidden=False) if rules.scoring_standard(p.settings) == "standard"}
+    if pid in choices:
+        store["screener_pid"] = pid
+    sid = store.get("screener_pid") if store.get("screener_pid") in choices else prof.id
+    strat = rules.get_profile(sid)
+    unscored = strat.snap != prof.snap and not db.scalar(
+        "SELECT 1 FROM snapshots WHERE profile_id=? AND profile_version=? LIMIT 1", strat.snap)
     with frame("Screener"):
         ui.label("Screener: every business, screened and ranked").classes("oe-h1")
         ui.label("Screen and rank every company on three things. Wonderfulness: how it ranks against all the others on "
@@ -717,11 +726,76 @@ def screener_page(compare: str = "", view: str = "both"):
                     pass
             ui.label("The Value columns are being worked out for every company (about half a minute); refresh the page "
                      "when the job in the top bar finishes.").classes("oe-small text-amber-800")
-        rows = ranking_rows(prof)
+        from .. import pipeline
+        from .wonder import price_status
+
+        live = db.scalar("SELECT 1 FROM runs r JOIN evaluations e ON e.run_id=r.id WHERE r.kind='live' AND "
+                         "r.profile_id=? LIMIT 1", (strat.id,))
+        pending = not unscored and not live and not pipeline.evaluate_now_cached(strat)
+        with ui.row().classes("items-center gap-3"):
+            ui.select(choices, value=sid, label="Buy prices, Quality bar and universe from",
+                      on_change=lambda e: ui.navigate.to(f"/screener?pid={e.value}&view={view}")).props(
+                "outlined dense").classes("w-[420px]")
+            if pending:
+                ui.spinner(size="sm")
+                ui.label(f"Working out today's buy prices under {strat.name} (about 15 seconds)…").classes("oe-small")
+            elif not live and not unscored:
+                ui.label(f"{strat.name} doesn't run daily: its buy prices were worked out for today's prices.").classes(
+                    "oe-small")
+        if unscored:
+            # this strategy's checklist / record length hasn't been scored yet: work it out now (never borrow the
+            # primary's scores), then refresh
+            from .. import jobs
+
+            ck = (rules.house_view(rules.checklist_id(strat.settings)) or {}).get("name", "its Oracle checklist")
+            j = jobs.running()
+            if not j:
+                try:
+                    jobs.launch("score_strategy", {"profile_id": strat.id})
+                    j = jobs.running()
+                except RuntimeError:
+                    j = None
+            with ui.card().classes("oe-card w-full").style("border-left:4px solid #C9A227"):
+                ui.label(f"Working out every company's scores on {ck} for {strat.name}…").classes("font-semibold")
+                ui.label("Its Quality scores, Buy Zone and universe appear when this finishes (a few minutes; the page "
+                         "refreshes itself). Wonderfulness is the same for every strategy and is shown now.").classes(
+                    "oe-small")
+                def _status(jj):
+                    if not jj:
+                        return "Starting…"
+                    if jj.get("kind") != "score_strategy":
+                        return f"Waiting for another job ({jj.get('kind')}) to finish…"
+                    return f"{jj.get('step') or 'Scoring'} · {float(jj.get('progress') or 0):.0%}"
+
+                bar = ui.linear_progress(value=(j or {}).get("progress") or 0, show_value=False).classes("w-full")
+                lab = ui.label(_status(j)).classes("oe-small")
+
+                def _tick():
+                    jj = jobs.running()
+                    if jj:
+                        bar.value = float(jj.get("progress") or 0)
+                        lab.text = _status(jj)
+                    elif db.scalar("SELECT 1 FROM snapshots WHERE profile_id=? AND profile_version=? LIMIT 1",
+                                   rules.get_profile(strat.id).snap):
+                        ui.navigate.reload()
+                    else:
+                        try:
+                            jobs.launch("score_strategy", {"profile_id": strat.id})
+                        except RuntimeError:
+                            pass
+
+                ui.timer(3, _tick)
+        if pending:
+            async def _fill():
+                await run.io_bound(pipeline.evaluate_now, strat)
+                ui.navigate.reload()
+
+            ui.timer(0.3, _fill, once=True)
+        rows = ranking_rows(prof, evs={} if (pending or unscored) else price_status(strat), strat=strat)
         if not rows:
             empty("No scores yet. They are computed from the annual-report scores after the first data load.")
             return
-        bar = float(prof.settings.get("quality_min", 70))
+        bar = float(strat.settings.get("quality_min", 70))
         st = {"view": view, "filters": dict(store.get("wonder_filters") or {})}
         st["filters"] = {k: v for k, v in st["filters"].items() if k in FILTERS}
         # ---- controls
@@ -895,7 +969,7 @@ def screener_page(compare: str = "", view: str = "both"):
             ui.label("Quality vs Wonderfulness").classes("oe-h2")
             ui.label(f"Each dot is a company. Right of the dashed line = passes the Oracle checklist (Quality {bar:.0f}+ and "
                      "every must-pass rule); above it = wonderful (70+), so top right is the best of both. Colour = how good a buy "
-                     "it is today: dark green in the Buy Zone (the strict buy price), light green below the fair value, amber up to 25% over value, red "
+                     f"it is today: dark green in the Buy Zone ({strat.name}'s buy price), light green below the fair value, amber up to 25% over value, red "
                      "more than that, grey not valued. Zoom with the sliders (bottom and right), the "
                      "box tool (top right; ⟲ resets) or Shift + mouse wheel: the table below then lists only the "
                      "companies in view. Click a legend entry to hide a group (from the table too). Click a dot to open "
@@ -913,7 +987,7 @@ def screener_page(compare: str = "", view: str = "both"):
                 if c.get("groupId") in hidden:
                     ch["hide"] = True
         arrows = {"on": bool(store.get("wonder_arrows", True))}
-        ctx = {"arrows": arrows["on"], "mos": float(prof.settings.get("mos_gate", 0.25))}
+        ctx = {"arrows": arrows["on"], "mos": float(strat.settings.get("mos_gate", 0.25))}
         with ui.row().classes("w-full items-center justify-between pt-2"):
             ui.label("").classes("oe-small")
             with ui.row().classes("items-center gap-1"):

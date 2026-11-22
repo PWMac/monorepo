@@ -38,7 +38,10 @@ def test_changing_the_house_view_rescores_everyone_once():
     assert rules.house_changed(b)
     v = rules.set_house_view(b)
     assert v == rules.house_view()["version"]
-    assert all(p.version == before[p.id] + 1 for p in rules.list_profiles())
+    cid = rules.app_checklist_id()
+    for p in rules.list_profiles():  # only the strategies on that Oracle checklist are re-scored
+        on = rules.checklist_id(p.settings) == cid
+        assert p.version == before[p.id] + (1 if on else 0), p.name
     assert rules.default_profile().rules[0]["target"] == pytest.approx(b["rules"][0]["target"])
 
 
@@ -99,3 +102,89 @@ def test_screener_filters_become_a_universe():
     assert upd == {"universe_wonder_min": 70.0, "quality_min": 75.0, "min_market_cap": 10e9,
                    "universe_industries": ["Semiconductors"]}
     assert set(ignored) == {"CEO grade", "Margin of safety"}
+
+
+def test_hide_and_delete_strategies():
+    prim = rules.primary_id()
+    with pytest.raises(ValueError):
+        rules.set_hidden(prim, True)
+    with pytest.raises(ValueError):
+        rules.delete_profile(prim)
+    locked = next(p for p in rules.list_profiles() if p.locked and p.id != prim)
+    with pytest.raises(ValueError):
+        rules.delete_profile(locked.id)          # built-ins are hidden instead
+    rules.set_hidden(locked.id, True)
+    assert locked.id not in [p.id for p in rules.list_profiles(include_hidden=False)]
+    rules.set_hidden(locked.id, False)
+    # a copy that owns the shared scores: deleting it hands them to a strategy scored the same way
+    cid = rules.save_as(prim, "temp copy", json.loads(json.dumps(rules.get_profile(prim).body)))
+    c = rules.get_profile(cid)
+    con = db.get()
+    con.execute("INSERT INTO snapshots(cik,profile_id,profile_version,filed,quality) VALUES(1,?,?,?,80)",
+                (cid, c.version, "2026-01-01"))
+    con.execute("INSERT INTO runs(kind,name,profile_id,start_date) VALUES('backtest','t',?,'2026-01-01')", (cid,))
+    res = rules.delete_profile(cid)
+    assert res["runs"] == 1 and not db.scalar("SELECT COUNT(*) FROM runs WHERE profile_id=?", (cid,))
+    heir_rows = db.scalar("SELECT COUNT(*) FROM snapshots WHERE profile_id!=? AND filed='2026-01-01' AND cik=1",
+                          (cid,))
+    assert heir_rows == 1                                  # kept under another strategy, not lost
+    with pytest.raises(KeyError):
+        rules.get_profile(cid)
+
+
+def test_house_view_restore_defaults():
+    b = json.loads(json.dumps(rules.default_profile().body))
+    b["rules"][0]["target"] = float(b["rules"][0]["target"]) * 1.3
+    rules.set_house_view(b)
+    d = rules.house_defaults()
+    assert rules.house_changed(d)
+    rules.set_house_view(d)
+    assert not rules.house_changed(d)
+    assert rules.default_profile().rules[0]["target"] == pytest.approx(d["rules"][0]["target"])
+
+
+def test_oracle_checklists():
+    cks = rules.checklists()
+    assert len(cks) == 1                                   # one checklist: record length is the strategy's setting
+    app = rules.app_checklist_id()
+    assert rules.checklist_id(rules.default_profile().settings) == app
+    relaxed = next(p for p in rules.list_profiles() if p.name == "Relaxed backfill (5y)")
+    assert rules.scoring_standard(relaxed.settings) == "short" and rules.checklist_id(relaxed.settings) == app
+    assert relaxed.settings["lookback_years"] == 5 and relaxed.snap != rules.default_profile().snap
+    # a copy with a different rule scores differently, so a strategy moved onto it gets its own scores
+    nid = rules.copy_checklist(app, "Lenient debt")
+    with pytest.raises(ValueError):
+        rules.copy_checklist(app, "Lenient debt")
+    b = json.loads(json.dumps(rules.house_view(nid)))
+    b["rules"][0]["target"] = float(b["rules"][0]["target"]) * 0.5
+    rules.set_house_view(b, nid)
+    cid = rules.save_as(rules.primary_id(), "on lenient", None)
+    body = json.loads(json.dumps(rules.get_profile(cid).body))
+    body["settings"]["checklist_id"] = nid
+    rules.update_profile(cid, body)
+    p = rules.get_profile(cid)
+    assert rules.checklist_id(p.settings) == nid and p.rules[0]["target"] == pytest.approx(b["rules"][0]["target"])
+    assert rules.scoring_hash(p.body) != rules.scoring_hash(rules.default_profile().body)
+    with pytest.raises(ValueError):
+        rules.delete_checklist(nid)                                  # still in use
+    rules.delete_profile(cid)
+    rules.rename_checklist(nid, "Lenient debt v2")
+    rules.delete_checklist(nid)
+    assert nid not in rules.checklists()
+
+
+def test_identical_five_year_checklist_from_early_builds_is_folded_in():
+    cks = rules.checklists()
+    app = min(cks)
+    dup = max(cks) + 1
+    cks[dup] = {**json.loads(json.dumps(cks[app])), "name": "Oracle checklist · 5-year record", "record": "short"}
+    rules._save_checklists(cks)
+    pid = rules.save_as(rules.primary_id(), "five-year copy", None)
+    b = json.loads(db.one("SELECT body_json FROM profiles WHERE id=?", (pid,))["body_json"])
+    b["settings"]["checklist_id"] = dup
+    db.get().execute("UPDATE profiles SET body_json=? WHERE id=?", (json.dumps(b), pid))
+    rules.ensure_house_view()
+    assert dup not in rules.checklists()
+    p = rules.get_profile(pid)
+    assert rules.checklist_id(p.settings) == app and rules.scoring_standard(p.settings) == "short"
+    rules.delete_profile(pid)

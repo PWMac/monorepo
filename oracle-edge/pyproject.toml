@@ -1,6 +1,6 @@
 [project]
 name = "oracle-edge"
-version = "0.18.1"
+version = "0.21.0"
 description = "Oracle Edge: a local, Oracle-style stock screener, ranker and signal tracker."
 readme = "README.md"
 license = { text = "MIT" }

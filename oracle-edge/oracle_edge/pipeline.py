@@ -7,7 +7,7 @@ import logging
 from datetime import date, datetime, timedelta
 from pathlib import Path
 
-from . import backup, db, emailer, notify, quarterly, rules, targets
+from . import backup, db, emailer, notify, paths, quarterly, rules, targets
 from .engine import PriceBook, SnapshotBook, build_snapshots, evaluate
 from .market import Macro
 from .signals import BENCH, PortfolioSim, ensure_portfolio
@@ -277,7 +277,66 @@ def replay_many(run_ids: list[int], profile: rules.Profile, end: str, cadence: s
             job.update(lo + (hi - lo) * (i + 1) / len(days), message=f"{profile.name}: {d}")
     for rid in full:
         _fill_forward_returns(rid, pb, tk)
+    for rid in run_ids:
+        trim_run_history(rid)
     return n
+
+
+def trim_run_history(run_id: int) -> int:
+    """A backtest, holdings test or experiment only ever shows its last day's evaluations and badges; the daily
+    copies before that made the database grow by gigabytes. The live history keeps every day (the value chart on
+    each stock page reads it). Returns rows removed."""
+    r = db.one("SELECT kind FROM runs WHERE id=?", (run_id,))
+    if not r or r["kind"] == "live":
+        return 0
+    con = db.get()
+    n = 0
+    for t in ("evaluations", "badges"):
+        last = db.scalar(f"SELECT MAX(date) FROM {t} WHERE run_id=?", (run_id,))
+        if last:
+            n += con.execute(f"DELETE FROM {t} WHERE run_id=? AND date<?", (run_id, last)).rowcount
+    return n
+
+
+def db_size() -> dict:
+    """The database file's size and what takes the room (for Settings → Database)."""
+    import os
+
+    path = paths.DB_PATH
+    size = os.path.getsize(path) if os.path.exists(path) else 0
+    wal = os.path.getsize(str(path) + "-wal") if os.path.exists(str(path) + "-wal") else 0
+    old = db.scalar("SELECT COUNT(*) FROM evaluations e JOIN runs r ON r.id=e.run_id WHERE r.kind!='live' AND "
+                    "e.date < (SELECT MAX(date) FROM evaluations x WHERE x.run_id=e.run_id)", default=0)
+    orphans = db.scalar("SELECT COUNT(*) FROM evaluations WHERE run_id NOT IN (SELECT id FROM runs)", default=0)
+    free = db.scalar("PRAGMA freelist_count", default=0) * (db.scalar("PRAGMA page_size", default=4096) or 4096)
+    return {"bytes": size + wal, "removable_rows": (old or 0) + (orphans or 0), "free_bytes": free}
+
+
+def db_cleanup_job(job) -> str:
+    """Remove the daily evaluation and badge copies of backtests, holdings tests and experiments (their results,
+    trades and charts stay), rows of deleted runs, then compact the file (VACUUM)."""
+    import os
+
+    before = db_size()["bytes"]
+    con = db.get()
+    runs = [r["id"] for r in db.rows("SELECT id FROM runs WHERE kind!='live'")]
+    removed = 0
+    for i, rid in enumerate(runs):
+        con.execute("BEGIN IMMEDIATE")
+        removed += trim_run_history(rid)
+        con.execute("COMMIT")
+        con.execute("PRAGMA wal_checkpoint(TRUNCATE)")
+        job.update(0.6 * (i + 1) / max(len(runs), 1), message=f"Trimming test runs ({i + 1}/{len(runs)})")
+    for t in ("evaluations", "badges", "signals", "equity_curve", "episodes", "stints", "signal_state"):
+        removed += con.execute(f"DELETE FROM {t} WHERE run_id NOT IN (SELECT id FROM runs)").rowcount
+    con.execute("DELETE FROM positions WHERE portfolio_id NOT IN (SELECT id FROM portfolios)")
+    con.execute("PRAGMA wal_checkpoint(TRUNCATE)")
+    job.update(0.65, message="Compacting the database file (VACUUM); this can take several minutes")
+    con.execute("VACUUM")
+    con.execute("PRAGMA wal_checkpoint(TRUNCATE)")
+    after = os.path.getsize(paths.DB_PATH)
+    return (f"Database cleaned: {removed:,} rows removed, {before / 1e9:.2f} GB → {after / 1e9:.2f} GB. Backtest "
+            "results, trades and charts are kept.")
 
 
 def _store_evals_tx(run_id, d, evals):
@@ -747,6 +806,8 @@ def policy_label(policy) -> str:
 def _portfolio_label(mode, n, sizing, policy=None) -> str:
     if mode != "focused":
         return f"variable holdings{f' (limit {n})' if n else ''}"
+    if n == 0:
+        return "no holdings limit" + (f" · {policy_label(policy)}" if policy else "")
     if policy:
         return f"best {n} · {policy_label(policy)}"
     return f"best {n}, {'conviction' if sizing == 'conviction' else 'equal'} weights"
@@ -758,7 +819,11 @@ def run_backtest(job, profile_id: int, start: str, end: str, cadence: str = "wee
     p = rules.get_profile(profile_id)
     st = p.settings
     mode = mode or st.get("portfolio_mode", "variable")
-    n = int(max_holdings or st.get("max_holdings") or 15) if mode == "focused" else max_holdings
+    if mode == "focused":
+        n = int(max_holdings) if max_holdings else (0 if st.get("max_holdings") == 0 else
+                                                     int(st.get("max_holdings") or 15))
+    else:
+        n = max_holdings
     sizing = sizing or st.get("sizing", "equal")
     ensure_snapshots(job, p, start)
     pol = st.get("new_money", "best_value") + ("+fund" if st.get("fund_strong") else "")
@@ -779,6 +844,77 @@ def run_backtest(job, profile_id: int, start: str, end: str, cadence: str = "wee
     db.get().execute("UPDATE runs SET status='done', finished_at=? WHERE id=?", (db.now(), rid))
     n_sig = db.scalar("SELECT COUNT(*) FROM signals WHERE run_id=?", (rid,), 0)
     return f"Backtest #{rid} finished ({label}): {n_sig} signals."
+
+
+_EVAL_NOW: dict = {}
+
+
+def evaluate_now(p: rules.Profile) -> dict:
+    """Today's evaluation of every company under a strategy that has no live paper portfolio (for the Screener's
+    strategy switch): {"date", "evals": {cik: {list, price, buy_below}}, "outside": {ciks outside its universe}}.
+    Cached until the strategy changes or new prices arrive (the first call takes about 15 seconds)."""
+    from .engine import universe_ok
+
+    last = db.scalar("SELECT MAX(date) FROM prices WHERE ticker=?", (BENCH,))
+    key = (p.id, p.version, last)
+    if key in _EVAL_NOW:
+        return _EVAL_NOW[key]
+    snaps = SnapshotBook(p)
+    tk = tickers_by_cik()
+    pb = PriceBook(price_tickers(candidate_ciks([p.id])))
+    macro = Macro()
+    st = p.settings
+    regime = macro.regime(last, st["mos_gate"], st.get("regime_modifier", False), lambda x: pb.close("VTI", x))
+    evs = evaluate(last, p, snaps, pb, regime, tk, owned=set(), macro=macro)
+    out = {"date": last, "evals": {e.cik: {"list": e.list, "price": e.price, "buy_below": e.buy_below,
+                                           "note": e.note} for e in evs},
+           "outside": {c for c in snaps.ciks() if not universe_ok(st, snaps, c, last)[0]}}
+    _EVAL_NOW.clear()  # one strategy at a time is plenty
+    _EVAL_NOW[key] = out
+    return out
+
+
+def evaluate_now_cached(p: rules.Profile) -> bool:
+    last = db.scalar("SELECT MAX(date) FROM prices WHERE ticker=?", (BENCH,))
+    return (p.id, p.version, last) in _EVAL_NOW
+
+
+def latest_backtest(p: rules.Profile, start: str | None = None) -> dict | None:
+    """The strategy's most recent finished backtest (optionally from a given start), and whether it is out of date
+    (the strategy was edited after it ran)."""
+    q = "SELECT * FROM runs WHERE kind='backtest' AND profile_id=? AND status='done'"
+    args: list = [p.id]
+    if start:
+        q += " AND start_date=?"
+        args.append(start)
+    r = db.one(q + " ORDER BY id DESC LIMIT 1", args)
+    if not r:
+        return None
+    sj = json.loads(r["settings_json"] or "{}")
+    return {**dict(r), "stale": sj.get("profile_version") not in (None, p.version)}
+
+
+def backtest_all(job, start: str, end: str, profile_ids: list[int] | None = None, cadence: str = "weekly",
+                 redo: bool = False) -> str:
+    """Backtest every visible strategy over the same dates, for the Strategies page's side-by-side table. Skips a
+    strategy that already has an up-to-date backtest from that start unless `redo`."""
+    profs = [rules.get_profile(i) for i in profile_ids] if profile_ids else rules.list_profiles(include_hidden=False)
+    todo = []
+    for p in profs:
+        lb = latest_backtest(p, start)
+        if redo or not lb or lb["stale"]:
+            todo.append(p)
+    done = []
+    for i, p in enumerate(todo):
+        class _Sub:  # progress for this strategy inside the whole job
+            def update(self, frac=None, message=None, **k):
+                job.update((i + (frac or 0)) / max(len(todo), 1), message=f"{p.name}: {message or ''}")
+
+        run_backtest(_Sub(), p.id, start, end, cadence, name=f"{p.name} · {start}→{end}")
+        done.append(p.name)
+    if not todo:
+        return "Every strategy already has an up-to-date backtest from " + start + "."
+    return f"Backtested {len(done)} strateg{'y' if len(done) == 1 else 'ies'} from {start}: " + ", ".join(done)
 
 
 def recalc_backtest(job, run_id: int) -> str:
@@ -1153,6 +1289,14 @@ def ensure_snapshots(job, p: rules.Profile, start: str) -> None:
     missing_q = [c for c in cands if c not in have_q]
     if missing_q:
         quarterly.build(p, missing_q, since=since, progress=job.sub(0.29, 0.3, "Quarterly early warnings"))
+
+
+def score_strategy(job, profile_id: int) -> str:
+    """Work out every company's scores under a strategy's Oracle checklist (for the Screener and backtests)."""
+    p = rules.get_profile(profile_id)
+    ensure_snapshots(job, p, backfill_start())
+    ck = rules.house_view(rules.checklist_id(p.settings)) or {}
+    return f"Scored every company on {ck.get('name', 'its checklist')} ({p.name})."
 
 
 def rebuild_profile(job, profile_id: int) -> str:

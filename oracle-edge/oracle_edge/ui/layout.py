@@ -14,8 +14,7 @@ NAV_GROUPS = [  # small groups (best practice: about seven items at most per gro
     ("Daily", [("Today", "/", "today"), ("My holdings", "/holdings", "account_balance_wallet"),
                ("Signals", "/signals", "notifications_active")]),
     ("Analysis", [("Screener", "/screener", "manage_search"), ("Performance", "/performance", "show_chart"),
-                  ("Market", "/market", "thermostat"),
-                  ("Backtest", "/backtest", "history"), ("Strategies", "/strategies", "tune")]),
+                  ("Market", "/market", "thermostat"), ("Strategies", "/strategies", "tune")]),
     ("Setup", [("Data", "/data", "storage"), ("Settings", "/settings", "settings"), ("Guide", "/guide", "menu_book")]),
 ]
 NAV = [item for _, items in NAV_GROUPS for item in items]

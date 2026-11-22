@@ -641,14 +641,22 @@ def checklist(prof) -> dict[int, dict]:
 
 
 def price_status(prof) -> dict[int, dict]:
-    """Where today's price stands for the live profile: Buy Zone, or how far above the buy-below price."""
-    rid = db.scalar("SELECT id FROM runs WHERE kind='live' AND profile_id=? ORDER BY id DESC LIMIT 1", (prof.id,)) or \
-        db.scalar("SELECT id FROM runs WHERE kind='live' ORDER BY id DESC LIMIT 1")
-    if not rid:
-        return {}
-    d = db.scalar("SELECT MAX(date) FROM evaluations WHERE run_id=?", (rid,))
-    out = {}
-    for r in db.rows("SELECT cik, list, price, buy_below FROM evaluations WHERE run_id=? AND date=?", (rid, d)):
+    """Where today's price stands for a strategy: Buy Zone, how far above its buy price, or outside its universe.
+    From its live paper portfolio when it runs daily, otherwise worked out now (pipeline.evaluate_now)."""
+    rid = db.scalar("SELECT id FROM runs WHERE kind='live' AND profile_id=? ORDER BY id DESC LIMIT 1", (prof.id,))
+    rows, outside = [], set()
+    if rid and db.scalar("SELECT 1 FROM evaluations WHERE run_id=? LIMIT 1", (rid,)):
+        d = db.scalar("SELECT MAX(date) FROM evaluations WHERE run_id=?", (rid,))
+        rows = [dict(r) for r in db.rows("SELECT cik, list, price, buy_below FROM evaluations WHERE run_id=? AND "
+                                          "date=?", (rid, d))]
+    else:
+        from .. import pipeline
+
+        now = pipeline.evaluate_now(prof)
+        rows = [{"cik": c, **v} for c, v in now["evals"].items()]
+        outside = now["outside"]
+    out = {c: {"status": "outside this strategy's universe", "buyable": False} for c in outside}
+    for r in rows:
         if r["list"] == "buy":
             out[r["cik"]] = {"status": "Buy Zone", "buyable": True}
         elif r["price"] and r["buy_below"] and r["buy_below"] > 0:
@@ -669,7 +677,10 @@ def _aligned(hist: dict[str, list]) -> tuple[dict[str, list], int | None]:
     return out, y0
 
 
-def ranking_rows(prof) -> list[dict]:
+def ranking_rows(prof, evs: dict | None = None, strat=None) -> list[dict]:
+    """Rows for the Screener. Scores come from `prof` (the app's Oracle checklist); the Quality bar and the
+    buy-price status from `strat` (the strategy picked on the page, default the primary)."""
+    strat = strat or prof
     wonderful.ensure(prof)
     sec = {r["cik"]: r for r in db.rows("SELECT cik, ticker, name, sic_desc, is_foreign FROM securities")}
     flags = {}
@@ -677,8 +688,8 @@ def ranking_rows(prof) -> list[dict]:
                      "ON q.cik=m.cik AND q.filed=m.f"):
         fl = json.loads(r["flags_json"] or "[]")
         flags[r["cik"]] = fl
-    checks = checklist(prof)
-    evs = price_status(prof)
+    checks = checklist(strat)
+    evs = price_status(strat) if evs is None else evs
     trs = wonderful.trends(prof)
     mh = wonderful.metric_histories(prof)
     cg = ceo.grades()
