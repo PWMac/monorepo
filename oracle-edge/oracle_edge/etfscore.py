@@ -2,15 +2,17 @@
 
 Look-through: each holding is matched to a company the app scores, and its weight is moved forward from the filing
 date by the stock's price change since, so the mix is close to today's. Then:
-- Oracle share: the part of the fund in wonderful (Wonderfulness 70+), quality (passes the checklist with Quality at
-  or above the strategy's bar) businesses trading at or below their fair value. The headline number.
-- Wonderful, quality, both, at or below value, in the Buy Zone, failing the checklist: each as a share of the fund.
+- Business Score: the weighted average of the holdings' Combined scores ((Quality + Wonderfulness) / 2), by their
+  share of the fund, over the holdings the app scores on both. How good the businesses it owns are, on average; price
+  plays no part. The headline number.
+- Wonderful (70+), quality (passes the checklist at or above the strategy's bar), both, at or below value, in the Buy
+  Zone, failing the checklist: each as a share of the fund.
 - Weighted Quality, Wonderfulness and Combined over the part the app scores; coverage says how big that part is.
 - Look-through value: each valued holding's fair value / price, weighted. 1.20 means the holdings are worth 20% more
   than their prices. The fund's own fair value per share follows (unvalued holdings counted at their price).
 
 Fund Score (0-100), four pillars, each from plain thresholds (see PILLARS):
-- What it owns (35%): share in wonderful-and-quality businesses, weighted Quality and Wonderfulness.
+- What it owns (35%): the Business Score, and the share in businesses that are both wonderful and quality.
 - Price (15%): look-through value and expected return.
 - Track record (25%): yearly return over up to 10 years against its benchmark (the S&P 500 for US stock funds),
   return per unit of risk (Sharpe), worst drop against the benchmark's, and how often it beat the benchmark over
@@ -137,8 +139,8 @@ def score_rows(hs: list[dict], book: Book) -> dict:
     """Look-through metrics for weighted positions (each {"w": fraction, "cik", "price", "asset_cat"}); adds the
     company's scores and a flag to each row. Used for one fund and for a whole portfolio (the X-ray)."""
     m: dict = {}
-    acc = dict.fromkeys(("scored", "wonderful", "quality", "both", "valued", "at_value", "buy_zone", "oracle",
-                         "fails", "equity"), 0.0)
+    acc = dict.fromkeys(("scored", "wonderful", "quality", "both", "valued", "at_value", "buy_zone", "fails",
+                         "equity"), 0.0)
     qn = wn = cn = 0.0
     qs = ws = cs = 0.0
     vr_w = vr = er_w = er = 0.0
@@ -184,8 +186,6 @@ def score_rows(hs: list[dict], book: Book) -> dict:
             vr_w += w
             if ratio >= 1:
                 acc["at_value"] += w
-                if is_w and is_q:
-                    acc["oracle"] += w
             if c.get("buy_below") and px <= c["buy_below"]:
                 acc["buy_zone"] += w
             if c.get("er") is not None:
@@ -200,6 +200,7 @@ def score_rows(hs: list[dict], book: Book) -> dict:
         "coverage": acc["scored"], "wonderful_scored": acc["wonderful"] / sc if sc else None,
         "quality_scored": acc["quality"] / sc if sc else None, "both_scored": acc["both"] / sc if sc else None,
         "avg_q": qs / qn if qn else None, "avg_w": ws / wn if wn else None, "avg_comb": cs / cn if cn else None,
+        "business": cs / cn if cn else None, "business_cov": cn,
         "value_ratio": vr / vr_w if vr_w else None, "lt_er": er / er_w if er_w else None,
         "price_vs_value": (vr_w / vr - 1) if vr else None})
     tot = sum(h["w"] for h in hs) or 1.0
@@ -327,9 +328,9 @@ def fund_score(f: dict, lt: dict, tr: dict, tx: dict) -> dict:
     eq = m.get("equity") or 0.0
     parts: dict[str, list] = {"owns": [], "price": [], "track": [], "cost": []}
     if eq >= 0.5 and cov > 0:
-        parts["owns"] = [("Wonderful and quality share (of what's scored)", ramp(m.get("both_scored"), 0.0, 0.6), 0.4),
-                         ("Weighted Quality", ramp(m.get("avg_q"), 40, 85), 0.3),
-                         ("Weighted Wonderfulness", ramp(m.get("avg_w"), 30, 80), 0.3)]
+        parts["owns"] = [("Business Score", ramp(m.get("business"), 40, 80), 0.75),
+                         ("Share in wonderful and quality businesses (of what's scored)",
+                          ramp(m.get("both_scored"), 0.0, 0.6), 0.25)]
         if m.get("value_ratio") is not None:
             parts["price"] = [("Holdings' value vs price", ramp(m.get("value_ratio"), 0.6, 1.2), 0.7),
                               ("Expected return of the holdings", ramp(m.get("lt_er"), 0.02, 0.10), 0.3)]
@@ -356,8 +357,10 @@ def fund_score(f: dict, lt: dict, tr: dict, tx: dict) -> dict:
     pill = {}
     for k, ps in parts.items():
         v = _blend([(v, w) for _, v, w in ps])
-        if k in ("owns", "price"):
-            v = _shrink(v, cov / 0.6)  # little of the fund scored: closer to neutral
+        if k == "owns":
+            v = _shrink(v, (m.get("business_cov") or 0) / 0.6)  # little of the fund scored: closer to neutral
+        if k == "price":
+            v = _shrink(v, cov / 0.6)
         if k == "track":
             v = _shrink(v, (tr.get("years") or 0) / 3)
         pill[k] = v

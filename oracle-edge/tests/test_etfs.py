@@ -118,7 +118,10 @@ def test_matching_look_through_and_score(world):
     assert a["w"] > 0.5  # Alpha rose since the filing, so its weight did too
     assert m["coverage"] == pytest.approx(a["w"] + next(r["w"] for r in lt["rows"] if r["name"].startswith("Beta")))
     assert m["wonderful"] == pytest.approx(a["w"]) and m["quality"] == pytest.approx(a["w"])
-    assert m["oracle"] == pytest.approx(a["w"])  # Alpha: wonderful, quality, below its value
+    bw = next(r["w"] for r in lt["rows"] if r["name"].startswith("Beta"))
+    # Business Score: Combined ((Q + W) / 2) averaged by weight over what's scored: Alpha 83.5, Beta 50
+    assert m["business"] == pytest.approx((a["w"] * 83.5 + bw * 50) / (a["w"] + bw))
+    assert m["business_cov"] == pytest.approx(a["w"] + bw) and a["flag"] == "oracle"
     assert m["fails"] > 0 and m["price_vs_value"] is not None
 
     db.get().execute("INSERT OR REPLACE INTO etfs(ticker, expense, aum, inception, nav, benchmark) VALUES('ZQE', 0.001,"
@@ -144,7 +147,7 @@ def test_xray_and_etf_buy_candidates(world):
     xr = etfscore.xray([("ZQE", 1000.0), ("ZTA", 500.0)])
     alpha = next(e for e in xr["rows"] if e.get("cik") == 991001)
     assert alpha["direct"] == 500 and alpha["via"] > 500 and alpha["funds"] == {"ZQE": alpha["via"]}
-    assert xr["total"] == 1500 and 0 < xr["m"]["oracle"] <= 1
+    assert xr["total"] == 1500 and 50 < xr["m"]["business"] < 83.5
     assert sum(e["w"] for e in xr["rows"]) == pytest.approx(1.0)
     db.get().execute("INSERT OR REPLACE INTO etfs(ticker, expense, aum, inception, benchmark) VALUES('ZQE', 0.0005, "
                      "5e10, '2005-01-01', 'SPY')")
@@ -153,3 +156,4 @@ def test_xray_and_etf_buy_candidates(world):
                      "WHERE etf='ZQE'")
     c = orderplan.etf_candidates()
     assert [x["ticker"] for x in c] == ["ZQE"] and c[0]["etf"] and "Fund Score 75" in c[0]["why"]
+    assert "Business Score" in c[0]["why"]

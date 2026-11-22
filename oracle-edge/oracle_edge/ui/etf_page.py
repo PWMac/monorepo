@@ -1,7 +1,7 @@
 """ETFs: the ETF screener (/etfs) and each fund's page (/etf/{ticker}).
 
 Funds are judged the way the app judges companies, through what they own: each holding carries its Quality,
-Wonderfulness and value, so a fund gets an Oracle share (wonderful, quality businesses at or below their value), a
+Wonderfulness and value, so a fund gets a Business Score (the weighted average Combined score of what it holds), a
 look-through value, and a Fund Score that adds its track record and how it is run.
 """
 
@@ -19,8 +19,9 @@ from .theme import BRAND, NEGATIVE, badge_html, money, pct
 
 GREY = "#6b7280"
 PRESETS = {
-    "oracle": ("Wonderful at a good price", "Most of the fund in wonderful, quality businesses at or below their value",
-               "oracle", True, None),
+    "business": ("Best businesses", "The highest Business Score: the weighted average Combined (Quality + "
+                 "Wonderfulness) of what it holds, with at least half the fund scored", "business", True,
+                 lambda r: (r.get("business_cov") or 0) >= 0.5),
     "wonderful": ("Most wonderful", "The largest share in wonderful businesses (Wonderfulness 70+)", "wonderful", True,
                   None),
     "quality": ("Highest quality", "The highest weighted Quality of what they hold", "avg_q", True, None),
@@ -68,7 +69,8 @@ def rows() -> list[dict]:
             "ticker": f["ticker"], "name": f["name"] or "", "category": f["category"] or "", "family": f["family"] or "",
             "held": f["ticker"] in held, "score": s.get("score"), "owns": p.get("owns"), "price_p": p.get("price"),
             "track": p.get("track"), "cost": p.get("cost"), "sig": m.get("verdict") or "", "why": m.get("verdict_why"),
-            "oracle": m.get("oracle"), "wonderful": m.get("wonderful"), "quality": m.get("quality"),
+            "business": m.get("business"), "business_cov": m.get("business_cov"),
+            "wonderful": m.get("wonderful"), "quality": m.get("quality"),
             "both": m.get("both"), "both_scored": m.get("both_scored"), "buy_zone": m.get("buy_zone"),
             "fails": m.get("fails"), "avg_q": m.get("avg_q"), "avg_w": m.get("avg_w"), "avg_comb": m.get("avg_comb"),
             "pvv": m.get("price_vs_value"), "lt_er": m.get("lt_er"), "coverage": m.get("coverage"),
@@ -119,15 +121,15 @@ def etfs_page(preset: str | None = None):
             ui.label("ETFs: what's inside, and how well they're run").classes("oe-h1")
             universe_switch("etfs")
         ui.label("Every fund opened up: each holding carries the app's Quality, Wonderfulness and value, so you can see "
-                 "how much of a fund is in wonderful, quality businesses at a good price (its Oracle share), what its "
-                 "holdings are worth against their prices, and a Fund Score that adds its track record and how it is "
-                 "run. Click a fund for everything it holds.").classes("oe-muted")
+                 "how good the businesses in a fund are on average (its Business Score: the weighted average Combined "
+                 "score of what it holds), what its holdings are worth against their prices, and a Fund Score that "
+                 "adds its track record and how it is run. Click a fund for everything it holds.").classes("oe-muted")
         rs = rows()
         if not any(r["score"] is not None for r in rs):
             _download_card()
             if not rs:
                 return
-        st = {"preset": preset if preset in PRESETS else store.get("etf_preset", "oracle"),
+        st = {"preset": preset if preset in PRESETS else store.get("etf_preset", "business"),
               "cats": list(store.get("etf_cats") or []), "maxexp": store.get("etf_maxexp"),
               "minaum": store.get("etf_minaum", 0), "stock_only": store.get("etf_stock_only", True)}
         dates = sorted({r["asof"] for r in rs if r["asof"]})
@@ -183,8 +185,8 @@ def etfs_page(preset: str | None = None):
                 w.on_value_change(lambda e: filt_change())
         note = ui.label("").classes("text-sm").style("color:#2c5d8f")
         with ui.card().classes("oe-card w-full"):
-            ui.label("The map: how much is in wonderful, quality businesses (across) and how cheap their holdings are "
-                     "(up). Bigger = more assets; colour = Fund Score. Click a fund to open it.").classes("oe-small")
+            ui.label("The map: how good the businesses are (Business Score, across) and how cheap they are (up). Bigger = "
+                     "more assets; colour = Fund Score. Click a fund to open it.").classes("oe-small")
             ch = ui.echart({}, on_point_click=lambda e: ui.navigate.to(f"/etf/{e.name}")).classes("w-full").style(
                 "height:430px")
         g = ui.aggrid({"columnDefs": _cols(), "rowData": [], "rowHeight": 34,
@@ -194,8 +196,9 @@ def etfs_page(preset: str | None = None):
                       auto_size_columns=False).classes("w-full")
         g.on("cellClicked", lambda e: ui.navigate.to(f"/etf/{e.args['data']['ticker']}"))
         ui.add_css(_BADGE_CSS)
-        ui.label("Oracle share, Wonderful, Quality and Buy Zone are shares of the whole fund; Quality, Wonderfulness "
-                 "and Combined averages are over the part the app scores (Coverage). Holdings vs value: the "
+        ui.label("Business Score: the holdings' Combined scores ((Quality + Wonderfulness) / 2) averaged by their weight, "
+                 "over the part the app scores (Coverage). Wonderful, Quality and Buy Zone are shares of the whole "
+                 "fund. Holdings vs value: the "
                  "fund's holdings' prices against their values, weighted (−20% = they trade 20% below what they're "
                  "worth). Returns are yearly, dividends included.").classes("oe-small")
 
@@ -250,9 +253,9 @@ def _cols() -> list[dict]:
          ":cellStyle": sc, "headerTooltip": "0-100: what it owns, price, track record, cost & structure"},
         {"headerName": "Price", "field": "sig", "width": 92, "tooltipField": "why",
          ":cellRenderer": "p => p.value ? `<span class='oe-badge-mini oe-b-${p.value}'>${p.value}</span>` : ''"},
-        {"headerName": "Oracle share", "field": "oracle", "width": 90, "type": "rightAligned", ":valueFormatter": pc,
-         "headerTooltip": "Share of the fund in wonderful, quality businesses trading at or below their value",
-         "cellStyle": {"fontWeight": 600}},
+        {"headerName": "Business Score", "field": "business", "width": 96, "type": "rightAligned",
+         ":valueFormatter": n0, ":cellStyle": sc,
+         "headerTooltip": "Weighted average Combined score ((Quality + Wonderfulness) / 2) of what it holds"},
         {"headerName": "Wonderful", "field": "wonderful", "width": 88, "type": "rightAligned", ":valueFormatter": pc,
          "headerTooltip": "Share of the fund in businesses with Wonderfulness 70+"},
         {"headerName": "Quality", "field": "quality", "width": 80, "type": "rightAligned", ":valueFormatter": pc,
@@ -262,7 +265,6 @@ def _cols() -> list[dict]:
         {"headerName": "Fails checklist", "field": "fails", "width": 84, "type": "rightAligned", ":valueFormatter": pc},
         {"headerName": "Avg Quality", "field": "avg_q", "width": 84, "type": "rightAligned", ":valueFormatter": n0},
         {"headerName": "Avg Wonder", "field": "avg_w", "width": 84, "type": "rightAligned", ":valueFormatter": n0},
-        {"headerName": "Combined", "field": "avg_comb", "width": 84, "type": "rightAligned", ":valueFormatter": n0},
         {"headerName": "Holdings vs value", "field": "pvv", "width": 96, "type": "rightAligned", ":valueFormatter": sp,
          ":cellStyle": colr_inv, "headerTooltip": "Weighted price of its holdings against their values"},
         {"headerName": "Exp. return", "field": "lt_er", "width": 84, "type": "rightAligned", ":valueFormatter": pc1,
@@ -292,19 +294,19 @@ def _cols() -> list[dict]:
 def _map(xs: list[dict]) -> dict:
     pts = []
     for r in xs:
-        if r["both"] is None or r["pvv"] is None:
+        if r["business"] is None or r["pvv"] is None:
             continue
-        pts.append({"name": r["ticker"], "value": [round(r["both"] * 100, 1), round(-r["pvv"] * 100, 1),
+        pts.append({"name": r["ticker"], "value": [round(r["business"], 1), round(-r["pvv"] * 100, 1),
                                                    r["score"] or 0, r["aum"] or 0],
                     "symbolSize": max(8, min(40, 6 + 4 * ((r["aum"] or 1e7) / 1e9) ** 0.35)),
                     "itemStyle": {"borderColor": "#c9a227", "borderWidth": 2} if r["held"] else {}})
     return {
-        "tooltip": {":formatter": "p => `<b>${p.name}</b><br>Wonderful & quality: ${p.value[0]}%<br>Holdings "
+        "tooltip": {":formatter": "p => `<b>${p.name}</b><br>Business Score ${Math.round(p.value[0])}<br>Holdings "
                                   "${p.value[1] >= 0 ? p.value[1] + '% below' : -p.value[1] + '% above'} value<br>"
                                   "Fund Score ${Math.round(p.value[2])}`"},
         "grid": {"left": 60, "right": 90, "top": 20, "bottom": 50},
-        "xAxis": {"type": "value", "name": "Share in wonderful, quality businesses (%)", "nameLocation": "middle",
-                  "nameGap": 30, "min": 0},
+        "xAxis": {"type": "value", "name": "Business Score (weighted Quality + Wonderfulness of its holdings)",
+                  "nameLocation": "middle", "nameGap": 30, "scale": True},
         "yAxis": {"type": "value", "name": "Holdings below their value (%)", "nameLocation": "middle", "nameGap": 42},
         "visualMap": {"dimension": 2, "min": 30, "max": 85, "right": 0, "top": "middle", "text": ["Fund Score", ""],
                       "inRange": {"color": ["#A8322D", "#c9a227", "#1f6f4a"]}, "calculable": False},
@@ -345,7 +347,7 @@ PILLAR_NAMES = {"owns": ("What it owns", "Look-through Quality and Wonderfulness
                 "track": ("Track record", "Returns and risk against its benchmark"),
                 "cost": ("Cost & structure", "Expense, size, age, trading, turnover, premium/discount")}
 
-FLAG = {"oracle": ("Wonderful at a good price", "#1f6f4a"), "both": ("Wonderful & quality", "#3c8d5f"),
+FLAG = {"oracle": ("Wonderful & quality, below value", "#1f6f4a"), "both": ("Wonderful & quality", "#3c8d5f"),
         "wonderful": ("Wonderful", "#7b5ea7"), "quality": ("Quality", "#2c5d8f"),
         "fails": ("Fails checklist", "#A8322D"), "": ("", GREY)}
 
@@ -395,9 +397,12 @@ def etf_page(ticker: str):
                     _bar(lab, (s.get("pillars") or {}).get(k), etfscore.PILLAR_WEIGHTS[k], tip)
         # ---- tiles
         with ui.row().classes("w-full gap-3 mt-2"):
-            _tile(_p(m.get("oracle")), "Oracle share", "wonderful, quality, at or below value", BRAND,
-                  "Share of the fund in wonderful (70+), quality (passes the checklist) businesses trading at or below "
-                  "their fair value")
+            b = m.get("business")
+            _tile("—" if b is None else f"{b:.0f}", "Business Score",
+                  f"Quality {m.get('avg_q') or 0:.0f} · Wonderfulness {m.get('avg_w') or 0:.0f} · "
+                  f"{_p(m.get('business_cov'))} scored", _score_col(b),
+                  "The holdings' Combined scores ((Quality + Wonderfulness) / 2) averaged by their share of the fund, "
+                  "over the part the app scores on both")
             _tile(_p(m.get("wonderful")), "Wonderful", f"of the fund · {_p(m.get('wonderful_scored'))} of what's scored")
             _tile(_p(m.get("quality")), "Quality", f"of the fund · {_p(m.get('quality_scored'))} of what's scored")
             pv = m.get("price_vs_value")
@@ -457,8 +462,7 @@ def _owns_card(m: dict, lt: dict, book):
     if not lt["rows"]:
         ui.label("No holdings on file yet.").classes("oe-muted")
         return
-    segs = [("Wonderful, quality, at or below value", m.get("oracle") or 0, "#1f6f4a"),
-            ("Wonderful & quality, priced above value", (m.get("both") or 0) - (m.get("oracle") or 0), "#7fb89a"),
+    segs = [("Wonderful and quality", m.get("both") or 0, "#1f6f4a"),
             ("Wonderful only", (m.get("wonderful") or 0) - (m.get("both") or 0), "#7b5ea7"),
             ("Quality only", (m.get("quality") or 0) - (m.get("both") or 0), "#2c5d8f"),
             ("Fails the checklist", m.get("fails") or 0, "#A8322D")]
@@ -476,8 +480,8 @@ def _owns_card(m: dict, lt: dict, book):
                         "</span>", sanitize=False)
                 ui.label(f"{lab}").classes("text-sm").style("flex:1")
                 ui.label(f"{v * 100:.0f}%").classes("text-sm font-semibold")
-    ui.label(f"Weighted Quality {m.get('avg_q') or 0:.0f} · Wonderfulness {m.get('avg_w') or 0:.0f} · Combined "
-             f"{m.get('avg_comb') or 0:.0f} (over the {_p(m.get('coverage'))} the app scores) · top 10 = "
+    ui.label(f"Business Score {m.get('business') or 0:.0f} (weighted Quality {m.get('avg_q') or 0:.0f} · "
+             f"Wonderfulness {m.get('avg_w') or 0:.0f}, over the {_p(m.get('coverage'))} the app scores) · top 10 = "
              f"{_p(m.get('top10'))} · acts like {m.get('eff_n') or 0:.0f} equal holdings").classes("oe-small mt-1")
     secs = etfscore.sectors(lt["rows"], book)[:7]
     if secs:
@@ -624,8 +628,8 @@ def _holdings_table(t: str, f: dict, lt: dict):
 
     def toggle(v):
         mode["only"] = v
-        g.options["rowData"] = [r for r in rows_ if r["flag"] == FLAG["oracle"][0]] if v else rows_
+        g.options["rowData"] = [r for r in rows_ if r["flag"] in (FLAG["oracle"][0], FLAG["both"][0])] if v else rows_
         g.update()
-    ui.switch("Only the wonderful businesses at a good price", on_change=lambda e: toggle(e.value))
+    ui.switch("Only the wonderful, quality businesses", on_change=lambda e: toggle(e.value))
     ui.label("Click a company for its page. Not scored: companies outside the app's universe (most foreign listings), "
              "bonds, cash and derivatives.").classes("oe-small")
