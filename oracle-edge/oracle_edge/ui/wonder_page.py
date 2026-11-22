@@ -377,10 +377,10 @@ def columns(bar: float) -> tuple[list[dict], dict[str, list[str]]]:
             "one, so it's the margin to compare when gross margin is n/a.", "Operating margin each year", "pct",
             "The column is the 10-year median; the arrow and chart follow each year's margin."),
         _tc("nm_med", "Net margin", F_PCT, 1, 96, "Net income ÷ sales, 10-year median.", "Net margin each year", "pct",
-            "The column is the 10-year median; the arrow and chart follow each year's margin.", columnGroupShow="open"),
+            "The column is the 10-year median; the arrow and chart follow each year's margin."),
         _tc("ocfm_med", "Cash flow margin", F_PCT, 1, 104, "Operating cash flow ÷ sales, 10-year median: how much of "
             "each sales dollar arrives as cash.", "Operating cash flow margin each year", "pct",
-            "The column is the 10-year median; the arrow and chart follow each year's margin.", columnGroupShow="open"),
+            "The column is the 10-year median; the arrow and chart follow each year's margin."),
         _tc("rev_g5", "Sales growth 5 yrs", F_PCT, 1, 112, None, "Sales growth each year", "pct",
             "The column is 5-year growth a year; the arrow and chart follow each year's growth.",
             columnGroupShow="open"),
@@ -430,9 +430,57 @@ def columns(bar: float) -> tuple[list[dict], dict[str, list[str]]]:
         {**_c("name", "Company", None, 190, pinned="left"), ":cellRenderer": _LINK},
     ]
     for gid, label, children, open_ in groups:
-        cols.append({"groupId": gid, "headerName": label, "children": children, "openByDefault": open_})
+        # marryChildren: a group's columns stay together; drag a group header to move the group, a column header to
+        # reorder within its group
+        cols.append({"groupId": gid, "headerName": label, "children": children, "openByDefault": open_,
+                     "marryChildren": True})
         G[gid] = [c.get("colId") or c["field"] for c in children]
     return cols, G
+
+
+def _col_id(c: dict) -> str:
+    return c.get("colId") or c.get("field") or ""
+
+
+def apply_layout(cols: list[dict], layout: dict | None) -> list[dict]:
+    """The table's columns in the order, widths and open/closed groups the user left them (remembered per user).
+    layout: {order: [colId, ...] as displayed, widths: {colId: px}, open: {groupId: bool}}. Columns and groups the
+    layout doesn't know (added in a later version) keep their default place at the end of their group / the table."""
+    if not layout:
+        return cols
+    pos = {cid: i for i, cid in enumerate(layout.get("order") or [])}
+    widths, opened = layout.get("widths") or {}, layout.get("open") or {}
+    big = len(pos) + 1000
+
+    def key(item):
+        i, c = item
+        ids = [_col_id(ch) for ch in c["children"]] if c.get("children") else [_col_id(c)]
+        known = [pos[x] for x in ids if x in pos]
+        return (min(known) if known else big + i,)
+    out = []
+    for _, c in sorted(enumerate(cols), key=key):
+        c = dict(c)
+        if c.get("children"):
+            kids = [dict(ch) for _, ch in sorted(enumerate(c["children"]),
+                                                  key=lambda it: pos.get(_col_id(it[1]), big + it[0]))]
+            for ch in kids:
+                if isinstance(widths.get(_col_id(ch)), (int, float)):
+                    ch["width"] = int(widths[_col_id(ch)])
+            c["children"] = kids
+            if c.get("groupId") in opened:
+                c["openByDefault"] = bool(opened[c["groupId"]])
+        elif isinstance(widths.get(_col_id(c)), (int, float)):
+            c["width"] = int(widths[_col_id(c)])
+        out.append(c)
+    # pinned columns stay at the left whatever the saved order
+    return [c for c in out if c.get("pinned") == "left"] + [c for c in out if c.get("pinned") != "left"]
+
+
+def layout_from_state(col_state: list[dict], group_state: list[dict]) -> dict:
+    """What to remember from the grid's own state: display order, widths, which groups are open."""
+    return {"order": [c["colId"] for c in col_state or [] if c.get("colId")],
+            "widths": {c["colId"]: c["width"] for c in col_state or [] if c.get("colId") and c.get("width")},
+            "open": {gs["groupId"]: bool(gs.get("open")) for gs in group_state or [] if gs.get("groupId")}}
 
 
 _GM = ("p => { if (p.value == null && p.data) { const k = p.data.gm_kind;"
@@ -742,6 +790,7 @@ def screener_page(compare: str = "", view: str = "both"):
         # ---- the table
         hidden = set(store.get("wonder_hidden") or [])
         cols, G = columns(bar)
+        cols = apply_layout(cols, store.get("wonder_layout"))
         for c in cols:
             for ch in c.get("children", []):
                 if c.get("groupId") in hidden:
@@ -763,7 +812,13 @@ def screener_page(compare: str = "", view: str = "both"):
                                         on_change=lambda e, gid=gid: show_group(gid, e.value)).classes("px-3")
                         ui.separator()
                         ui.switch("Trend arrows in cells", value=arrows["on"],
-                                  on_change=lambda e: set_arrows(e.value)).classes("px-3 pb-2")
+                                  on_change=lambda e: set_arrows(e.value)).classes("px-3")
+                        ui.separator()
+                        ui.label("Drag a group header to move the group, a column header to move it within its "
+                                 "group; drag an edge to resize. The order, widths and open groups are remembered."
+                                 ).classes("oe-small px-4").style("max-width:300px")
+                        ui.button("Reset column layout", icon="restart_alt", on_click=lambda: reset_layout()).props(
+                            "flat dense no-caps").classes("mx-2 mb-2")
         with ui.row().classes("items-center gap-2") as map_note_row:
             map_note = ui.label("").classes("text-sm").style("color:#2c5d8f")
             ui.button("Show the whole map", icon="zoom_out_map", on_click=lambda: reset_map()).props(
@@ -773,7 +828,7 @@ def screener_page(compare: str = "", view: str = "both"):
         g = ui.aggrid({"columnDefs": cols, "rowData": [], "context": ctx, ":getRowId": "p => p.data.ticker",
                        "defaultColDef": {"sortable": True, "resizable": True, "filter": True, "wrapHeaderText": True,
                                          "autoHeaderHeight": True},
-                       "rowHeight": 36, "suppressCellFocus": True, "tooltipShowDelay": 300, "multiSortKey": "shift",
+                       "rowHeight": 36, "suppressCellFocus": True, "suppressDragLeaveHidesColumns": True, "tooltipShowDelay": 300, "multiSortKey": "shift",
                        "rowSelection": {"mode": "multiRow", "checkboxes": True, "headerCheckbox": False},
                        "selectionColumnDef": {"pinned": "left", "width": 48, "maxWidth": 48,
                                               "suppressHeaderMenuButton": True, "sortable": False, "filter": False}},
@@ -829,6 +884,31 @@ def screener_page(compare: str = "", view: str = "both"):
         def set_groups(opened):
             for gid in G:
                 g.run_grid_method("setColumnGroupOpened", gid, opened)
+
+        async def save_layout(e=None):
+            """Remember the column order, widths and open groups (after a drag, a resize or a group opening)."""
+            if e is not None and e.args and "finished" in e.args and not (
+                    e.args.get("finished") and str(e.args.get("source", "")).startswith("ui")):
+                return  # mid-resize, or a width the grid set itself
+            st["lseq"] = st.get("lseq", 0) + 1
+            me = st["lseq"]
+            await asyncio.sleep(0.4)
+            if me != st["lseq"]:
+                return
+            try:
+                cs = await g.run_grid_method("getColumnState", timeout=3)
+                gs = await g.run_grid_method("getColumnGroupState", timeout=3)
+            except Exception:
+                return
+            store["wonder_layout"] = layout_from_state(cs, gs)
+
+        def reset_layout():
+            store.pop("wonder_layout", None)
+            ui.navigate.reload()
+
+        g.on("dragStopped", save_layout, [])
+        g.on("columnGroupOpened", save_layout, [])
+        g.on("columnResized", save_layout, ["finished", "source"])
 
         def set_arrows(on):
             store["wonder_arrows"] = bool(on)

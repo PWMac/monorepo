@@ -283,3 +283,31 @@ def test_the_table_follows_the_map_zoom_and_legend():
     assert by["Buy zone"]["itemStyle"]["color"] == wp.BAND_COL["buy"] and [d["name"] for d in by["Buy zone"]["data"]] == ["A"]
     assert opt["series"][-2]["name"] == "Buy zone"  # drawn on top
     assert "markLine" in by["lines"] and "lines" not in opt["legend"]["data"]  # quadrant lines never hidden
+
+
+def test_the_column_layout_is_remembered():
+    cols, G = wp.columns(70)
+    assert "nm_med" in G["measures"] and "ocfm_med" in G["measures"]
+    meas = next(c for c in cols if c.get("groupId") == "measures")
+    shown = [c["field"] for c in meas["children"] if c.get("columnGroupShow") != "open"]
+    assert {"nm_med", "ocfm_med"} <= set(shown)  # visible with the group collapsed
+    assert all(c.get("marryChildren") for c in cols if c.get("children"))
+    # the user moved Value first, Cash flow margin to the front of Key measures, widened Net margin, opened Pillars
+    state = [{"colId": x, "width": 150 if x == "nm_med" else 100} for x in
+             ["ag-Grid-SelectionColumn", "pos", "ticker", "name"] + G["value"] + G["scores"] + G["mgmt"] + G["pillars"]
+             + ["ocfm_med"] + [x for x in G["measures"] if x != "ocfm_med"] + G["info"]]
+    lay = wp.layout_from_state(state, [{"groupId": "pillars", "open": True}, {"groupId": "value", "open": False}])
+    out = wp.apply_layout(cols, lay)
+    assert [c.get("field") for c in out[:3]] == ["pos", "ticker", "name"]  # pinned stay left
+    assert [c.get("groupId") for c in out if c.get("groupId")] == ["value", "scores", "mgmt", "pillars", "measures", "info"]
+    m = next(c for c in out if c.get("groupId") == "measures")
+    assert m["children"][0]["field"] == "ocfm_med"
+    assert next(ch for ch in m["children"] if ch["field"] == "nm_med")["width"] == 150
+    assert next(c for c in out if c.get("groupId") == "pillars")["openByDefault"] is True
+    assert next(c for c in out if c.get("groupId") == "value")["openByDefault"] is False
+    # a column the saved layout doesn't know keeps a place at the end of its group; no layout = defaults
+    lay["order"].remove("dollar_test")
+    m = next(c for c in wp.apply_layout(cols, lay) if c.get("groupId") == "measures")
+    assert m["children"][-1]["field"] == "dollar_test"
+    assert wp.apply_layout(cols, None) is cols
+    assert cols[3]["groupId"] == "scores"  # the defaults weren't changed in place
