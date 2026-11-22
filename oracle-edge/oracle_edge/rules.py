@@ -27,6 +27,8 @@ def seed_profiles() -> None:
         _seed_risk_optimized()
         _seed_quality_core()
         _seed_ranked()
+        _seed_data_tuned()
+        _seed_rising()
         refresh_notes()
         ensure_house_view()
         return
@@ -46,6 +48,8 @@ def seed_profiles() -> None:
     _seed_risk_optimized()
     _seed_quality_core()
     _seed_ranked()
+    _seed_data_tuned()
+    _seed_rising()
     refresh_notes()
     ensure_house_view()
 
@@ -125,6 +129,53 @@ def _seed_ranked() -> None:
     _insert(RANKED_NAME, body, locked=False, active=False, notes=PURPOSE[RANKED_NAME])
 
 
+DATA_NAME = "Data-tuned quality · best 7"
+DATA_SETTINGS = {
+    "valuation_model": "value_driver", "hurdle": 0.15, "portfolio_mode": "focused", "max_holdings": 7,
+    "buy_price_rule": "growth_gap", "buy_growth_gap": 0.10, "buy_min_return": 0.05, "buy_min_sales_growth": 0.05,
+    "buy_min_wonder": 75, "buy_rank_by": "combined", "new_money": "best_rank",
+}
+
+
+def _seed_data_tuned() -> None:
+    """Buffettology 15% · best 7 with the buying and exit rules chosen on the November 2026 calibration (Guide,
+    "Buying and selling on data"). Editable and off; the primary strategy is left as it is."""
+    if db.scalar("SELECT COUNT(*) FROM profiles WHERE name=?", (DATA_NAME,), 0):
+        return
+    src = db.one("SELECT body_json FROM profiles WHERE name=?", ("Buffettology 15% · best 7",))
+    body = _with_defaults(json.loads(src["body_json"])) if src else load_yaml_profile()
+    body["settings"].update(DATA_SETTINGS)
+    from . import exits
+
+    body["settings"]["exit_rules"] = exits.data_rules(body["settings"])
+    body["description"] = PURPOSE[DATA_NAME]
+    _insert(DATA_NAME, body, locked=False, active=False, notes=PURPOSE[DATA_NAME])
+
+
+RISING_NAME = "Wonderful & rising · no limit"
+RISING_SETTINGS = {
+    "valuation_model": "value_driver", "hurdle": 0.15, "portfolio_mode": "focused", "max_holdings": 0,
+    "new_money": "spread", "sizing": "equal", "fund_strong": False, "buy_rank_by": "combined",
+    "buy_price_rule": "growth_gap", "buy_growth_gap": 0.10, "buy_min_return": 0.05, "buy_min_wonder": 75,
+    "buy_min_sales_growth": 0.10, "buy_trend": "above_200d", "max_buys_per_week": 4,
+}
+
+
+def _seed_rising() -> None:
+    """Every wonderful, quality company at a sensible price whose sales and share price are rising, with no limit
+    on holdings and early warnings (Guide, "Wonderful & rising"). Editable and off."""
+    if db.scalar("SELECT COUNT(*) FROM profiles WHERE name=?", (RISING_NAME,), 0):
+        return
+    src = db.one("SELECT body_json FROM profiles WHERE name=?", ("Buffettology 15% · best 7",))
+    body = _with_defaults(json.loads(src["body_json"])) if src else load_yaml_profile()
+    body["settings"].update(RISING_SETTINGS)
+    from . import exits
+
+    body["settings"]["exit_rules"] = exits.rising_rules(body["settings"])
+    body["description"] = PURPOSE[RISING_NAME]
+    _insert(RISING_NAME, body, locked=False, active=False, notes=PURPOSE[RISING_NAME])
+
+
 def _insert(name, body, locked=False, active=False, parent_id=None, notes=None) -> int:
     cur = db.get().execute(
         "INSERT INTO profiles(name,parent_id,version,locked,active,body_json,notes,created_at,updated_at) "
@@ -174,6 +225,19 @@ PURPOSE = {
         "Buffettology 15% with risk limits: 7 holdings, a cash reserve for strong buys, bigger slices for better "
         "businesses at better prices, and caps of 35% per stock, 50% per sector and 60% in stocks that move "
         "together.",
+    "Data-tuned quality · best 7":
+        "Buffettology 15% · best 7 rebuilt on the November 2026 calibration: buys growing, high-Wonderfulness "
+        "companies at a price that implies no more than 10 points more growth than they deliver (instead of a "
+        "margin of safety below a cautious value most good companies never reach), best combined score first; trims "
+        "only far above fair value or above 2× when sales stall; sells on a broken business, a very low expected "
+        "return or shrinking sales. Backtest 2019 on: 13.4% a year vs 1.0% for the old rules (S&P 500 13.9%).",
+    "Wonderful & rising · no limit":
+        "Owns every wonderful, quality company (Wonderfulness 75+, Quality 70+) at a sensible price (it implies no more "
+        "than 10 points more growth than delivered, 5%+ expected return) whose sales grow 10%+ and whose price is above "
+        "its 200-day average; no limit on holdings, each week's money split across the best 4 of them. Sells early when "
+        "the price lags the S&P 500 by 15%+ over 6 months or breaks its 200-day average while sales stall, or when "
+        "Quality or Wonderfulness drop 5+ points or sales shrink. Backtest: 13.4% a year from 2015 (S&P 500 13.3%), "
+        "9.3% from 2019 (13.9%); spreading across all of them instead earned about a point more.",
     "Top-ranked 4 · $200 a week":
         "Starts at $0 and puts $200 a week, $50 each, into the 4 companies with the highest (Wonderfulness + "
         "Quality) ÷ 2, at any price. Sells a holding once it ranks below #8 or a 10-Q shows sales shrinking, and "
@@ -221,10 +285,15 @@ def describe(body: dict) -> str:
     st = body.get("settings", {})
     if st.get("buy_rule") == "top_ranked":
         n = int(st.get("ranked_buy_count") or 4)
-        out = [f"Every week splits the money equally across the {n} best-scored companies by (Wonderfulness + "
-               f"Quality) ÷ 2, at any price. Sells a holding once it ranks below #{int(st.get('ranked_sell_outside') or 2 * n)}"
-               + (" or its latest 10-Q shows sales shrinking" if st.get("ranked_sell_on_revenue", True) else "")
-               + "; never trims a winner."]
+        if st.get("exit_rules") is None:
+            out = [f"Every week splits the money equally across the {n} best-scored companies by (Wonderfulness + "
+                   f"Quality) ÷ 2, at any price. Sells a holding once it ranks below "
+                   f"#{int(st.get('ranked_sell_outside') or 2 * n)}"
+                   + (" or its latest 10-Q shows sales shrinking" if st.get("ranked_sell_on_revenue", True) else "")
+                   + "; never trims a winner."]
+        else:
+            out = [f"Every week splits the money equally across the {n} best-scored companies by (Wonderfulness + "
+                   f"Quality) ÷ 2, at any price. {_exit_text(st)}"]
         if st.get("ranked_max_weight"):
             out.append(f"No new money into a holding above {_pct(st['ranked_max_weight'])} of the portfolio.")
         out.append(f"Starts with ${float(st.get('initial_capital') or 0):,.0f} and adds "
@@ -234,13 +303,44 @@ def describe(body: dict) -> str:
         out = [f"Buys when Quality is at least {st.get('quality_min', 70):.0f} on {st.get('lookback_years', 10)} years "
                f"of results and the P/E is at most {float(st.get('fair_pe_mult', 1.5)):g} times the company's own "
                "usual P/E (a fair price, not a bargain hunt)."]
+    elif st.get("buy_price_rule") == "growth_gap":
+        out = [f"Buys when Quality is at least {st.get('quality_min', 70):.0f} and the price implies at most "
+               f"{_pct(st.get('buy_growth_gap') if st.get('buy_growth_gap') is not None else 0.10)} more growth a year "
+               f"than the company delivers, with an expected return of at least {_pct(st.get('buy_min_return') or 0)}."]
+    elif st.get("buy_price_rule") == "fair":
+        out = [f"Buys when Quality is at least {st.get('quality_min', 70):.0f} and the price is at most "
+               f"{float(st.get('buy_fair_mult') or 1.0):g}× the fair value, with an expected return of at least "
+               f"{_pct(st.get('buy_min_return') or 0)}."]
     else:
         out = [f"Buys when Quality is at least {st.get('quality_min', 70):.0f} on {st.get('lookback_years', 10)} years "
                f"of results, the price is {_pct(st.get('mos_gate', 0.25))} or more below value and the expected "
                f"10-year return is at least {_pct(st.get('hurdle', 0.10))}."]
+    floors = []
+    if st.get("buy_min_sales_growth") is not None:
+        floors.append(f"sales growing {_pct(st['buy_min_sales_growth'])}+")
+    if st.get("buy_min_wonder") is not None:
+        floors.append(f"Wonderfulness {float(st['buy_min_wonder']):.0f}+")
+    if st.get("buy_trend") == "above_200d":
+        floors.append("the price above its 200-day average")
+    elif st.get("buy_trend") == "beating_market_6m":
+        floors.append("the stock ahead of the S&P 500 over 6 months")
+    elif st.get("buy_trend") == "both":
+        floors.append("the price above its 200-day average and ahead of the S&P 500 over 6 months")
+    if floors and st.get("buy_rule") != "top_ranked":
+        out.append("Only buys with " + " and ".join(floors) + ".")
+    if st.get("buy_rank_by") == "combined" and st.get("buy_rule") != "top_ranked":
+        out.append("Ranks candidates by (Wonderfulness + Quality) ÷ 2.")
     if st.get("portfolio_mode", "focused") == "focused":
-        out.append(f"Holds the best {st.get('max_holdings', 15)} ({_SIZING.get(st.get('sizing'), 'equal slices')}); "
-                   f"{_NEW_MONEY.get(st.get('new_money'), 'new money to the best value')}.")
+        nm = _NEW_MONEY.get(st.get("new_money"), "new money to the best value")
+        if st.get("new_money") == "best_rank" and st.get("buy_rank_by") == "combined":
+            nm = "new money to the best combined score"
+        if st.get("max_holdings") == 0:
+            per = (f", each week's money split across the best {int(st['max_buys_per_week'])} at most"
+                   if st.get("max_buys_per_week") else "")
+            out.append(f"No limit on holdings: owns every company that qualifies; {nm}{per}.")
+        else:
+            out.append(f"Holds the best {st.get('max_holdings', 15)} ({_SIZING.get(st.get('sizing'), 'equal slices')}); "
+                       f"{nm}.")
     else:
         out.append("Variable portfolio (the old style): buys every Buy Zone stock.")
     extra = []
@@ -269,7 +369,16 @@ def describe(body: dict) -> str:
         extra.append(f"Oracle Rank of {st['min_rank_score']:.0f}+ to buy")
     if extra:
         out.append(extra[0][0].upper() + "; ".join(extra)[1:] + ".")
+    if st.get("exit_rules") is not None:
+        out.append(_exit_text(st))
     return " ".join(out)
+
+
+def _exit_text(st: dict) -> str:
+    from . import exits
+
+    on = [exits.describe_rule(r) for r in exits.rules_of(st) if r["on"]]
+    return ("Exit rules: " + "; ".join(on) + ".") if on else "No exit rules: it never sells or trims on its own."
 
 
 _DIFF_KEYS = [  # (setting, label, format)
@@ -288,11 +397,17 @@ _DIFF_KEYS = [  # (setting, label, format)
     ("fair_pe_mult", "fair P/E (x usual)", "num"), ("max_mos", "too-cheap guard", "pct"),
     ("buy_rule", "buying rule", "txt"), ("ranked_buy_count", "bought each week", "num"),
     ("ranked_sell_outside", "sells below rank", "num"), ("ranked_sell_on_revenue", "sells on shrinking sales", "bool"),
-    ("ranked_max_weight", "no new money above", "pct"),
+    ("ranked_max_weight", "no new money above", "pct"), ("exit_rules", "exit rules", "rules"),
+    ("buy_price_rule", "buy price rule", "txt"), ("buy_fair_mult", "buy at most × fair value", "num"),
+    ("buy_growth_gap", "growth gap", "pct"), ("buy_min_return", "expected return at least", "pct"),
+    ("buy_min_sales_growth", "sales growth floor", "pct"), ("buy_min_wonder", "Wonderfulness floor", "num"),
+    ("buy_rank_by", "ranks candidates by", "txt"), ("max_buys_per_week", "stocks bought per week at most", "num"), ("buy_trend", "only on the rise", "txt"),
 ]
 
 
 def _fmt(v, f) -> str:
+    if f == "rules":
+        return "the standard ones" if v is None else f"{len(v)} of its own"
     if v is None:
         return "off"
     if f == "pct":

@@ -266,6 +266,10 @@ MIGRATIONS: list[str] = [
     """
     CREATE TABLE IF NOT EXISTS cost_fill (cik INTEGER PRIMARY KEY, checked_at TEXT, added INTEGER, note TEXT);
     """,
+    # ---- v20: exit rules confirmed "after N checks in a row" keep one counter per rule ----
+    """
+    ALTER TABLE signal_state ADD COLUMN streaks_json TEXT;
+    """,
 ]
 
 
