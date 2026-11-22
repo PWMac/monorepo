@@ -156,8 +156,9 @@ def values_job(job) -> str:
 
 def ceo_grades_job(job, limit: int | None = None) -> str:
     """Look up the CEO of every company with Wonderfulness 60+ not looked up in 30 days, best
-    first. Each needs a few Wikidata and Yahoo look-ups, so the daily update does at most 150 a day (the Screener
-also grades the companies you're looking at, as you look)."""
+    first. Each reads the company's SEC certifications (a dozen or so documents the first time, cached after) plus
+Wikidata and Yahoo, so the daily update does at most 150 a day (the Screener also grades the companies you're looking
+at, as you look)."""
     from . import ceo
 
     todo = ceo.to_rate()[: limit or None]
@@ -602,7 +603,7 @@ def daily_run(job, force: bool = False, send_email: bool = True, do_backup: bool
             from . import ceo
 
             job.update(0.50, "Checking for CEO changes")
-            ceo.check_changes(eightk, annual)
+            ceo.check_changes(eightk, annual, periodic={cik for _, cik, _ in filings})
             ceo_grades_job(job, limit=150)
         except Exception as e:
             db.log("ceo", "grades", False, str(e)[:200])

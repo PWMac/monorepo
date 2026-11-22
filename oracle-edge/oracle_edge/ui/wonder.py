@@ -415,7 +415,7 @@ def _ceo_card(s: dict) -> None:
     box = ui.card().classes("oe-card w-full")
     with box:
         ui.label("CEO track record").classes("oe-h2")
-        msg = ui.label("Looking up who runs the company (Wikidata) and computing the record…").classes("oe-muted")
+        msg = ui.label("Looking up who runs the company (SEC filings, Wikidata) and computing the record…").classes("oe-muted")
 
     async def load():
         res = await run.io_bound(ceo_data, s)
@@ -439,8 +439,9 @@ def _ceo_card(s: dict) -> None:
         m = res.get("record") or {}
         if not cur or not cur.get("start"):
             ui.label((f"The CEO is {cur['name']}, but the start date isn't known. " if cur else
-                      "No CEO history found " + ("on Wikidata" if res.get("wikidata_ok") else "(Wikidata unreachable)") +
-                      ". ") + "Enter the start date below to rate their record.").classes("oe-muted")
+                      "No CEO found: " + ("no readable CEO certification in the SEC filings" if res.get("sec_reached")
+                                          else "the SEC couldn't be reached") + ", " +
+                      ("nothing on Wikidata" if res.get("wikidata_ok") else "Wikidata unreachable") + ". ") + "Enter the start date below to rate their record.").classes("oe-muted")
         else:
             r = m.get("rating")
             car = res.get("career")
@@ -451,7 +452,9 @@ def _ceo_card(s: dict) -> None:
                 ui.label(head["grade"] if head else "—").classes("text-5xl font-bold").style(
                     f"color:{GRADE_COL.get(head['grade']) if head else '#6b7280'}")
                 with ui.column().classes("gap-0"):
-                    ui.label(f"{cur['name']}, CEO since {cur['start']}").classes("text-lg font-semibold")
+                    since = ("at least since " if cur.get("at_least") else "since about " if cur.get("approx")
+                             else "since ") + cur["start"]
+                    ui.label(f"{cur['name']}, CEO {since}").classes("text-lg font-semibold")
                     if multi:
                         ui.label(f"Career grade {car['score']:.0f}/100: {car['n']} companies, {car['years']:.1f} years of "
                                  "records, each weighted by its length").classes("text-sm")
@@ -515,7 +518,7 @@ def _ceo_card(s: dict) -> None:
                 ui.notify("Saved. Reopen the tab to see the new record.", type="positive")
             with ui.row().classes("gap-2"):
                 ui.button("Save", on_click=lambda: save()).props("unelevated dense")
-                ui.button("Use Wikidata again", on_click=lambda: save(True)).props("flat dense")
+                ui.button("Use the automatic look-up again", on_click=lambda: save(True)).props("flat dense")
         ui.label("How it's rated: four parts on fixed scales (owners' return vs the S&P 500, growth, returns on "
                  "capital, capital allocation), from the last annual report before the CEO started. A CEO inherits a "
                  "business, an industry and a market, so read the grade as how owners fared under this CEO, not as "

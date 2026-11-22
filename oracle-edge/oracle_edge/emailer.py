@@ -385,7 +385,7 @@ def market_html(rows) -> str:
                         f"<span style='color:#2c5d8f;font-size:11px;font-weight:700'>CEO</span> "
                         f"{html.escape(r['message'] or '')}</div>" for r in ceo_rows)
         out += ("<h3 style='margin:18px 0 4px;font-size:15px'>CEO changes</h3><div style='font-size:12px;"
-                "color:#666'>Found by the daily check (SEC 8-K filings, Yahoo, Wikidata). A new CEO isn't graded "
+                "color:#666'>Found by the daily check (SEC 8-K filings and CEO certifications, Yahoo, Wikidata). A new CEO isn't graded "
                 "until they have two fiscal years in the role; their record at other companies still counts.</div>"
                 + items)
     return out

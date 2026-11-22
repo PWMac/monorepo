@@ -717,10 +717,10 @@ def screener_page(compare: str = "", view: str = "both"):
                 g.run_grid_method("applyTransaction", {"update": changed})
             if stt["running"]:
                 ceo_status.text = (f"Rating CEOs in the background: {stt['pending']:,} to go (now {stt['current'] or '…'}). "
-                                   "Each needs a few Wikidata, Yahoo and SEC look-ups; the CEO column fills in as they "
+                                   "Each reads the company's SEC filings plus Wikidata and Yahoo; the CEO column fills in as they "
                                    "arrive, best companies first.")
             elif watch and stt["failed"] and not stt["done"]:
-                ceo_status.text = ("CEO grades couldn't be looked up (offline, or Wikidata/Yahoo unreachable); they'll be "
+                ceo_status.text = ("CEO grades couldn't be looked up (offline, or the SEC and Wikidata unreachable); they'll be "
                                    "tried again on the next visit and in the daily update.")
             else:
                 vis = [r["cik"] for r in st.get("last_view", [])]
@@ -759,7 +759,7 @@ def screener_page(compare: str = "", view: str = "both"):
             st["last_view"] = xs
             g.run_grid_method("setGridOption", "rowData", xs)
             # grade the CEOs of the companies in view first (best first): never looked up, or stuck without a start date
-            # or a CEO since before 0.17.5 could read start dates from filings
+            # or a CEO since before this version could find more (0.17.6: SEC certifications)
             retry_from = ceo.retry_from_date()
             todo = [r for r in xs if not r.get("ceo_tried") or (
                 r.get("ceo_note") in ("start date unknown", "CEO not found") and r.get("ceo_updated", "") < retry_from)]
