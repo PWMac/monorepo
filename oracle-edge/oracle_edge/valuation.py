@@ -133,7 +133,8 @@ def value(price: float, vi: dict, st: dict, t30: float, mos_gate: float, fy_pric
     hp = min(hurdle_prices) if hurdle_prices else iv
     buy_below = min(iv * (1 - mos_gate), hp)
     strong_mos = mos_gate + st.get("strong_extra_mos", 0.15)
-    strong = min(iv * (1 - strong_mos), hp)
+    # an extra margin below BOTH limits: when the hurdle price is the lower one, strong buy used to equal buy below
+    strong = min(iv * (1 - strong_mos), hp * (1 - st.get("strong_extra_mos", 0.15)))
     return Valuation(iv, iv_a, iv_b, er, er_a, er_b, mos, buy_below, strong, 1.5 * iv, r, g, exit_pe, pe_now, pe_med,
                      ey, pepg)
 
@@ -213,7 +214,8 @@ def value_enhanced(price: float, vi: dict, st: dict, t30: float, mos_gate: float
     # price earning the hurdle: each scenario's own hurdle price, probability-weighted like the value itself
     hp = sum(v["hp"] * v["w"] for v in out.values()) / tw
     buy_below = min(iv * (1 - mos_gate), hp)
-    strong = min(iv * (1 - (mos_gate + st.get("strong_extra_mos", 0.15))), hp)
+    extra = st.get("strong_extra_mos", 0.15)
+    strong = min(iv * (1 - (mos_gate + extra)), hp * (1 - extra))
     extra = {"model": "enhanced", "scenarios": {k: {"iv": v["iv"], "er": v["er"], "g": v["g"], "exit_pe": v["exit_pe"]}
                                                 for k, v in out.items()},
              "incr_roic": inc, "roic": roic, "dilution": dil, "normalized_eps": vi.get("eps_norm"),
@@ -403,7 +405,8 @@ def value_driver(price: float, vi: dict, st: dict, mos_gate: float, fy_prices: d
     if signal or st.get("vd_buy_rule") == "value":
         hurdle_price = iv_at(g, hurdle) if hurdle > r else iv
         buy_below = min(iv * (1 - mos_gate), hurdle_price)
-        strong = min(iv * (1 - (mos_gate + st.get("strong_extra_mos", 0.15))), buy_below)
+        strong = min(iv * (1 - (mos_gate + st.get("strong_extra_mos", 0.15))),
+                     buy_below * (1 - st.get("strong_extra_mos", 0.15)))
     else:
         cv = value_driver(price, vi, st, mos_gate, fy_prices, ttm, est, signal=True)
         hurdle_price = cv.iv or 0.0
@@ -477,7 +480,8 @@ def value_financial(price: float, vi: dict, st: dict, t30: float, mos_gate: floa
         hps.append(_solve_price(er_a_at, st["hurdle"], iv_a))
     hp = min(hps) if hps else iv
     buy_below = min(iv * (1 - mos_gate), hp)
-    strong = min(iv * (1 - (mos_gate + st.get("strong_extra_mos", 0.15))), hp)
+    extra = st.get("strong_extra_mos", 0.15)
+    strong = min(iv * (1 - (mos_gate + extra)), hp * (1 - extra))
     return Valuation(iv, iv_a, vb.iv_b, er, er_a, vb.er_b, mos, buy_below, strong, 1.5 * iv, k, g, vb.exit_pe,
                      vb.pe_now, vb.pe_median, None, vb.pepg, f"P/B justified {pb:.2f}×")
 

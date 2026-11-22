@@ -10,6 +10,7 @@ from nicegui import app, ui
 
 from .. import btcsignal, db, rules, strength, targets
 from . import data, outlook, quote, valuecard, wonder, wonder_page  # noqa: F401 (registers /screener)
+from . import growth as growth_tab
 from .charts import zoom_chart
 from .layout import empty, frame, kpi
 from .theme import BADGES, BRAND, BTC_COL, badge_html, fmt_value, ladder_html, money, num, pct, sparkline
@@ -111,20 +112,7 @@ def today_page():
                      ("" if bk.get("at") else "  ⚠"))
             ui.label(f"30-yr Treasury {pct(reg.t30, 2)}")
 
-        # ---- market warnings (never a hard stop)
-        adv = btcsignal.advice(reg, btc)
-        if adv:
-            with ui.card().classes("oe-card w-full").style("border-left:4px solid #8A5A12"):
-                ui.label("Market temperature").classes("oe-h2")
-                for a in adv:
-                    with ui.row().classes("w-full items-start gap-2 no-wrap"):
-                        ui.icon("warning" if a["level"] == "warn" else "info").classes(
-                            "text-amber-800" if a["level"] == "warn" else "text-green-800")
-                        with ui.column().classes("gap-0"):
-                            ui.label(a["title"]).classes("font-semibold")
-                            ui.label(a["text"]).classes("text-sm")
-                ui.label("Warnings, not hard stops: the model keeps following its rules. Details on the Market page."
-                         ).classes("oe-small")
+        _movers_card()
 
         # ---- actions
         acts = data.actions(run_id, d) if d else []
@@ -490,6 +478,7 @@ def stock_page(ticker: str):
             t_w = ui.tab("wonder", label="Wonderful?", icon="workspace_premium")
             t_o = ui.tab("outlook", label="Outlook", icon="insights")
             t_q = ui.tab("quote", label="Chart & key stats", icon="candlestick_chart")
+            t_g = ui.tab("growth", label="Total return", icon="savings")
         with ui.tab_panels(tabs, value=t_rep).props("animated=false").classes("w-full bg-transparent"):
             with ui.tab_panel(t_rep).classes("p-0 gap-4"):
                 _report_card(s, r, prof, snap, ev, run_id)
@@ -499,7 +488,9 @@ def stock_page(ticker: str):
                 pass
             with ui.tab_panel(t_q).classes("p-0 gap-4") as qpanel:
                 pass
-        drawn = {"q": False, "w": False, "o": False}
+            with ui.tab_panel(t_g).classes("p-0 gap-4") as gpanel:
+                pass
+        drawn = {"q": False, "w": False, "o": False, "g": False}
 
         def lazy(e):
             if e.value == "quote" and not drawn["q"]:  # build the chart once its tab is visible (correct sizing)
@@ -510,6 +501,10 @@ def stock_page(ticker: str):
                 drawn["o"] = True
                 with opanel:
                     outlook.render(s, prof, snap, ev)
+            if e.value == "growth" and not drawn["g"]:
+                drawn["g"] = True
+                with gpanel:
+                    growth_tab.render(s)
             if e.value == "wonder" and not drawn["w"]:
                 drawn["w"] = True
                 with wpanel:
@@ -587,10 +582,10 @@ def _report_card(s, r, prof, snap, ev, run_id):
         owned = bool(db.scalar("SELECT 1 FROM positions p JOIN portfolios f ON f.id=p.portfolio_id "
                                "WHERE f.run_id=? AND p.cik=?", (run_id, s["cik"])) or
                      db.scalar("SELECT 1 FROM real_holdings WHERE cik=?", (s["cik"],)))
-        _targets_card(s, tp, tech, owned)
+        _targets_card(s, tp, tech, owned, prof.settings)
         _price_chart(s["ticker"], run_id, s["cik"], tp, tech)
     else:
-        _targets_card(s, tp, tech, False)
+        _targets_card(s, tp, tech, False, prof.settings)
         _value_card(s, prof, snap, ev)
     _warnings_card(s["cik"], snap, prof)
     # ---- rules
@@ -756,7 +751,8 @@ def _adr_card(s):
 _TREND_COL = {"up": "#1f6f4a", "down": "#a33a2b", "sideways": "#6b746f"}
 
 
-def _targets_card(s, tp, t, owned):
+def _targets_card(s, tp, t, owned, st=None):
+    st = st or {}
     with ui.card().classes("oe-card w-full"):
         with ui.row().classes("w-full items-center justify-between"):
             ui.label("Price targets").classes("oe-h2")
@@ -764,27 +760,37 @@ def _targets_card(s, tp, t, owned):
                 ui.html(f'<span class="oe-pill" style="background:#f0eee7;color:{_TREND_COL[t["trend"]]}">'
                         f'{targets.TREND_TEXT[t["trend"]]}</span>', sanitize=False)
         if tp and tp.get("limit"):
-            with ui.grid(columns=5).classes("w-full gap-3 oe-kpis"):
+            mos, hur = st.get("mos_gate", 0.25), st.get("hurdle", 0.10)
+            extra = st.get("strong_extra_mos", 0.15)
+            with ui.grid(columns=6).classes("w-full gap-3 oe-kpis"):
+                kpi(money(tp["price"]), "Today's price",
+                    ("in the Buy Zone" if tp["status"] == "in_zone" else f"{pct(tp['gap'], 0)} above buy below")
+                    if tp.get("gap") is not None else None, BRAND if tp["status"] == "in_zone" else None)
                 kpi(money(tp["limit"]), "Suggested add limit" if owned else "Suggested buy limit", tp["limit_label"],
                     BRAND)
-                kpi(money(tp["buy_below"]), "Buy below", "margin of safety and 10% return")
-                kpi(money(tp["strong"]), "Strong buy below", "extra 15% margin")
-                kpi(money(tp["iv"]), "Intrinsic value", "not a sell price")
-                kpi(money(tp["trim_above"]), "Trim above", "2× value and P/E 2× its norm" +
-                    ("" if owned else " (if owned)"), "#a24d00")
+                kpi(money(tp["buy_below"]), "Buy below",
+                    f"P/E {st.get('fair_pe_mult', 1.5):g}× its usual" if st.get("price_test") == "fair_pe" else
+                    f"{pct(mos, 0)} margin of safety and a {pct(hur, 0)} yearly return")
+                kpi(money(tp["strong"]), "Strong buy below", f"a further {pct(extra, 0)} lower")
+                kpi(money(tp["iv"]), "Value (this profile's model)", "not a sell price")
+                kpi(money(tp["trim_above"]), "Trim above", f"{st.get('nosebleed_iv_mult', 2.0):g}× value with the "
+                    "P/E 2× its norm" + ("" if owned else " (if owned)"), "#a24d00")
             ui.label(tp["note"]).classes("text-sm")
             if len(tp["tranches"]) > 1:
                 with ui.row().classes("gap-6"):
                     for k, (pr, fr, lab) in enumerate(tp["tranches"], 1):
-                        ui.label(f"{k}. ⅓ at {money(pr)} · {lab}").classes("text-sm font-semibold")
+                        ui.label(f"{k}. ⅓ at {money(pr)} · {lab}"
+                                 + (f" ({pct(pr / tp['price'] - 1, 0)} from today)" if tp.get("price") else "")
+                                 ).classes("text-sm font-semibold")
             ui.label("Sells are business-driven, Oracle style: a SELL or REVIEW fills at the next open whatever the "
                      "chart says. Charts only fine-tune the entry price inside the Buy Zone.").classes("oe-small")
         elif tp:
             ui.label(tp["note"] or "No targets yet.").classes("oe-muted")
         if t:
             lv = targets.support_levels(t)
-            res = [(t["hi52"], "52-week high")] + [(v, f"Fibonacci {r * 100:.1f}%") for r, v in t["fibs"].items()
-                                                   if v > t["close"]]
+            # resistance: every level above today's price, the 50/200-day averages included (in a downtrend they are
+            # the first ceilings)
+            res = [(t["hi52"], "52-week high")] + [x for x in lv if x[0] > t["close"]]
             with ui.row().classes("w-full gap-8 items-start"):
                 with ui.column().classes("gap-0"):
                     ui.label("Support below today (where buyers stepped in)").classes("oe-small font-semibold")
@@ -792,7 +798,7 @@ def _targets_card(s, tp, t, owned):
                         ui.label(f"{money(v)} · {lab} · {pct(v / t['close'] - 1, 1)}").classes("text-sm oe-num")
                 with ui.column().classes("gap-0"):
                     ui.label("Resistance above (info only)").classes("oe-small font-semibold")
-                    for v, lab in sorted({x for x in res if x[0] > t["close"]}, key=lambda x: x[0])[:4]:
+                    for v, lab in sorted({x for x in res if x[0] > t["close"]}, key=lambda x: x[0])[:6]:
                         ui.label(f"{money(v)} · {lab} · +{pct(v / t['close'] - 1, 1)}").classes("text-sm oe-num")
                 with ui.column().classes("gap-0"):
                     ui.label("Context").classes("oe-small font-semibold")
@@ -800,8 +806,9 @@ def _targets_card(s, tp, t, owned):
                         "text-sm")
                     if tp and tp.get("band"):
                         ui.label(f"'Approaching' alert within {pct(tp['band'], 1)} of a target").classes("text-sm")
-                    if t.get("mom_12_1") is not None:
-                        ui.label(f"12-month momentum {pct(t['mom_12_1'], 1)}").classes("text-sm")
+                    if t.get("chg_12m") is not None:
+                        ui.label(f"Price change: {pct(t.get('chg_1m'), 1)} in a month, {pct(t['chg_12m'], 1)} in 12 "
+                                 "months").classes("text-sm")
                     ui.label(f"Fibonacci levels from the 52-week {'rise' if t['swing'] == 'up' else 'fall'} "
                              f"{money(t['lo52'] if t['swing'] == 'up' else t['hi52'])} → "
                              f"{money(t['hi52'] if t['swing'] == 'up' else t['lo52'])}").classes("oe-small")
@@ -845,6 +852,49 @@ def _custom_alerts(s):
     render()
 
 
+def _movers_card():
+    """Today: the companies whose Wonderfulness moved most with an annual report filed in the last week or month."""
+    from .. import movers
+
+    store = app.storage.user
+    box = ui.card().classes("oe-card w-full")
+
+    def draw(days):
+        store["movers_days"] = days
+        box.clear()
+        m = movers.movers(rules.default_profile(), days=days, n=7)
+        with box:
+            with ui.row().classes("w-full items-center justify-between"):
+                ui.label("Score movers").classes("oe-h2")
+                ui.toggle({7: "This week", 30: "This month"}, value=days, on_change=lambda e: draw(e.value)).props(
+                    "dense no-caps unelevated toggle-color=primary")
+            ui.label(f"{m['filed']} companies filed an annual report since {m['since']}; these moved most. Wonderfulness is "
+                     "compared with last year's (each ranked within its own year), Quality with the previous report; "
+                     "the pillar that moved most says why.").classes("oe-small")
+            with ui.row().classes("w-full gap-6 items-start no-wrap"):
+                for side, title, col, icon in (("up", "Rising", "#1f6f4a", "trending_up"),
+                                               ("down", "Falling", "#a33a2b", "trending_down")):
+                    with ui.column().classes("flex-1 gap-1 min-w-0"):
+                        with ui.row().classes("items-center gap-1"):
+                            ui.icon(icon).style(f"color:{col}")
+                            ui.label(title).classes("font-semibold").style(f"color:{col}")
+                        if not m[side]:
+                            ui.label("None this period.").classes("oe-muted")
+                        for x in m[side]:
+                            with ui.row().classes("w-full items-center gap-2 no-wrap oe-mover"):
+                                ui.link(x["ticker"], f"/stock/{x['ticker']}", new_tab=True).classes(
+                                    "font-bold w-16 no-underline").style("color:#1f2a24")
+                                ui.label(x["name"][:28]).classes("text-sm flex-1 truncate")
+                                ui.html(f"<span style='color:{col};font-weight:700'>{x['change']:+.0f}</span>"
+                                        f"<span style='color:#6b7280;font-size:12px'> → {x['fy_score']:.0f}</span>",
+                                        sanitize=False).classes("w-20 text-right")
+                                ui.label(x["why"]).classes("oe-small w-36 truncate")
+                                ui.label((f"Q {x['q_change']:+.0f}" if x["q_change"] is not None else "")).classes(
+                                    "oe-small w-12 text-right").tooltip("Change in the Oracle checklist Quality score")
+
+    draw(int(store.get("movers_days", 7)))
+
+
 def _price_chart(ticker, run_id, cik, tp=None, t=None):
     px = data.stock_prices(ticker)
     vh = data.stock_value_history(run_id, cik)
@@ -870,19 +920,23 @@ def _price_chart(ticker, run_id, cik, tp=None, t=None):
         lines.append({"yAxis": round(tp["limit"], 2), "name": "Suggested limit",
                       "lineStyle": {"color": BRAND, "type": "solid", "width": 1.5},
                       "label": {"formatter": "limit ${c}".replace("{c}", f"{tp['limit']:,.2f}"), "position": "insideEndTop",
-                                "color": BRAND, "fontSize": 10}})
+                                "color": BRAND, "fontSize": 11, "fontWeight": 600,
+                                "backgroundColor": "rgba(255,255,255,0.85)", "padding": [1, 5], "borderRadius": 3}})
     fib_lines = []
     if t and t.get("fibs") and len(px) > 5:
-        start = px[max(0, len(px) - 252)]["date"]
+        # full-width levels (like a charting app's retracement tool), so the label sits at the right edge of whatever is
+        # in view and survives zooming; a light box behind the text keeps it readable over the price line
         for r, v in t["fibs"].items():
-            fib_lines.append([{"coord": [start, round(v, 2)], "name": f"Fib {r * 100:.1f}%",
-                               "label": {"formatter": f"Fib {r * 100:.1f}%  ${v:,.2f}", "position": "insideEndTop",
-                                         "fontSize": 9, "color": "#7a4f9e"}},
-                              {"coord": [px[-1]["date"], round(v, 2)]}])
+            fib_lines.append({"yAxis": round(v, 2), "name": f"Fibonacci {r * 100:.1f}%",
+                              "lineStyle": {"color": "#7a4f9e", "type": "dashed", "width": 1, "opacity": 0.75},
+                              "label": {"formatter": f"Fib {r * 100:.1f}%  ${v:,.2f}", "position": "insideEndTop",
+                                        "fontSize": 11, "fontWeight": 600, "color": "#5b3a7a",
+                                        "backgroundColor": "rgba(255,255,255,0.85)", "padding": [1, 5],
+                                        "borderRadius": 3}})
     with ui.card().classes("oe-card w-full"):
         ui.label("Price vs value").classes("oe-h2")
-        ui.label("Value lines decide what's cheap; the 50/200-day averages and Fibonacci levels (purple, last 52 "
-                 "weeks) only refine the entry price.").classes("oe-small")
+        ui.label("Value lines decide what's cheap; the 50/200-day averages and Fibonacci levels (purple dashes, from "
+                 "the last 52 weeks' range) only refine the entry price.").classes("oe-small")
         zoom_chart({
             "tooltip": {"trigger": "axis"},
             "legend": {"data": ["Price", "Intrinsic value", "Buy below", "50-day avg", "200-day avg"], "top": 0,
@@ -1212,6 +1266,45 @@ def _tn(v) -> str:
     return f"${v / 1e12:,.2f}T" if abs(v) >= 1e12 else f"${v / 1e9:,.1f}B"
 
 
+def _bi_chart(off: list[dict], est: list[dict]) -> dict:
+    """The US Buffett Indicator with the two numbers behind it on one chart: the ratio on the right axis (coloured by
+    zone), market value and GDP in $ trillions on the left."""
+    pct_tip = {":valueFormatter": "(v) => v == null ? '' : v + '%'"}
+    usd_tip = {":valueFormatter": "(v) => v == null ? '' : '$' + v + 'T'"}
+    ratio = lambda xs: [[h["date"], round(h["ratio"] * 100, 1)] for h in xs]  # noqa: E731
+    trn = lambda xs, k: [[h["date"], round(h[k] / 1e12, 2)] for h in xs]  # noqa: E731
+    return {
+        "tooltip": {"trigger": "axis"}, "legend": {"top": 0}, "grid": {"left": 64, "right": 64, "top": 40},
+        "xAxis": {"type": "time"},
+        "yAxis": [{"type": "value", "name": "$ trillions", "axisLabel": {"formatter": "${value}T"}},
+                  {"type": "value", "name": "÷ GDP", "position": "right", "splitLine": {"show": False},
+                   "axisLabel": {"formatter": "{value}%"}}],
+        "visualMap": {"show": False, "seriesIndex": [0, 1], "dimension": 1, "pieces": [
+            {"lt": 90, "color": "#1f6f4a"}, {"gte": 90, "lt": 120, "color": "#6fb38f"},
+            {"gte": 120, "lt": 150, "color": "#c9a227"}, {"gte": 150, "lt": 200, "color": "#d9822b"},
+            {"gte": 200, "color": "#a33a2b"}]},
+        "series": [
+            {"type": "line", "showSymbol": False, "name": "Market value ÷ GDP", "yAxisIndex": 1, "data": ratio(off),
+             "lineStyle": {"width": 3}, "tooltip": pct_tip, "z": 5,
+             "markLine": {"silent": True, "symbol": "none", "lineStyle": {"type": "dashed", "color": "#b8bfbb"},
+                          "label": {"position": "insideStartTop", "fontSize": 10, "color": "#6b7280",
+                                    ":formatter": "p => p.value + '%'"},
+                          "data": [{"yAxis": 90}, {"yAxis": 120}, {"yAxis": 150}, {"yAxis": 200}]}},
+            {"type": "line", "showSymbol": False, "name": "÷ GDP, estimate", "yAxisIndex": 1, "data": ratio(est),
+             "lineStyle": {"type": "dashed", "width": 3}, "tooltip": pct_tip, "z": 5},
+            {"type": "line", "showSymbol": False, "name": "Stock market value", "data": trn(off, "equities"),
+             "lineStyle": {"color": "#2c5d8f", "width": 1.5}, "itemStyle": {"color": "#2c5d8f"}, "tooltip": usd_tip},
+            {"type": "line", "showSymbol": False, "name": "GDP", "data": trn(off, "gdp"),
+             "lineStyle": {"color": "#8A5A12", "width": 1.5}, "itemStyle": {"color": "#8A5A12"}, "tooltip": usd_tip},
+            {"type": "line", "showSymbol": False, "name": "Market value, estimate", "data": trn(est, "equities"),
+             "lineStyle": {"color": "#2c5d8f", "width": 1.5, "type": "dashed"}, "itemStyle": {"color": "#2c5d8f"},
+             "tooltip": usd_tip},
+            {"type": "line", "showSymbol": False, "name": "GDP, estimate", "data": trn(est, "gdp"),
+             "lineStyle": {"color": "#8A5A12", "width": 1.5, "type": "dashed"}, "itemStyle": {"color": "#8A5A12"},
+             "tooltip": usd_tip}],
+    }
+
+
 def _gdp_note(us: dict) -> str:
     base = f"{_tn(us['gdp_q'])} for the quarter ending {us['gdp_quarter_end']} (nominal, seasonally adjusted)"
     if us.get("gdp_growth") is None or abs(us["gdp_scale"] - 1) < 1e-9:
@@ -1249,49 +1342,14 @@ def market_page():
                 "raised when expensive (profile setting on)" if rules.default_profile().settings.get("regime_modifier")
                 else "fixed (the profile doesn't raise it when expensive)")
         with ui.card().classes("oe-card w-full"):
-            ui.label("US Buffett Indicator history").classes("oe-h2")
-            ui.label("Solid: official quarter-end figures (market value of US companies' shares ÷ that quarter's "
-                     "GDP). Dashed: the weekly estimate since the last official quarter, ending with today's "
-                     "reading.").classes("oe-small")
-            zoom_chart({
-                "tooltip": {"trigger": "axis", ":valueFormatter": "(v) => v + '%'"}, "grid": {"left": 55, "right": 48},
-                "xAxis": {"type": "time"}, "yAxis": {"type": "value", "axisLabel": {"formatter": "{value}%"}},
-                "visualMap": {"show": False, "dimension": 1, "pieces": [
-                    {"lt": 90, "color": "#1f6f4a"}, {"gte": 90, "lt": 120, "color": "#6fb38f"},
-                    {"gte": 120, "lt": 150, "color": "#c9a227"}, {"gte": 150, "lt": 200, "color": "#d9822b"},
-                    {"gte": 200, "color": "#a33a2b"}]},
-                "series": [{"type": "line", "showSymbol": False, "name": "Market value ÷ GDP",
-                            "data": [[h["date"], round(h["ratio"] * 100, 1)] for h in off],
-                            "markLine": {"silent": True, "symbol": "none", "lineStyle": {"type": "dashed"},
-                                         "data": [{"yAxis": 90}, {"yAxis": 120}, {"yAxis": 150}, {"yAxis": 200}]}},
-                           {"type": "line", "showSymbol": False, "name": "Estimate",
-                            "data": [[h["date"], round(h["ratio"] * 100, 1)] for h in est],
-                            "lineStyle": {"type": "dashed", "width": 2}}],
-            }, height="h-96", name="us-buffett-indicator")
+            ui.label("US Buffett Indicator, market value and GDP").classes("oe-h2")
+            ui.label("The indicator (thick line, right axis, coloured by zone) is the stock market's value (blue) ÷ GDP "
+                     "(brown), both in trillions of dollars on the left axis. Solid: official quarter-end figures. Dashed: "
+                     "the weekly estimate since the last official quarter, ending with today's reading. Click a legend "
+                     "entry to hide a line.").classes("oe-small")
+            zoom_chart(_bi_chart(off, est), height="h-[28rem]", name="us-buffett-indicator")
             ui.label("Zones: <90% undervalued · 90–120% fair · 120–150% modestly overvalued · 150–200% significantly "
                      "overvalued · >200% extreme. Different methods can differ by 20–40 points.").classes("oe-small")
-        with ui.card().classes("oe-card w-full"):
-            ui.label("US market value and GDP").classes("oe-h2")
-            ui.label("The two numbers behind the indicator, in trillions of dollars. The gap between the lines is the "
-                     "indicator.").classes("oe-small")
-            zoom_chart({
-                "tooltip": {"trigger": "axis", ":valueFormatter": "(v) => '$' + v + 'T'"}, "legend": {"top": 0},
-                "xAxis": {"type": "time"}, "yAxis": {"type": "value", "name": "$ trillions",
-                                                     "axisLabel": {"formatter": "${value}T"}},
-                "series": [
-                    {"type": "line", "showSymbol": False, "name": "Stock market value (Fed Z.1)",
-                     "data": [[h["date"], round(h["equities"] / 1e12, 2)] for h in off],
-                     "lineStyle": {"color": "#1f6f4a", "width": 2}, "itemStyle": {"color": "#1f6f4a"}},
-                    {"type": "line", "showSymbol": False, "name": "GDP (yearly rate)",
-                     "data": [[h["date"], round(h["gdp"] / 1e12, 2)] for h in off],
-                     "lineStyle": {"color": "#8A5A12", "width": 2}, "itemStyle": {"color": "#8A5A12"}},
-                    {"type": "line", "showSymbol": False, "name": "Market value, estimate",
-                     "data": [[h["date"], round(h["equities"] / 1e12, 2)] for h in est],
-                     "lineStyle": {"color": "#1f6f4a", "width": 2, "type": "dashed"}, "itemStyle": {"color": "#1f6f4a"}},
-                    {"type": "line", "showSymbol": False, "name": "GDP, estimate",
-                     "data": [[h["date"], round(h["gdp"] / 1e12, 2)] for h in est],
-                     "lineStyle": {"color": "#8A5A12", "width": 2, "type": "dashed"}, "itemStyle": {"color": "#8A5A12"}}],
-            }, height="h-80", name="us-market-value-and-gdp")
         ui.label("Global Buffett Indicator").classes("oe-h1 mt-4")
         ui.label("The same idea for the whole world: the value of every listed company ÷ world GDP, from the World "
                  "Bank (World Federation of Exchanges data). Annual, and published with a lag, so today's figure is "
@@ -1311,39 +1369,41 @@ def market_page():
                 kpi(_tn(world["gdp"]), "World GDP", _gdp_note_world(world))
                 kpi(pct(reg.ratio) if reg.ratio else "—", "US, for comparison", reg.zone)
             with ui.card().classes("oe-card w-full"):
-                ui.label("Global Buffett Indicator history").classes("oe-h2")
+                ui.label("Global Buffett Indicator, market value and GDP").classes("oe-h2")
+                ui.label("World market value ÷ world GDP (thick blue, right axis, with its long-run average) and the US "
+                         "indicator for comparison (grey); the world's market value and GDP in trillions on the left "
+                         "axis. Year-end figures; the last point is today's estimate.").classes("oe-small")
                 zoom_chart({
-                    "tooltip": {"trigger": "axis", ":valueFormatter": "(v) => v + '%'"}, "legend": {"top": 0},
-                    "xAxis": {"type": "time"}, "yAxis": {"type": "value", "axisLabel": {"formatter": "{value}%"}},
+                    "tooltip": {"trigger": "axis"}, "legend": {"top": 0}, "grid": {"left": 64, "right": 64, "top": 40},
+                    "xAxis": {"type": "time"},
+                    "yAxis": [{"type": "value", "name": "$ trillions", "axisLabel": {"formatter": "${value}T"}},
+                              {"type": "value", "name": "÷ GDP", "position": "right", "splitLine": {"show": False},
+                               "axisLabel": {"formatter": "{value}%"}}],
                     "series": [
-                        {"type": "line", "name": "World (year-end; last point = estimate)", "showSymbol": True,
-                         "symbolSize": 5, "data": [[h["date"], round(h["ratio"] * 100, 1)] for h in wh],
-                         "lineStyle": {"color": "#2c5d8f", "width": 2}, "itemStyle": {"color": "#2c5d8f"},
+                        {"type": "line", "name": "World ÷ GDP", "showSymbol": True, "symbolSize": 5, "yAxisIndex": 1,
+                         "data": [[h["date"], round(h["ratio"] * 100, 1)] for h in wh],
+                         "lineStyle": {"color": "#2c5d8f", "width": 3}, "itemStyle": {"color": "#2c5d8f"},
+                         "tooltip": {":valueFormatter": "(v) => v + '%'"},
                          "markLine": {"silent": True, "symbol": "none", "lineStyle": {"type": "dashed"},
-                                      "label": {"formatter": "average", "position": "insideEndTop"},
+                                      "label": {"formatter": "world average", "position": "insideEndTop"},
                                       "data": [{"yAxis": round(avg * 100, 1)}]}},
-                        {"type": "line", "name": "US (quarterly)", "showSymbol": False,
+                        {"type": "line", "name": "US ÷ GDP", "showSymbol": False, "yAxisIndex": 1,
                          "data": [[h["date"], round(h["ratio"] * 100, 1)] for h in mk["history"]
                                   if h["date"] >= wh[0]["date"]],
-                         "lineStyle": {"color": "#9aa5a0", "width": 1}, "itemStyle": {"color": "#9aa5a0"}}],
-                }, height="h-80", name="global-buffett-indicator")
+                         "tooltip": {":valueFormatter": "(v) => v + '%'"},
+                         "lineStyle": {"color": "#9aa5a0", "width": 1.5}, "itemStyle": {"color": "#9aa5a0"}},
+                        {"type": "line", "name": "World stock market value", "symbolSize": 4,
+                         "data": [[h["date"], round(h["equities"] / 1e12, 2)] for h in wh if h.get("equities")],
+                         "tooltip": {":valueFormatter": "(v) => '$' + v + 'T'"},
+                         "lineStyle": {"color": "#6f9fcf", "width": 1.5}, "itemStyle": {"color": "#6f9fcf"}},
+                        {"type": "line", "name": "World GDP", "symbolSize": 4,
+                         "data": [[h["date"], round(h["gdp"] / 1e12, 2)] for h in wh if h.get("gdp")],
+                         "tooltip": {":valueFormatter": "(v) => '$' + v + 'T'"},
+                         "lineStyle": {"color": "#8A5A12", "width": 1.5}, "itemStyle": {"color": "#8A5A12"}}],
+                }, height="h-[28rem]", name="global-buffett-indicator")
                 ui.label("The US zones don't apply to the world figure: other markets have far fewer listed companies "
                          "relative to their economies, so compare the world reading with its own average.").classes(
                     "oe-small")
-            with ui.card().classes("oe-card w-full"):
-                ui.label("World market value and GDP").classes("oe-h2")
-                zoom_chart({
-                    "tooltip": {"trigger": "axis", ":valueFormatter": "(v) => '$' + v + 'T'"}, "legend": {"top": 0},
-                    "xAxis": {"type": "time"}, "yAxis": {"type": "value", "name": "$ trillions",
-                                                         "axisLabel": {"formatter": "${value}T"}},
-                    "series": [
-                        {"type": "line", "name": "World stock market value", "symbolSize": 5,
-                         "data": [[h["date"], round(h["equities"] / 1e12, 2)] for h in wh if h.get("equities")],
-                         "lineStyle": {"color": "#2c5d8f", "width": 2}, "itemStyle": {"color": "#2c5d8f"}},
-                        {"type": "line", "name": "World GDP", "symbolSize": 5,
-                         "data": [[h["date"], round(h["gdp"] / 1e12, 2)] for h in wh if h.get("gdp")],
-                         "lineStyle": {"color": "#8A5A12", "width": 2}, "itemStyle": {"color": "#8A5A12"}}],
-                }, height="h-80", name="world-market-value-and-gdp")
         with ui.grid(columns=4).classes("w-full gap-3 oe-kpis mt-2"):
             kpi(pct(reg.t30, 2), "30-yr Treasury", "The Oracle's discount-rate anchor")
             kpi(pct(reg.t10, 2) if reg.t10 else "—", "10-yr Treasury")
