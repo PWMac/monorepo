@@ -401,6 +401,12 @@ def _search_index() -> list[tuple]:
         name = r["name"] or ""
         out.append((r["ticker"], name, r["ticker"].lower(), name.lower(), re.split(r"[^a-z0-9&]+", name.lower()),
                     bool(r["active"])))
+    have = {x[0] for x in out}
+    for r in db.rows("SELECT ticker, name FROM etfs"):  # funds search like companies and open their own page
+        if r["ticker"] not in have:
+            name = (r["name"] or "") + " (ETF)"
+            out.append((r["ticker"], name, r["ticker"].lower(), name.lower(), re.split(r"[^a-z0-9&]+", name.lower()),
+                        True))
     return out
 
 

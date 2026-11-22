@@ -22,7 +22,7 @@ from .layout import frame
 from .theme import BRAND, NEGATIVE, badge_html, money, pct
 
 GREY = "#6b7280"
-TABS = ["Overview", "Holdings", "Performance", "Income", "Gains & tax", "Activity", "Invest cash",
+TABS = ["Overview", "Holdings", "X-ray", "Performance", "Income", "Gains & tax", "Activity", "Invest cash",
         "Accounts & imports"]
 
 
@@ -107,6 +107,8 @@ def holdings_page(tab: str | None = None):
                 _performance(scope, hs, s)
             with ui.tab_panel("Income"):
                 _income(scope, hs, px, sm)
+            with ui.tab_panel("X-ray"):
+                _xray(scope, hs)
             with ui.tab_panel("Gains & tax"):
                 _gains(scope, hs, sm)
             with ui.tab_panel("Activity"):
@@ -310,9 +312,19 @@ def _badges(hs) -> dict:
     prof = rules.default_profile()
     evs = _evals_for(hs)
     out = {}
+    from .. import etfscore
+
+    funds = etfscore.scores()
     for h in hs:
+        if h.ticker in funds and h.cik is None:
+            fm = funds[h.ticker]
+            m = fm.get("m") or {}
+            sc = fm.get("score")
+            out[h.ticker] = (m.get("verdict") or "HOLD", (f"Fund Score {sc:.0f} · " if sc is not None else "")
+                             + f"Oracle share {(m.get('oracle') or 0) * 100:.0f}% · " + (m.get("verdict_why") or ""))
+            continue
         if h.cik is None:
-            out[h.ticker] = ("HOLD", "fund or not covered: no strategy signal")
+            out[h.ticker] = ("HOLD", "fund not scored yet (ETFs page → Update ETF data) or not covered")
             continue
         try:
             out[h.ticker] = real_badge(h.cik, evs.get(h.ticker), prof)
@@ -355,15 +367,26 @@ def _holdings_tab(scope, hs, sm):
         pass
     bnames = {b["id"]: b["name"] for b in holdings.baskets()}
     rows = []
+    from .. import etfscore
+
+    funds = etfscore.scores()
+    fund_names = {r["ticker"]: r["name"] for r in db.rows("SELECT ticker, name FROM etfs")}
     for h in hs:
         e = evs.get(h.ticker) or {}
         iv = e.get("iv")
+        fs = funds.get(h.ticker) if h.cik is None else None
+        if fs:  # a fund: Quality and Wonderfulness looked through to what it holds, value from its holdings
+            fm = fs.get("m") or {}
+            e = {"quality": fm.get("avg_q"), "buy_below": None}
+            iv = fm.get("fair_value")
         rows.append({
-            "ticker": h.ticker, "name": h.name or "", "badge": bad.get(h.ticker, ("", ""))[0],
+            "fund": fs.get("score") if fs else None, "oracle": (fs.get("m") or {}).get("oracle") if fs else None,
+            "ticker": h.ticker, "name": h.name or fund_names.get(h.ticker) or "", "badge": bad.get(h.ticker, ("", ""))[0],
             "why": bad.get(h.ticker, ("", ""))[1], "shares": h.shares, "avg": h.avg_cost, "price": h.price,
             "value": h.value, "weight": h.weight, "day": h.day_pct, "day_d": h.day_change, "gain": h.gain,
             "gain_pct": h.gain_pct, "total": h.total_ret, "irr": h.irr, "divs": h.divs, "yield": h.div_yield,
-            "yoc": h.yield_on_cost, "income": h.income, "quality": e.get("quality"), "wonder": w_now.get(h.cik),
+            "yoc": h.yield_on_cost, "income": h.income, "quality": e.get("quality"),
+            "wonder": w_now.get(h.cik) if not fs else (fs.get("m") or {}).get("avg_w"),
             "iv": iv, "disc": (h.price / iv - 1) if (iv and h.price) else None, "buy_below": e.get("buy_below"),
             "lots": len(h.lots), "since": h.first_date or "", "accounts": ", ".join(h.accounts),
             "baskets": ", ".join(bnames.get(b, "") for b in h.baskets), "realized": h.realized})
@@ -403,11 +426,16 @@ def _holdings_tab(scope, hs, sm):
         {"headerName": "Yield on cost", "field": "yoc", "width": 90, "type": "rightAligned",
          ":valueFormatter": "p => p.value ? (p.value*100).toFixed(2) + '%' : '—'"},
         {"headerName": "Income/yr", "field": "income", "width": 92, "type": "rightAligned", ":valueFormatter": m0},
-        {"headerName": "Quality", "field": "quality", "width": 80, "type": "rightAligned", ":valueFormatter": num1},
+        {"headerName": "Fund Score", "field": "fund", "width": 84, "type": "rightAligned", ":valueFormatter": num1,
+         "headerTooltip": "ETFs: 0-100 from what it owns, price, track record and cost (ETFs page)"},
+        {"headerName": "Oracle share", "field": "oracle", "width": 84, "type": "rightAligned", ":valueFormatter": pc,
+         "headerTooltip": "ETFs: share of the fund in wonderful, quality businesses at or below their value"},
+        {"headerName": "Quality", "field": "quality", "width": 80, "type": "rightAligned", ":valueFormatter": num1,
+         "headerTooltip": "For an ETF: the weighted Quality of what it holds"},
         {"headerName": "Wonder", "field": "wonder", "width": 80, "type": "rightAligned", ":valueFormatter": num1,
-         "headerTooltip": "Wonderfulness"},
+         "headerTooltip": "Wonderfulness (for an ETF: weighted over what it holds)"},
         {"headerName": "Value est.", "field": "iv", "width": 96, "type": "rightAligned", ":valueFormatter": m,
-         "headerTooltip": "The primary strategy's value per share"},
+         "headerTooltip": "The primary strategy's value per share (for an ETF: what its holdings are worth per share)"},
         {"headerName": "vs value", "field": "disc", "width": 84, "type": "rightAligned", ":valueFormatter": sp,
          "headerTooltip": "Price above (+) or below (−) the value estimate"},
         {"headerName": "Buy below", "field": "buy_below", "width": 92, "type": "rightAligned", ":valueFormatter": m},
@@ -430,7 +458,8 @@ def _holdings_tab(scope, hs, sm):
     ui.add_css(".oe-badge-mini{font-size:11px;font-weight:700;padding:2px 6px;border-radius:4px}"
                ".oe-b-SELL{background:#a33a2b;color:#fff}.oe-b-TRIM{background:#7a4f9e;color:#fff}"
                ".oe-b-REVIEW{background:#ffe7cc;color:#a24d00}.oe-b-ADD{background:#e3f1ea;color:#1f6f4a}"
-               ".oe-b-HOLD{background:#eceae3;color:#4b524f}")
+               ".oe-b-HOLD{background:#eceae3;color:#4b524f}.oe-b-WATCH{background:#fbf0dc;color:#9a5b00}"
+               ".oe-b-BUY{background:#1f6f4a;color:#fff}")
     t = [h for h in hs if h.value is not None]
     ui.label(f"Totals: {money(sum(h.value for h in t), 0)} value · {_sgn(sum(h.gain or 0 for h in t))} gain · "
              f"{money(sm['income'], 0)} income a year").classes("oe-small")
@@ -649,6 +678,99 @@ def _income(scope, hs, px, sm):
                            for h in rows], pagination=12).props("dense flat").classes("w-full")
 
 
+# ===================================================================== X-ray
+def _xray(scope, hs):
+    """What you really own once the funds are opened up."""
+    from .. import etfscore
+
+    pos = [(h.ticker, h.value) for h in hs if h.value]
+    if not pos:
+        ui.label("Nothing in this view yet.").classes("oe-muted")
+        return
+    xr = etfscore.xray(pos)
+    m = xr["m"]
+    funds = xr["funds"]
+    missing = [h.ticker for h in hs if h.cik is None and h.ticker not in funds and not h.cash_like]
+    ui.label("Your funds opened up: every company you own directly or through an ETF, added together, then judged "
+             "like a single portfolio.").classes("oe-muted")
+    with ui.row().classes("w-full gap-3"):
+        _tile(pct(m.get("oracle"), 0), "Oracle share", "wonderful, quality, at or below value", BRAND,
+              "Share of everything you own (through funds too) in wonderful (70+), quality businesses trading at or "
+              "below their value")
+        _tile(pct(m.get("wonderful"), 0), "Wonderful", f"{pct(m.get('wonderful_scored'), 0)} of what's scored")
+        _tile(pct(m.get("quality"), 0), "Quality", f"{pct(m.get('quality_scored'), 0)} of what's scored")
+        pv = m.get("price_vs_value")
+        _tile("—" if pv is None else f"{abs(pv) * 100:.0f}% {'below' if pv < 0 else 'above'}", "Holdings vs value",
+              f"expected return {pct(m.get('lt_er'), 1)} a year", BRAND if (pv or 0) < 0 else NEGATIVE if pv else None)
+        _tile(f"{m.get('avg_q') or 0:.0f} / {m.get('avg_w') or 0:.0f}", "Quality / Wonderfulness",
+              f"weighted, over the {pct(m.get('coverage'), 0)} scored")
+        _tile(pct(m.get("fails"), 0), "Fails the checklist", "of everything you own", NEGATIVE if (m.get("fails") or 0)
+              > 0.1 else None)
+    if missing:
+        ui.label(f"Not opened up yet: {', '.join(missing)} (no holdings on file: ETFs page → Update ETF data)").classes(
+            "oe-small")
+    with ui.row().classes("w-full gap-4 items-start mt-2"):
+        with ui.card().classes("oe-card").style("flex:2;min-width:520px"):
+            ui.label("What you really own").classes("oe-h2")
+            flags = {"oracle": "Wonderful at a good price", "both": "Wonderful & quality", "wonderful": "Wonderful",
+                     "quality": "Quality", "fails": "Fails checklist"}
+            rows = [{"name": e["name"] or "", "ticker": e.get("ticker") or "", "total": round(e["total"]),
+                     "w": round(e["w"] * 100, 2), "direct": round(e["direct"]), "via": round(e["via"]),
+                     "funds": ", ".join(f"{k} {money(v, 0)}" for k, v in sorted(e["funds"].items(), key=lambda x: -x[1])),
+                     "q": None if e.get("q") is None else round(e["q"]),
+                     "wv": None if e.get("wscore") is None else round(e["wscore"]),
+                     "val": None if not e.get("ratio") else round((1 / e["ratio"] - 1) * 100, 1),
+                     "flag": flags.get(e.get("flag") or "", ""), "link": bool(e.get("cik"))} for e in xr["rows"][:400]]
+            m0 = "p => p.value == null ? '—' : '$' + Math.round(p.value).toLocaleString()"
+            g = ui.aggrid({"columnDefs": [
+                {"headerName": "Company", "field": "name", "width": 210, "pinned": "left"},
+                {"headerName": "Ticker", "field": "ticker", "width": 76, "cellStyle": {"fontWeight": 700}},
+                {"headerName": "Total", "field": "total", "width": 96, "type": "rightAligned", ":valueFormatter": m0,
+                 "sort": "desc"},
+                {"headerName": "Share", "field": "w", "width": 74, "type": "rightAligned",
+                 ":valueFormatter": "p => p.value.toFixed(2) + '%'"},
+                {"headerName": "Direct", "field": "direct", "width": 90, "type": "rightAligned", ":valueFormatter": m0},
+                {"headerName": "Through funds", "field": "via", "width": 100, "type": "rightAligned",
+                 ":valueFormatter": m0},
+                {"headerName": "Which funds", "field": "funds", "width": 220, "tooltipField": "funds"},
+                {"headerName": "Quality", "field": "q", "width": 76, "type": "rightAligned"},
+                {"headerName": "Wonder", "field": "wv", "width": 76, "type": "rightAligned"},
+                {"headerName": "Price vs value", "field": "val", "width": 96, "type": "rightAligned",
+                 ":valueFormatter": "p => p.value == null ? '—' : (p.value >= 0 ? '+' : '') + p.value + '%'",
+                 ":cellStyle": "p => ({color: p.value == null ? '#6b7280' : p.value <= 0 ? '#1f6f4a' : '#A8322D'})"},
+                {"headerName": "", "field": "flag", "width": 160}],
+                "rowData": rows, "rowHeight": 32, "defaultColDef": {"sortable": True, "resizable": True,
+                                                                   "suppressHeaderMenuButton": True},
+                "tooltipShowDelay": 300, "suppressCellFocus": True}, theme="quartz",
+                auto_size_columns=False).classes("w-full").style("height:520px")
+            g.on("cellClicked", lambda e: ui.navigate.to(f"/stock/{e.args['data']['ticker']}", new_tab=True)
+                 if e.args["data"].get("link") else None)
+            ui.label("Total = what you hold directly plus your share of each fund's holding (weights moved to today's "
+                     "prices). Click a company to open it.").classes("oe-small")
+        with ui.column().classes("gap-3").style("flex:1;min-width:300px"):
+            with ui.card().classes("oe-card w-full"):
+                ui.label("Sectors, looked through").classes("oe-h2")
+                book = etfscore.Book()
+                for k, w in etfscore.sectors(xr["rows"], book)[:9]:
+                    with ui.row().classes("w-full items-center no-wrap gap-2"):
+                        ui.label(k).classes("text-sm").style("width:48%")
+                        ui.html(f"<div style='height:8px;width:{max(w * 100, 1):.0f}%;background:{BRAND};"
+                                "border-radius:4px'></div>", sanitize=False).style("flex:1")
+                        ui.label(pct(w, 0)).classes("text-sm").style("width:40px;text-align:right")
+            if xr["overlap"]:
+                with ui.card().classes("oe-card w-full"):
+                    ui.label("How much your funds overlap").classes("oe-h2")
+                    ui.label("The share of the two funds that is the same companies at the same weights (100% = "
+                             "identical).").classes("oe-small")
+                    for (a, b), v in sorted(xr["overlap"].items(), key=lambda x: -x[1])[:10]:
+                        with ui.row().classes("w-full items-center no-wrap gap-2"):
+                            ui.label(f"{a} · {b}").classes("text-sm font-semibold").style("width:45%")
+                            ui.html(f"<div style='height:8px;width:{max(v * 100, 1):.0f}%;background:"
+                                    f"{NEGATIVE if v >= 0.5 else '#c9a227' if v >= 0.25 else BRAND};border-radius:4px'>"
+                                    "</div>", sanitize=False).style("flex:1")
+                            ui.label(pct(v, 0)).classes("text-sm").style("width:40px;text-align:right")
+
+
 # ===================================================================== Gains & tax
 def _gains(scope, hs, sm):
     with ui.row().classes("w-full gap-3"):
@@ -766,6 +888,9 @@ def _invest(scope):
             res = ui.number("Cash to keep, % of account", value=None, min=0, max=100, suffix="%",
                             placeholder="suggested").props("dense outlined").classes("w-52").tooltip(
                 "Blank = the suggestion from today's market. The rest of the cash is invested.")
+            uni = ui.select({"stocks": "Stocks", "both": "Stocks and ETFs", "etfs": "ETFs only"}, value="stocks",
+                            label="Buy").props("dense outlined").classes("w-44").tooltip(
+                "ETFs qualify when their holdings trade at least 10% below their value and the Fund Score is 60+")
             sales = ui.switch("Use money from sells and trims", value=True)
             go = ui.button("Make the plan", icon="auto_awesome").props("unelevated no-caps")
     mkt = ui.column().classes("w-full")
@@ -782,7 +907,8 @@ def _invest(scope):
         try:
             plan = await run.io_bound(orderplan.build, acc.value, prof.value,
                                       (res.value / 100) if res.value is not None else None,
-                                      int(names.value) if names.value else None, sales.value)
+                                      int(names.value) if names.value else None, sales.value, None, None,
+                                      uni.value)
         except Exception as e:
             out.clear()
             with out:
@@ -1326,7 +1452,7 @@ def _holding_dialog(ticker: str, scope: Scope):
                 if h.day_pct is not None:
                     ui.label(_sgn(h.day_pct, 2, False)).style(f"color:{_col(h.day_pct)}")
             with ui.row().classes("gap-1"):
-                ui.button("Stock page", icon="open_in_new", on_click=lambda: ui.navigate.to(
+                ui.button("ETF page" if h.cik is None else "Stock page", icon="open_in_new", on_click=lambda: ui.navigate.to(
                     f"/stock/{h.ticker}", new_tab=True)).props("flat dense no-caps")
                 ui.button(icon="close", on_click=d.close).props("flat round dense")
         with ui.row().classes("w-full gap-3"):

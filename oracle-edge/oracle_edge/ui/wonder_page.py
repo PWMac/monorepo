@@ -711,7 +711,9 @@ def screener_page(compare: str = "", view: str = "both", pid: int | None = None)
     unscored = strat.snap != prof.snap and not db.scalar(
         "SELECT 1 FROM snapshots WHERE profile_id=? AND profile_version=? LIMIT 1", strat.snap)
     with frame("Screener"):
-        ui.label("Screener: every business, screened and ranked").classes("oe-h1")
+        with ui.row().classes("w-full items-center justify-between no-wrap"):
+            ui.label("Screener: every business, screened and ranked").classes("oe-h1")
+            universe_switch("companies")
         ui.label("Screen and rank every company on three things. Wonderfulness: how it ranks against all the others on "
                  "what predicted lasting high returns and growth. Quality: does it pass the Oracle checklist (the bar the "
                  "model needs before it may buy)? Value: what it's worth (at the market's long-run 9% return) against today's price. "
@@ -1260,3 +1262,12 @@ def screener_page(compare: str = "", view: str = "both", pid: int | None = None)
         if compare:
             with comp:
                 _compare([t.strip().upper() for t in compare.split(",") if t.strip()][:5], prof)
+
+
+def universe_switch(current: str) -> None:
+    """Companies | ETFs: the two screeners, one switch."""
+    with ui.row().classes("gap-0 no-wrap"):
+        for key, label, url, icon in (("companies", "Companies", "/screener", "business"),
+                                      ("etfs", "ETFs", "/etfs", "donut_small")):
+            ui.button(label, icon=icon, on_click=lambda u=url: ui.navigate.to(u)).props(
+                f"{'unelevated' if key == current else 'outline'} no-caps dense").classes("px-3")

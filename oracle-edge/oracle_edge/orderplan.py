@@ -97,8 +97,24 @@ def _from_snapshot(cik: int, p) -> dict | None:
     return {"gates_passed": bool(r["gates_passed"]), "failed": failed, "quality": r["quality"], "list": "out"}
 
 
+def etf_candidates(min_score: float = 60) -> list[dict]:
+    """ETFs in their own Buy Zone: holdings at least 10% below their value, Fund Score 60+, best score first."""
+    from . import etfscore
+
+    out = []
+    for t, s in etfscore.scores().items():
+        m = s.get("m") or {}
+        if m.get("verdict") == "BUY" and (s.get("score") or 0) >= min_score and m.get("price"):
+            out.append({"ticker": t, "list": "buy", "price": m["price"], "buy_below": None, "rank": None,
+                        "rank_score": (s["score"] or 0) / 100, "quality": m.get("avg_q"), "iv": m.get("fair_value"),
+                        "etf": True, "why": f"ETF: holdings {abs(m.get('price_vs_value') or 0):.0%} below their value · "
+                                            f"Fund Score {s['score']:.0f} · Oracle share {(m.get('oracle') or 0):.0%}"})
+    return sorted(out, key=lambda v: -v["rank_score"])
+
+
 def build(account_id: int | None, profile_id: int | None = None, reserve: float | None = None, max_names: int | None
-          = None, use_sales: bool = True, cash: float | None = None, evals: dict | None = None) -> dict:
+          = None, use_sales: bool = True, cash: float | None = None, evals: dict | None = None,
+          universe: str = "stocks") -> dict:
     """The plan. `evals` (from pipeline.evaluate_now) can be passed in to skip the evaluation."""
     from .pipeline import evaluate_now
 
@@ -133,6 +149,15 @@ def build(account_id: int | None, profile_id: int | None = None, reserve: float 
     budget = max(have_cash + (proceeds if use_sales else 0.0) - reserve_amt, 0.0)
     cands = [v for v in ev_all.values() if v.get("list") == "buy" and v.get("price") and v.get("ticker")]
     cands.sort(key=lambda v: (v["rank"] if v.get("rank") is not None else 10 ** 6, -(v.get("rank_score") or 0)))
+    if universe in ("both", "etfs"):
+        ec = etf_candidates()
+        if universe == "etfs":
+            cands = ec
+        else:  # take turns: best stock, best ETF, ...
+            mixed = []
+            for i in range(max(len(cands), len(ec))):
+                mixed += ([cands[i]] if i < len(cands) else []) + ([ec[i]] if i < len(ec) else [])
+            cands = mixed
     selling = {r["ticker"] for r in rows if r["action"] == "SELL"}
     cands = [v for v in cands if v["ticker"] not in selling]
     n_names = max_names or st.get("max_buys_per_week") or 4
@@ -152,11 +177,14 @@ def build(account_id: int | None, profile_id: int | None = None, reserve: float 
         n = math.floor(amt / lim) if lim else 0
         if n <= 0:
             continue
-        why = f"Buy Zone #{v['rank']}" if v.get("rank") else "in the Buy Zone"
-        if v.get("quality") is not None:
-            why += f" · Quality {v['quality']:.0f}"
-        if v.get("iv"):
-            why += f" · value {v['iv']:,.2f} ({v['price'] / v['iv'] - 1:+.0%})"
+        if v.get("etf"):
+            why = v["why"]
+        else:
+            why = f"Buy Zone #{v['rank']}" if v.get("rank") else "in the Buy Zone"
+            if v.get("quality") is not None:
+                why += f" · Quality {v['quality']:.0f}"
+            if v.get("iv"):
+                why += f" · value {v['iv']:,.2f} ({v['price'] / v['iv'] - 1:+.0%})"
         if h and h.value and room < each:
             why += f" · capped at {cap:.0%} of the account"
         rows.append({"include": True, "action": "BUY", "ticker": v["ticker"], "shares": n, "limit": lim,
