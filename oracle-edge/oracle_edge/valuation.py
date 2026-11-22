@@ -242,23 +242,34 @@ def blended_growth(vi: dict, st: dict) -> dict:
     return {"g": g, "sales": vi.get("vd_rev5"), "classic": gc, "long_run": lr}
 
 
-def vd_value(nopat: float, g: float, roic: float | None, r: float, tg: float, g12: float | None = None) -> float:
-    """Enterprise value: 10 years of free cash flow, then a terminal value, by the value-driver formula
-    V = NOPAT x (1 - g / ROIC) / (r - g). Growth g for years 1-5 (g12 for years 1-2 when analyst estimates are
-    used), fading to tg over years 6-10; each year reinvests g / ROIC of its profit. In the terminal value new
-    capital earns max(r, ROIC / 2): competition erodes the excess over time. Each year's profit funds the next
-    year's growth, so growth that earns exactly r adds nothing, as the formula says it should."""
+VD_YEARS_HIGH, VD_YEARS_FADE, VD_RONIC_SHARE = 10, 10, 1.0
+PLAUSIBLE = 10.0  # a value over 10x or under 1/10 of the price is treated as bad inputs
+
+
+def vd_value(nopat: float, g: float, roic: float | None, r: float, tg: float, g12: float | None = None,
+             years_high: int = VD_YEARS_HIGH, years_fade: int = VD_YEARS_FADE, ronic_share: float = VD_RONIC_SHARE
+             ) -> float:
+    """Enterprise value: free cash flow for years_high + years_fade years, then a terminal value by the value-driver
+    formula V = NOPAT x (1 - g / ROIC) / (r - g). Growth g for the first years_high years (g12 for years 1-2 when
+    analysts' estimates are used), fading in a straight line to tg over the next years_fade; each year reinvests
+    g / ROIC of its profit. In the terminal value new capital earns max(r, ROIC x ronic_share). Each year's profit
+    funds the next year's growth, so growth that earns exactly r adds nothing, as the formula says it should.
+
+    0.17.8 defaults (10 + 10 years, ronic_share 1) come from a backtest of 3,500 valuations from 2013-2019 against
+    what the companies turned out to be worth: the old 5 + 5 years with ROIC / 2 put values ~35% below fair even when
+    the next five years' growth was known exactly (Guide -> Value: how accurate is it)."""
     roic = min(max(roic or r, r), 1.0)
-    gs = [0.0] + [(g12 if (g12 is not None and t <= 2) else g) if t <= 5 else g + (tg - g) * (t - 5) / 5
-                  for t in range(1, 11)] + [tg]
+    n = years_high + years_fade
+    gs = [0.0] + [(g12 if (g12 is not None and t <= 2) else g) if t <= years_high
+                  else g + (tg - g) * (t - years_high) / years_fade for t in range(1, n + 1)] + [tg]
     pv, e = 0.0, nopat
-    for t in range(1, 11):
+    for t in range(1, n + 1):
         e *= 1 + gs[t]
         # this year's profit funds next year's growth: reinvest g(t+1) / ROIC of it
         pv += e * (1 - max(gs[t + 1], 0.0) / roic) / (1 + r) ** t
-    ronic = max(r, roic / 2)
+    ronic = max(r, roic * ronic_share)
     tv = e * (1 + tg) * (1 - tg / ronic) / (r - tg)
-    return pv + tv / (1 + r) ** 10
+    return pv + tv / (1 + r) ** n
 
 
 def _solve(f, target: float, lo: float, hi: float, increasing: bool) -> float:
@@ -283,9 +294,12 @@ def _solve(f, target: float, lo: float, hi: float, increasing: bool) -> float:
     return (lo + hi) / 2
 
 
-def vd_base(vi: dict, ttm: dict | None = None) -> dict | None:
-    """Normalized after-tax operating profit (median margin of 7 years x average sales of 3), with the latest
-    trailing-twelve-month figures taking the oldest year's place when a 10-Q is newer than the annual report."""
+def vd_base(vi: dict, ttm: dict | None = None, margin_years: int = 3, cautious: bool = False) -> dict | None:
+    """After-tax operating profit to grow from: the latest year's sales x the median operating margin of the last
+    margin_years years, or halfway back to the 7-year median when the recent margin is lower (0.17.8: was the 7-year
+    median margin x the 3-year average sales, which lagged a growing company by about a year and kept margins from
+    years ago). When a 10-Q is newer than the annual report, its trailing twelve months replace the latest year.
+    cautious: the pre-0.17.8 base (7-year median margin x 3-year average sales), still used for the buy price."""
     sales = [v for v in (vi.get("vd_sales") or []) if v]
     margins = [v for v in (vi.get("vd_margins") or []) if v is not None]
     cash, claims, shares = vi.get("vd_cash") or 0.0, dict(vi.get("vd_claims") or {}), vi.get("vd_shares")
@@ -306,21 +320,37 @@ def vd_base(vi: dict, ttm: dict | None = None) -> dict | None:
         return None
     from statistics import median as _m
 
-    margin = _m(margins)
+    # recent margins, but a recent dip (a write-off, a bad year) only counts half against the longer record: margins
+    # below their usual level tend to recover (backtest: the steadiest of the choices tried)
+    recent, usual = _m(margins[-margin_years:]), _m(margins)
+    margin = usual if cautious else recent if recent >= usual else (recent + usual) / 2
     t = vi.get("vd_tax") or 0.21
-    rev = sum(sales) / len(sales)
+    rev = sum(sales) / len(sales) if cautious else sales[-1]
     return {"nopat": margin * rev * (1 - t), "margin": margin, "sales": rev, "tax": t, "roic": vi.get("vd_roic"),
             "cash": cash, "claims": claims, "net_cash": cash - sum(claims.values()), "shares": shares,
             "ttm": used_ttm}
 
 
+CAUTIOUS = {"vd_years_high": 5, "vd_years_fade": 5, "vd_ronic_share": 0.5, "cautious_base": True}
+
+
 def value_driver(price: float, vi: dict, st: dict, mos_gate: float, fy_prices: dict[str, float],
-                 ttm: dict | None = None, est: dict | None = None) -> Valuation:
+                 ttm: dict | None = None, est: dict | None = None, signal: bool = False) -> Valuation:
     """One consistent model (valuation_model: value_driver). Value = the free cash flow of a normalized
     operating profit growing at the blended growth rate, discounted at ONE required return (the profile's hurdle),
     plus net cash, per diluted share. Also: a low / likely / high range (growth -/+ 3 points, required return
-    +/- 1 point), the expected return the price implies, and the growth the price assumes (reverse DCF)."""
-    r = float(st.get("vd_required_return") or st["hurdle"])
+    +/- 1 point), the expected return the price implies, and the growth the price assumes (reverse DCF).
+
+    The discount rate is the market's long-run return (vd_discount_rate, 9%), not the profile's hurdle: discounting
+    at a 15% hurdle gives the price that would earn 15%, which almost every stock is above, rather than what the
+    business is worth (0.17.8). The hurdle is still the bar the expected return is held to."""
+    if signal:
+        # the buy decision: the pre-0.17.8 model, cautious (5 years of growth fading over 5, new capital earning
+        # half the company's return, the 7-year median margin) and discounted at the hurdle itself; it backtested
+        # best (Buffettology 15%, 2015-2026: +13% a year vs +5-9% for the buy rules built on the fair value)
+        st = {**st, **CAUTIOUS, "vd_discount_rate": st.get("vd_required_return") or st["hurdle"],
+              "vd_required_return": None, "vd_buy_rule": "value", "vd_plausible": None}
+    r = float(st.get("vd_required_return") or st.get("vd_discount_rate") or 0.09)
     tg = min(st["terminal_growth"], r - 0.02)
     pe_med = median_pe(vi.get("eps_by_fy", {}), fy_prices)
     eps_last = vi.get("eps_last")
@@ -330,7 +360,10 @@ def value_driver(price: float, vi: dict, st: dict, mos_gate: float, fy_prices: d
     pepg = (pe_now / (vi["ebitda_g"] * 100)) if (pe_now and vi.get("ebitda_g") and vi["ebitda_g"] > 0) else None
     gb = blended_growth(vi, st)
     g = gb["g"]
-    b = vd_base(vi, ttm if st.get("vd_use_ttm", True) else None)
+    b = vd_base(vi, ttm if st.get("vd_use_ttm", True) else None, int(st.get("vd_margin_years", 3)),
+                bool(st.get("cautious_base")))
+    yh, yf = int(st.get("vd_years_high", VD_YEARS_HIGH)), int(st.get("vd_years_fade", VD_YEARS_FADE))
+    rs = float(st.get("vd_ronic_share", VD_RONIC_SHARE))
     none = Valuation(None, None, None, None, None, None, None, None, None, None, r, g, 0.0, pe_now, pe_med, ey, pepg,
                      "no operating profit to value", {"model": "value_driver", "growth": gb})
     if not b or b["nopat"] <= 0:
@@ -343,11 +376,19 @@ def value_driver(price: float, vi: dict, st: dict, mos_gate: float, fy_prices: d
     sh = b["shares"]
 
     def iv_at(gg, rr, g12_=g12):
-        return (vd_value(b["nopat"], gg, b["roic"], rr, min(tg, rr - 0.02), g12_) + b["net_cash"]) / sh * mult
+        return (vd_value(b["nopat"], gg, b["roic"], rr, min(tg, rr - 0.02), g12_, yh, yf, rs) + b["net_cash"]) / sh * mult
 
     iv = iv_at(g, r)
     if iv <= 0:
         return none
+    plaus = st.get("vd_plausible", PLAUSIBLE)
+    if plaus and not (1 / plaus <= iv / price <= plaus):
+        # 10x or more away from the price: in the backtest almost always bad inputs (a share count in thousands, a
+        # currency left unconverted) or a one-off year (a huge write-off, a cyclical trough), not a real bargain or
+        # bubble; shown as "no value" rather than misleading
+        return Valuation(None, None, None, None, None, None, None, None, None, None, r, g, 0.0, pe_now, pe_med, ey,
+                         pepg, f"value {iv / price:.1f}x the price: the inputs look wrong or one-off (check the share "
+                               "count and recent write-offs)", {"model": "value_driver", "growth": gb, "implausible": iv})
     dg, dr = float(st.get("vd_range_growth", 0.03)), float(st.get("vd_range_rate", 0.01))
     low = max(iv_at(max(g - dg, -0.03), r + dr, None if g12 is None else g12 - dg), 0.0)
     high = iv_at(g + dg, max(r - dr, tg + 0.015), None if g12 is None else g12 + dg)
@@ -355,9 +396,20 @@ def value_driver(price: float, vi: dict, st: dict, mos_gate: float, fy_prices: d
     er = _solve(lambda rr: iv_at(g, rr), target, max(tg + 0.005, 0.02), 0.60, increasing=False)
     implied = _solve(lambda gg: iv_at(gg, r, None), target, -0.15, 0.60, increasing=True)
     mos = 1 - price / iv
-    buy_below = iv * (1 - mos_gate)
-    strong = iv * (1 - (mos_gate + st.get("strong_extra_mos", 0.15)))
-    extra = {"model": "value_driver", "low": low, "high": high, "required_return": r, "growth": gb, "g12": g12,
+    # buy below: the price at which the cautious model (see signal above) still earns the hurdle, less the margin of
+    # safety, so the price shown here, the Screener's Buy zone and the profile's buy signals always agree. The value
+    # itself is the fair estimate; the buy price is deliberately strict.
+    hurdle = float(st.get("hurdle") or r)
+    if signal or st.get("vd_buy_rule") == "value":
+        hurdle_price = iv_at(g, hurdle) if hurdle > r else iv
+        buy_below = min(iv * (1 - mos_gate), hurdle_price)
+        strong = min(iv * (1 - (mos_gate + st.get("strong_extra_mos", 0.15))), buy_below)
+    else:
+        cv = value_driver(price, vi, st, mos_gate, fy_prices, ttm, est, signal=True)
+        hurdle_price = cv.iv or 0.0
+        buy_below, strong = cv.buy_below or 0.0, cv.strong_buy_below or 0.0
+    extra = {"model": "value_driver", "low": low, "high": high, "required_return": r, "hurdle": hurdle,
+             "hurdle_price": hurdle_price, "growth": gb, "g12": g12,
              "estimates_used": g12 is not None, "implied_growth": implied, "nopat": b["nopat"], "margin": b["margin"],
              "sales": b["sales"], "tax": b["tax"], "roic": b["roic"], "net_cash": b["net_cash"], "cash": b["cash"],
              "claims": b["claims"], "shares": sh, "ttm": b["ttm"], "rnd": vi.get("vd_rnd"),

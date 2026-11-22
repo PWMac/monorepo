@@ -84,7 +84,7 @@ def compute_all(profile=None, progress=None) -> int:
             continue
         x = v.extra
         rows.append((cik, lp[0], lp[1], v.iv, x["low"], x["high"], v.er, v.mos, v.buy_below, x["implied_growth"],
-                     x["growth"]["g"], v.pe_now, v.pe_median, x["required_return"], int(bool(x["ttm"])),
+                     x["growth"]["g"], v.pe_now, v.pe_median, x.get("hurdle") or x["required_return"], int(bool(x["ttm"])),
                      int(bool(x["estimates_used"])), db.now()))
         if progress and i % 200 == 0:
             progress(i / max(len(todo), 1))
@@ -92,6 +92,7 @@ def compute_all(profile=None, progress=None) -> int:
         con.execute("DELETE FROM vd_values")
         con.executemany("INSERT INTO vd_values VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)", rows)
     db.set_cfg("vd_values_at", db.now())
+    db.set_cfg("vd_values_version", VALUES_VERSION)
     return len(rows)
 
 
@@ -99,9 +100,14 @@ def all_values() -> dict[int, dict]:
     return {r["cik"]: dict(r) for r in db.rows("SELECT * FROM vd_values")}
 
 
+VALUES_VERSION = 2  # 0.17.8: recalibrated model (9% discount rate, 10 + 10 years, recent margins)
+
+
 def ensure(profile=None) -> None:
-    """First visit after installing: value everything once (later, the daily update keeps it current)."""
-    if not db.scalar("SELECT COUNT(*) FROM vd_values", default=0):
+    """First visit after installing (or after the model changed): value everything once (later, the daily update
+    keeps it current)."""
+    if not db.scalar("SELECT COUNT(*) FROM vd_values", default=0) or \
+            int(db.cfg("vd_values_version", 1) or 1) < VALUES_VERSION:
         try:
             compute_all(profile)
         except Exception as e:

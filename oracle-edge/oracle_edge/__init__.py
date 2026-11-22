@@ -1,4 +1,4 @@
 """Oracle Edge: a local, Oracle-style stock screener, ranker and signal tracker."""
 
-__version__ = "0.17.7"
+__version__ = "0.17.8"
 APP_NAME = "Oracle Edge"

@@ -83,7 +83,13 @@ settings:
   valuation_model: classic      # classic | value_driver (0.16: one model, one required return) | enhanced
                                 #   (incremental ROIC, normalized earnings, dilution, maintenance capex, bear/base/bull)
   # value-driver model (valuation_model: value_driver; its range, reverse DCF and P/E check show on every stock)
-  vd_required_return: null      # the return the value is discounted at; null = the hurdle
+  vd_required_return: null      # override for the discount rate below (older setting; null = use vd_discount_rate)
+  vd_discount_rate: 0.09        # the value's discount rate: the stock market's long-run return, NOT the hurdle
+                                #   (0.17.8; at a 15% hurdle nearly every stock looked overvalued)
+  vd_years_high: 10             # years at the blended growth rate...
+  vd_years_fade: 10             # ...then years fading in a line to terminal_growth
+  vd_ronic_share: 1.0           # terminal: new capital earns max(discount rate, ROIC x this)
+  vd_margin_years: 3            # the operating margin is the median of this many latest years (x latest sales)
   vd_growth_cap: 0.12           # blended growth never above this (at 15% the old cap ran ~4 points too high)
   vd_long_run_growth: 0.07      # the long-run third of the blend (sales growth, classic estimate, this)
   vd_range_growth: 0.03         # the low / high values: growth -/+ this...
