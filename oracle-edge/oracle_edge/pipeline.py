@@ -202,8 +202,20 @@ def price_tickers(ciks: list[int]) -> list[str]:
     from .holdings import compare_tickers, held_tickers
 
     out = [tk[c] for c in ciks if c in tk] + MARKET_TICKERS
-    # funds and other tickers you own or compare against, so the Holdings page has their prices too
-    return out + [t for t in dict.fromkeys(held_tickers() + compare_tickers()) if t not in set(out)]
+    # funds and other tickers you own or compare against (and the ETFs the app scores, with their benchmarks), so
+    # the Holdings and ETF pages have their prices too
+    etf = [r["ticker"] for r in db.rows("SELECT ticker FROM etfs")] + ["VXUS", "AGG"]
+    have = set(out)
+    return out + [t for t in dict.fromkeys(held_tickers() + compare_tickers() + etf) if t not in have]
+
+
+def etf_refresh_job(job, force: bool = False, tickers: list[str] | None = None) -> str:
+    """Every ETF in the universe: fund facts (Yahoo), full holdings (SEC N-PORT), prices, then Fund Scores."""
+    from . import etfs
+
+    r = etfs.refresh(tickers, progress=lambda f, m: job.update(f, step=m), force=force)
+    return (f"Checked {r['funds']} funds, scored {r['scored']}." + (f" {len(r['errors'])} problems (see Data → log)."
+                                                                     if r["errors"] else ""))
 
 
 def fetch_prices_for(tickers: list[str], progress=None) -> dict:
@@ -722,6 +734,13 @@ def daily_run(job, force: bool = False, send_email: bool = True, do_backup: bool
             wonderful.compute(rules.default_profile(), history=need_hist or date.today().weekday() == 5)
         except Exception as e:
             db.log("wonderful", "compute", False, str(e)[:300])
+    try:  # ETFs: new holdings filings and fund facts once a week, look-through scores every day
+        from . import etfs
+
+        job.update(0.88, "ETFs: holdings and Fund Scores")
+        etfs.refresh(prices_too=False, progress=lambda f, m: job.update(0.88 + 0.02 * f, step=m))
+    except Exception as e:
+        db.log("etf", "daily", False, str(e)[:300])
     job.update(0.90, "Checking price targets")
     n_alerts = scan_targets(profs)
     db.set_cfg("last_daily_run", {"at": db.now(), "through": end, "signals": total_signals,

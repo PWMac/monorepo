@@ -78,7 +78,7 @@ footer { color:var(--muted); font-size:12.5px; margin-top:50px; border-top:1px s
   <h1><img src="brand/logo/oracle-edge-header-tagline.png" srcset="brand/logo/oracle-edge-header-tagline@2x.png 2x"
      alt="Oracle Edge: Screen, Rank, Signal"></h1>
   <p>A local stock screener that thinks like the Oracle. This guide explains <b>what</b> the app does,
-  <b>how</b> it decides, and <b>why</b> it was built this way. Version 0.22.2.</p>
+  <b>how</b> it decides, and <b>why</b> it was built this way. Version 0.23.0.</p>
   <p style="font-size:14px">Two documents: this <b>guide</b> is the user manual, kept current with every release and opened from
   "Guide" in the app. The <b>plan</b> (<code>docs/Value-Picker-Plan.html</code> with the source code) is the design record: the research, architecture,
   database layout and the decision log behind the app.</p>
@@ -125,13 +125,15 @@ footer { color:var(--muted); font-size:12.5px; margin-top:50px; border-top:1px s
   <a href="#myholdings">21. My holdings</a>
   <a href="#holdingsin" style="padding-left:22px">Bringing holdings in</a>
   <a href="#investcash" style="padding-left:22px">Invest my cash</a>
-  <a href="#ops">22. Email, schedule, backups, security</a>
+  <a href="#etfs">22. ETFs: look-through and the Fund Score</a>
+  <a href="#xray" style="padding-left:22px">X-ray of your portfolio</a>
+  <a href="#ops">23. Email, schedule, backups, security</a>
   <a href="#trouble" style="padding-left:22px">Troubleshooting</a>
-  <a href="#folders">23. Where things live</a>
-  <a href="#whys">24. Why it works this way</a>
-  <a href="#limits">25. Known limits</a>
-  <a href="#audit">26. Accuracy audit</a>
-  <a href="#glossary">27. Glossary</a>
+  <a href="#folders">24. Where things live</a>
+  <a href="#whys">25. Why it works this way</a>
+  <a href="#limits">26. Known limits</a>
+  <a href="#audit">27. Accuracy audit</a>
+  <a href="#glossary">28. Glossary</a>
 </nav>
 
 <main>
@@ -265,6 +267,7 @@ rebuilt from the differences (Q4 = full year minus nine months).</li>
 </ul>
 Prices are end-of-day; there are no live quotes, analyst estimates or news. Foreign filers' statements are in their reporting
 currency, and their P/E uses the valuation's US-dollar conversion.</td></tr>
+<tr><td><b>ETFs</b></td><td>Every fund opened up: how much of it is in wonderful, quality businesses at a good price (its Oracle share), what its holdings are worth against their prices, its track record and costs, and a Fund Score; a map, presets and a page per fund (<a href="#etfs">section 22</a>). The Screener has a Companies | ETFs switch.</td></tr>
 <tr><td><b>My holdings</b></td><td>Your real portfolio across accounts and baskets: performance against the S&amp;P 500 and any tickers you choose, every purchase (lot), dividends, gains and tax, and a plan for investing your cash (<a href="#myholdings">section 21</a>)</td></tr>
 <tr><td><b>Signals</b></td><td>The full signal journal with strength ratings, scores, filters and CSV export</td></tr>
 <tr><td><b>Performance</b></td><td>Your money vs the same money in the S&amp;P 500, growth of $1, drawdowns, episodes, rank-bucket results
@@ -1360,7 +1363,7 @@ which particular stocks happened to fill the slots, so treat the recommendation 
 also means bumpier results.</div>
 <h3 id="rebuild">Rebuilding the strategy (November 2026)</h3>
 <div class="note"><b>The earlier choice of "best 7" no longer stands.</b> It was picked from tests that returned about 27% a year, on
-data with the stock-split error fixed in version 0.12.0 (<a href="#audit">section 26</a>). On corrected data the same setup returned <b>5.4% a year
+data with the stock-split error fixed in version 0.12.0 (<a href="#audit">section 27</a>). On corrected data the same setup returned <b>5.4% a year
 against 15.4% for the S&amp;P 500</b> (2019–2026), with a worst drop of −49% (S&amp;P −34%). The live strategy hasn't been changed;
 that is your decision.</div>
 
@@ -1426,7 +1429,7 @@ trailed by 4 points. Results that flip with the method are within luck for this 
 <p><b>What this means.</b> On this history, the app finds wonderful businesses reliably but can't show that buying them by a price rule
 beats simply owning the index, which is also Buffett's advice for anyone who isn't analyzing each business personally. The most
 useful way to use it is as a <b>shortlist of wonderful, healthy companies at fair prices</b> for your own judgment, next to an index
-core. These are backtests of one period with survivorship bias (<a href="#limits">section 25</a>); they are not a forecast.</p>
+core. These are backtests of one period with survivorship bias (<a href="#limits">section 26</a>); they are not a forecast.</p>
 
 <h4>What was built</h4>
 <ul>
@@ -1760,7 +1763,67 @@ lower of today's close and the strategy's buy price, in whole shares.</li>
 at your broker yourself.</p>
 
 <!-- ================================================================ 22 -->
-<h2 id="ops"><span class="n">22</span>Email, schedule, backups, security</h2>
+<h2 id="etfs"><span class="n">22</span>ETFs: look-through and the Fund Score</h2>
+<p>A fund is only as good as what it owns. So the app opens every ETF up and judges each holding the way it judges any
+company (Quality, Wonderfulness, value), then adds up the fund. Open it from <b>ETFs</b> in the menu, the <b>Companies |
+ETFs</b> switch on the Screener, the search box, or any ETF ticker anywhere in the app.</p>
+<figure class="shot"><img src="docs/guide/etf-screener.jpg" alt="The ETF screener: presets, filters, the map of share in wonderful, quality businesses against how cheap the holdings are, and the table (demo data)." loading="lazy"><figcaption>The ETF screener (demo data): presets, the map (across: share in wonderful, quality businesses; up: how far below their value the holdings trade; size: assets; colour: Fund Score) and the table.</figcaption></figure>
+<h3>Where the data comes from</h3>
+<ul>
+<li><b>Every holding</b>: the SEC's Form N-PORT, in which every registered fund reports its complete portfolio. The last month
+of each quarter is made public about 60 days later, so holdings are 2–5 months old; the app moves each weight forward by that
+stock's price change since, which keeps the mix close to today's. Each holding is matched to a company the app scores by the
+ticker in the filing, then by CUSIP (learned from other funds' filings), then by name.</li>
+<li><b>Fund facts</b>: Yahoo Finance: category, issuer, expense ratio and its category average, turnover, assets, inception
+date, yield, NAV. Gold and bitcoin trusts aren't registered funds (no N-PORT): Yahoo's top 10 holdings stand in.</li>
+<li><b>Which funds</b>: about 170 widely held US ETFs to start (broad market, sectors, semiconductors, dividend, factor,
+international, bonds), every fund you own, and any ticker you add (<b>Add an ETF</b>, or open its page). The daily update
+checks for new holdings filings and fund facts once a week and re-scores every fund every day.</li>
+</ul>
+<h3>Look-through numbers</h3>
+<table>
+<tr><th>Number</th><th>What it means</th></tr>
+<tr><td><b>Oracle share</b></td><td>The share of the fund in businesses that are wonderful (Wonderfulness 70+), quality (pass the
+checklist with Quality at or above the strategy's bar) <i>and</i> trade at or below their fair value. The headline number:
+how much of your money in the fund is the kind of thing Buffett buys, at a price he'd pay.</td></tr>
+<tr><td>Wonderful, Quality, Both, In the Buy Zone, Fails the checklist</td><td>Each as a share of the whole fund. "Of what's
+scored" gives the same over the part the app scores.</td></tr>
+<tr><td>Weighted Quality, Wonderfulness, Combined</td><td>Averages over the part the app scores, by weight.</td></tr>
+<tr><td><b>Holdings vs value</b></td><td>The holdings' prices against their fair values, weighted: −15% means they trade 15%
+below what they're worth. The fund's <b>look-through value</b> per share follows (holdings the app doesn't value count at their
+price), with the holdings' weighted expected return.</td></tr>
+<tr><td>Coverage</td><td>How much of the fund the app scores. US funds are mostly covered; international funds much less
+(foreign listings aren't in the universe), so their look-through numbers rest on less.</td></tr>
+<tr><td>Price badge</td><td><b>BUY</b> when the holdings trade at least 10% below their value (with 40%+ of the fund valued and a
+Fund Score of 55+), <b>WATCH</b> 25%+ above, <b>TRIM</b> 60%+ above, otherwise <b>HOLD</b>.</td></tr>
+</table>
+<h3>The Fund Score (0–100)</h3>
+<table>
+<tr><th>Pillar</th><th>Weight</th><th>Made of</th></tr>
+<tr><td><b>What it owns</b></td><td>35%</td><td>Share in wonderful-and-quality businesses (of what's scored), weighted Quality,
+weighted Wonderfulness</td></tr>
+<tr><td><b>Price</b></td><td>15%</td><td>Holdings' value against their prices; their expected return</td></tr>
+<tr><td><b>Track record</b></td><td>25%</td><td>Yearly return over up to 10 years against its benchmark (the S&amp;P 500 for US
+stock funds: did it beat simply owning the index?; VXUS for foreign, VT for global, AGG for bond funds); return per unit of risk
+(Sharpe); worst drop against the benchmark's; how often it beat the benchmark over rolling 12-month periods</td></tr>
+<tr><td><b>Cost &amp; structure</b></td><td>25%</td><td>Expense ratio (0.75% scores 0, 0.05% scores 100) and against its
+category; size (closure risk under $100M); age; trading volume; turnover; price vs NAV</td></tr>
+</table>
+<p>Each part runs 0–100 between plain thresholds; the fund's page shows every part. A pillar resting on little data (under 60%
+of the fund scored, under 3 years of prices) is pulled toward 50; one with no data is left out and the others count more, so a
+bond or gold fund is scored on its track record and costs.</p>
+<figure class="shot"><img src="docs/guide/etf-page.jpg" alt="A fund's page: Fund Score with its four pillars, the look-through tiles, what it really owns, track record against SPY, how it's run and overlap with your holdings (demo data)." loading="lazy"><figcaption>A fund's page (demo data). Further down: every holding with its Quality, Wonderfulness and price vs value, and a switch to show only the wonderful businesses at a good price.</figcaption></figure>
+<h3 id="xray">X-ray of your portfolio</h3>
+<p><b>My holdings → X-ray</b> opens your funds up and adds everything together: every company you own directly or through an
+ETF (with which funds), your portfolio's own Oracle share, wonderful and quality shares, weighted Quality and Wonderfulness, how
+far below or above value your holdings trade, sectors looked through, and how much your funds overlap (the share of two funds
+that is the same companies at the same weights). On the Holdings tab, ETF rows show the Fund Score, the Oracle share and the
+weighted Quality and Wonderfulness of what they hold, and the signal is the fund's price badge. <b>Invest cash</b> can also buy
+ETFs (Buy: Stocks and ETFs, or ETFs only): funds with a BUY price badge and a Fund Score of 60+, best first.</p>
+<figure class="shot"><img src="docs/guide/holdings-xray.jpg" alt="X-ray: the portfolio's look-through tiles, every company you really own with direct and through-fund amounts, sectors and fund overlap (demo data)." loading="lazy"><figcaption>X-ray (demo data): what you really own once the funds are opened up.</figcaption></figure>
+
+<!-- ================================================================ 23 -->
+<h2 id="ops"><span class="n">23</span>Email, schedule, backups, security</h2>
 <table>
 <tr><th>Feature</th><th>How it works</th></tr>
 <tr><td><b>Email</b></td><td>Sent from your own account over SMTP. There are presets for Google (Gmail/Workspace), Outlook and iCloud,
@@ -1816,8 +1879,8 @@ If a <b>first-time load</b> stopped after the SEC statements were read in, <b>Da
 It picks up at the market data, scoring, prices and history replay and skips the long download and read.</td></tr>
 </table>
 
-<!-- ================================================================ 23 -->
-<h2 id="folders"><span class="n">23</span>Where things live</h2>
+<!-- ================================================================ 24 -->
+<h2 id="folders"><span class="n">24</span>Where things live</h2>
 <div class="formula" style="white-space:pre">C:\OracleEdge\
   Start.bat              start the app (one click)
   Run-Daily.bat          what the scheduled task runs
@@ -1847,8 +1910,8 @@ installed, it says so, changes nothing, and points you to the desktop shortcut o
 <b>FRESH</b> and then <b>YES</b> does it delete <code>C:\OracleEdge</code> (database, settings and history) and install from scratch;
 your backups are kept, so one can be restored afterwards. Run-Daily.bat likewise only runs from the installed copy.</p>
 
-<!-- ================================================================ 24 -->
-<h2 id="whys"><span class="n">24</span>Why it works this way</h2>
+<!-- ================================================================ 25 -->
+<h2 id="whys"><span class="n">25</span>Why it works this way</h2>
 <div class="card"><b>Why rules of thumb instead of machine learning?</b><br>Every decision can be traced to a number and a rule
 you can read and change. A model that "likes" a stock for unexplainable reasons would be the opposite of the Oracle's "invest
 in what you understand".</div>
@@ -1877,8 +1940,8 @@ up, copy and inspect. SQLite handles this volume easily.</div>
 <div class="card"><b>Why all Python with NiceGUI?</b><br>One language for data, rules and screens makes it easier to maintain and share.
 NiceGUI provides polished tables and charts without a separate web front end.</div>
 
-<!-- ================================================================ 25 -->
-<h2 id="limits"><span class="n">25</span>Known limits</h2>
+<!-- ================================================================ 26 -->
+<h2 id="limits"><span class="n">26</span>Known limits</h2>
 <ul>
 <li><b>End of day only.</b> Prices and alerts use daily closes; intraday alerts need a real-time feed (planned with Schwab).</li>
 <li><b>Free price data can have gaps.</b> The Data page lists missing tickers; adding a Tiingo or EODHD key fixes most.</li>
@@ -1912,8 +1975,8 @@ Indicators are estimates (market value moved by an ETF's price, GDP grown at its
 until the official figures arrive.</li>
 </ul>
 
-<!-- ================================================================ 26 -->
-<h2 id="audit"><span class="n">26</span>Accuracy audit (versions 0.12.0 and 0.13.0)</h2>
+<!-- ================================================================ 27 -->
+<h2 id="audit"><span class="n">27</span>Accuracy audit (versions 0.12.0 and 0.13.0)</h2>
 <p>Every calculation in the app was reviewed line by line and checked against independently worked answers: the financial
 metrics, quality scoring, both valuation models and the bank/insurer model, the rank, the signal ladder, portfolio accounting
 (fills, cash, time-weighted returns, CAGR, drawdowns, Sharpe), the Buy Zone records, the quarterly checks, price targets and
@@ -1954,8 +2017,8 @@ that "price ≤ buy-below" gives exactly the same answer as "margin of safety �
 updating, the app rebuilds its results once (a notice with a <b>Rebuild now</b> button appears until it has). Backtests keep
 their old results until you recalculate them.</p>
 
-<!-- ================================================================ 27 -->
-<h2 id="glossary"><span class="n">27</span>Glossary</h2>
+<!-- ================================================================ 28 -->
+<h2 id="glossary"><span class="n">28</span>Glossary</h2>
 <table>
 <tr><td><b>ADR ratio</b></td><td>How many foreign ordinary shares one U.S.-traded share represents</td></tr>
 <tr><td><b>ATR-14</b></td><td>Average true range: the average size of a day's price move over 14 days</td></tr>

@@ -313,6 +313,25 @@ MIGRATIONS: list[str] = [
                MIN(l.open_date) AS added_on
         FROM lots l JOIN securities s ON s.ticker = l.ticker GROUP BY s.cik HAVING SUM(l.shares) > 0;
     """,
+    # ---- v23: ETFs: fund facts, full holdings (SEC N-PORT), assets history, identifier map, scores ----
+    """
+    CREATE TABLE IF NOT EXISTS etfs (
+        ticker TEXT PRIMARY KEY, name TEXT, family TEXT, category TEXT, legal_type TEXT, cik INTEGER,
+        series_id TEXT, class_id TEXT, expense REAL, expense_cat REAL, turnover REAL, turnover_cat REAL,
+        aum REAL, inception TEXT, yield REAL, nav REAL, beta3y REAL, pe REAL, pe_cat REAL,
+        sectors_json TEXT, assets_json TEXT, top_json TEXT, description TEXT, benchmark TEXT,
+        info_at TEXT, holdings_asof TEXT, holdings_acc TEXT, holdings_at TEXT, holdings_source TEXT,
+        net_assets REAL, n_holdings INTEGER, note TEXT, added_by TEXT);
+    CREATE TABLE IF NOT EXISTS etf_holdings (
+        etf TEXT, asof TEXT, name TEXT, title TEXT, cusip TEXT, isin TEXT, ticker TEXT, cik INTEGER,
+        weight REAL, value_usd REAL, asset_cat TEXT, country TEXT, matched_by TEXT);
+    CREATE INDEX IF NOT EXISTS ix_etf_holdings ON etf_holdings(etf);
+    CREATE INDEX IF NOT EXISTS ix_etf_holdings_cik ON etf_holdings(cik);
+    CREATE TABLE IF NOT EXISTS etf_aum (etf TEXT, date TEXT, net_assets REAL, PRIMARY KEY (etf, date));
+    CREATE TABLE IF NOT EXISTS cusip_map (cusip TEXT PRIMARY KEY, ticker TEXT, cik INTEGER, source TEXT);
+    CREATE TABLE IF NOT EXISTS etf_scores (
+        etf TEXT PRIMARY KEY, date TEXT, score REAL, pillars_json TEXT, metrics_json TEXT, updated_at TEXT);
+    """,
 ]
 
 

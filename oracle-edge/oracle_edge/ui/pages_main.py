@@ -13,6 +13,7 @@ from . import data, outlook, quote, valuecard, wonder, wonder_page  # noqa: F401
 from . import growth as growth_tab
 from . import strategies  # noqa: F401 (registers /strategies and /house)
 from . import holdings_page  # noqa: F401 (registers /holdings)
+from . import etf_page  # noqa: F401 (registers /etfs and /etf/{ticker})
 from .charts import zoom_chart
 from .layout import empty, frame, kpi
 from .theme import BADGES, BRAND, BTC_COL, badge_html, fmt_value, ladder_html, money, num, pct, sparkline
@@ -452,6 +453,13 @@ def _launch(kind, args=None):
 def stock_page(ticker: str):
     run_id = app.storage.user.get("run_id") or data.default_run_id()
     s = data.stock(ticker)
+    if not s:
+        from .. import etfs
+
+        if etfs.is_fund(ticker) or db.scalar("SELECT 1 FROM prices WHERE ticker=? LIMIT 1", (ticker.upper(),)):
+            from fastapi.responses import RedirectResponse
+
+            return RedirectResponse(f"/etf/{ticker.upper()}")  # a fund: its own page
     with frame(ticker.upper()):
         if not s:
             empty(f"{ticker.upper()} isn't in the universe (check the exchange filters in Settings).")
