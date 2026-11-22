@@ -13,6 +13,8 @@ value.
 
 from __future__ import annotations
 
+import asyncio
+import json
 from collections import Counter
 
 from nicegui import app, ui
@@ -48,16 +50,83 @@ def dot_size(streak: int) -> int:
     return 6 if streak <= 0 else 7 if streak == 1 else 9 if streak == 2 else 11 if streak <= 4 else 14 if streak <= 6 else 17
 
 
+# the map's colour: how good a buy the stock is today (price against the value-driver value; Screener Value columns)
+BAND_COL = {"buy": "#1f6f4a", "below": "#86c095", "near": "#e0b43c", "over": "#c0503d", "none": "#c7ccc9"}
+BAND_NAME = {"buy": "Buy zone", "below": "Below value", "near": "Up to 25% over value", "over": "Over 25% above value",
+             "none": "No value"}
+
+
+def band(r) -> str:
+    """Buy zone: price at or under the buy-below price (value less your margin of safety); below value: under the
+    likely value but not by the full margin; then up to 25% over it, or more; no value for banks, insurers and
+    companies the model can't value."""
+    mos = r.get("v_mos")
+    if mos is None:
+        return "none"
+    if r.get("v_buy"):
+        return "buy"
+    if mos >= 0:
+        return "below"
+    return "near" if mos >= -0.25 else "over"  # mos = 1 - price/value: -0.25 = price 25% over value
+
+
 def _quad(r) -> str:
     w, q = r["score"] >= 70, r["passes"]
     return "both" if w and q else "nocheck" if w else "notwonder" if q else "neither"
 
 
-def map_options(rows: list[dict], inview: set[str], bar: float) -> dict:
-    groups: dict[str, list] = {k: [] for k in QUAD_COL}
+X_RANGE, Y_RANGE = (20.0, 100.0), (0.0, 100.0)  # the map's axes
+
+
+def norm_zoom(x: list[float] | None, y: list[float] | None) -> dict | None:
+    """The map's visible window from its axis extents; None when it shows the whole map."""
+    if not x or not y:
+        return None
+    x = [max(X_RANGE[0], float(x[0])), min(X_RANGE[1], float(x[1]))]
+    y = [max(Y_RANGE[0], float(y[0])), min(Y_RANGE[1], float(y[1]))]
+    if x[0] <= X_RANGE[0] + 0.5 and x[1] >= X_RANGE[1] - 0.5 and y[0] <= Y_RANGE[0] + 0.5 and y[1] >= Y_RANGE[1] - 0.5:
+        return None
+    return {"x": x, "y": y}
+
+
+def in_zoom(r: dict, zoom: dict | None) -> bool:
+    if not zoom:
+        return True
+    if r.get("quality") is None:
+        return False
+    (x0, x1), (y0, y1) = zoom["x"], zoom["y"]
+    return x0 - 0.05 <= r["quality"] <= x1 + 0.05 and y0 - 0.05 <= r["score"] <= y1 + 0.05
+
+
+def map_view(xs: list[dict], zoom: dict | None, hidden: set[str]) -> list[dict]:
+    """The table follows the map: only companies inside the zoomed window, and not in a group hidden in the
+    legend. With the whole map shown and every group on, everything (also companies without a Quality score)."""
+    if not zoom and not hidden:
+        return xs
+    return [r for r in xs if r.get("quality") is not None and band(r) not in hidden and in_zoom(r, zoom)]
+
+
+def legend_counts(allx: list[dict], xs: list[dict], zoom: dict | None) -> dict[str, str]:
+    """Legend label per group: how many of the group are in the table's view (filters and zoom), "of" the group's
+    total when that's fewer."""
+    out = {}
+    for k in BAND_COL:
+        tot = sum(1 for r in allx if r.get("quality") is not None and band(r) == k)
+        shown = sum(1 for r in xs if r.get("quality") is not None and band(r) == k and in_zoom(r, zoom))
+        out[BAND_NAME[k]] = f"{BAND_NAME[k]} ({shown:,})" if shown == tot else f"{BAND_NAME[k]} ({shown:,} of {tot:,})"
+    return out
+
+
+def legend_formatter(labels: dict[str, str]) -> str:
+    return f"n => ({json.dumps(labels)})[n] || n"
+
+
+def map_options(rows: list[dict], inview: set[str], bar: float, zoom: dict | None = None,
+                hidden: set[str] | None = None, labels: dict[str, str] | None = None) -> dict:
+    groups: dict[str, list] = {k: [] for k in reversed(BAND_COL)}  # best drawn last, on top
     for r in rows:
         if r["quality"] is not None:
-            groups[_quad(r)].append(r)
+            groups[band(r)].append(r)
     series = []
     for g, xs in groups.items():
         data = []
@@ -65,34 +134,49 @@ def map_options(rows: list[dict], inview: set[str], bar: float) -> dict:
             sym, rot = SHAPE.get(r.get("trend_dir") or "new", SHAPE["new"])
             data.append({"name": r["ticker"], "symbol": sym, "symbolRotate": rot, "symbolSize": dot_size(r["streak70"]),
                          "value": [round(r["quality"], 1), round(r["score"], 1), r["name"], r.get("trend_dir") or "new",
-                                   r["streak70"], None if r.get("trend") is None else round(r["trend"], 0)],
+                                   r["streak70"], None if r.get("trend") is None else round(r["trend"], 0),
+                                   r.get("v_price"), r.get("v_iv"), None if r.get("v_mos") is None
+                                   else round(r["v_mos"] * 100), BAND_NAME[g]],
                          "itemStyle": {"opacity": 0.92 if r["ticker"] in inview else 0.15}})
-        series.append({"type": "scatter", "name": f"{QUAD_NAME[g]} ({len(xs)})", "itemStyle": {"color": QUAD_COL[g]},
+        series.append({"type": "scatter", "name": BAND_NAME[g], "itemStyle": {"color": BAND_COL[g]},
                        "data": data, "emphasis": {"focus": "none", "scale": 1.6}})
-    series[0]["markLine"] = {"silent": True, "symbol": "none", "lineStyle": {"type": "dashed", "color": "#6b7280"},
-                             "label": {"show": False}, "data": [{"xAxis": bar}, {"yAxis": 70}]}
+    # the quadrant lines on a series of their own (not in the legend), so hiding a colour never hides them
+    series.append({"type": "scatter", "name": "lines", "data": [], "silent": True,
+                   "markLine": {"silent": True, "symbol": "none", "lineStyle": {"type": "dashed", "color": "#6b7280"},
+                                "label": {"show": False}, "data": [{"xAxis": bar}, {"yAxis": 70}]}})
     fmt = ("p => { const v = p.value, d = {up: '▲ rising', down: '▼ falling', flat: '● steady', new: '◆ new'}[v[3]];"
            " const c = v[5] == null ? '' : ` (${v[5] >= 0 ? '+' : ''}${v[5]} in 3 yrs)`;"
            " return `<b>${p.name}</b> ${v[2]}<br>Wonderfulness <b>${v[1]}</b> · Quality <b>${v[0]}</b>"
            "<br>${d}${c}<br>${v[4] ? v[4] + (v[4] === 1 ? ' year' : ' years') + ' in a row at 70+' : 'not at 70+ now'}"
+           " ${v[8] == null ? '<br>No value (banks, insurers, or too little data)' : `<br><b>${v[9]}</b>: price $${v[6]"
+           ".toFixed(2)} vs value $${v[7].toFixed(2)} (margin of safety ${v[8]}%)`}"
            "<br><i>click to open in a new tab</i>`; }")
+    zx = zoom["x"] if zoom else list(X_RANGE)
+    zy = zoom["y"] if zoom else list(Y_RANGE)
+    win_x = {"startValue": zx[0], "endValue": zx[1]}
+    win_y = {"startValue": zy[0], "endValue": zy[1]}
+    legend = {"top": 0, "icon": "circle", "data": list(BAND_NAME.values()),
+              "selected": {BAND_NAME[k]: k not in (hidden or set()) for k in BAND_COL}}
+    if labels:
+        legend[":formatter"] = legend_formatter(labels)
     return {"tooltip": {":formatter": fmt},
-            "legend": {"top": 0, "icon": "circle"},
+            "legend": legend,
             "grid": {"left": 50, "right": 56, "top": 40, "bottom": 70},
             "toolbox": {"right": 8, "top": 0, "feature": {"dataZoom": {"title": {"zoom": "Drag a box to zoom",
                                                                                  "back": "Undo zoom"}},
                                                           "restore": {"title": "Reset"}}},
             "dataZoom": [{"type": "slider", "xAxisIndex": 0, "bottom": 8, "height": 16, "filterMode": "none",
-                          "showDataShadow": False},
+                          "showDataShadow": False, **win_x},
                          {"type": "slider", "yAxisIndex": 0, "right": 8, "width": 16, "filterMode": "none",
-                          "showDataShadow": False},
+                          "showDataShadow": False, **win_y},
                          {"type": "inside", "xAxisIndex": 0, "filterMode": "none", "zoomOnMouseWheel": "shift",
-                          "moveOnMouseMove": False},
+                          "moveOnMouseMove": False, **win_x},
                          {"type": "inside", "yAxisIndex": 0, "filterMode": "none", "zoomOnMouseWheel": "shift",
-                          "moveOnMouseMove": False}],
-            "xAxis": {"name": "Quality (Oracle checklist)", "nameLocation": "middle", "nameGap": 26, "min": 20,
-                      "max": 100},
-            "yAxis": {"name": "Wonderfulness", "nameLocation": "middle", "nameGap": 34, "min": 0, "max": 100},
+                          "moveOnMouseMove": False, **win_y}],
+            "xAxis": {"name": "Quality (Oracle checklist)", "nameLocation": "middle", "nameGap": 26, "min": X_RANGE[0],
+                      "max": X_RANGE[1]},
+            "yAxis": {"name": "Wonderfulness", "nameLocation": "middle", "nameGap": 34, "min": Y_RANGE[0],
+                      "max": Y_RANGE[1]},
             "series": series}
 
 
@@ -104,7 +188,8 @@ MAP_KEY = ("<div style='display:flex;gap:22px;flex-wrap:wrap;font-size:12px;colo
            + "".join(f"<span style='display:inline-flex;align-items:center;gap:4px'><span style='display:inline-block;"
                      f"width:{s}px;height:{s}px;border-radius:50%;background:#6b7280'></span>{lab}</span>"
                      for s, lab in ((6, "0"), (9, "2"), (11, "3–4"), (14, "5–6"), (17, "7+")))
-           + "<span style='margin-left:10px'><b>Colour</b>: group (legend above)</span></div>")
+           + "<span style='margin-left:10px'><b>Colour</b>: how good a buy today (price against value; legend above: "
+             "click one to hide it; the counts are the companies in the table)</span></div>")
 
 # ---------------------------------------------------------------- table cells
 _LINK = """p => {
@@ -292,10 +377,10 @@ def columns(bar: float) -> tuple[list[dict], dict[str, list[str]]]:
             "one, so it's the margin to compare when gross margin is n/a.", "Operating margin each year", "pct",
             "The column is the 10-year median; the arrow and chart follow each year's margin."),
         _tc("nm_med", "Net margin", F_PCT, 1, 96, "Net income ÷ sales, 10-year median.", "Net margin each year", "pct",
-            "The column is the 10-year median; the arrow and chart follow each year's margin.", columnGroupShow="open"),
+            "The column is the 10-year median; the arrow and chart follow each year's margin."),
         _tc("ocfm_med", "Cash flow margin", F_PCT, 1, 104, "Operating cash flow ÷ sales, 10-year median: how much of "
             "each sales dollar arrives as cash.", "Operating cash flow margin each year", "pct",
-            "The column is the 10-year median; the arrow and chart follow each year's margin.", columnGroupShow="open"),
+            "The column is the 10-year median; the arrow and chart follow each year's margin."),
         _tc("rev_g5", "Sales growth 5 yrs", F_PCT, 1, 112, None, "Sales growth each year", "pct",
             "The column is 5-year growth a year; the arrow and chart follow each year's growth.",
             columnGroupShow="open"),
@@ -345,9 +430,57 @@ def columns(bar: float) -> tuple[list[dict], dict[str, list[str]]]:
         {**_c("name", "Company", None, 190, pinned="left"), ":cellRenderer": _LINK},
     ]
     for gid, label, children, open_ in groups:
-        cols.append({"groupId": gid, "headerName": label, "children": children, "openByDefault": open_})
+        # marryChildren: a group's columns stay together; drag a group header to move the group, a column header to
+        # reorder within its group
+        cols.append({"groupId": gid, "headerName": label, "children": children, "openByDefault": open_,
+                     "marryChildren": True})
         G[gid] = [c.get("colId") or c["field"] for c in children]
     return cols, G
+
+
+def _col_id(c: dict) -> str:
+    return c.get("colId") or c.get("field") or ""
+
+
+def apply_layout(cols: list[dict], layout: dict | None) -> list[dict]:
+    """The table's columns in the order, widths and open/closed groups the user left them (remembered per user).
+    layout: {order: [colId, ...] as displayed, widths: {colId: px}, open: {groupId: bool}}. Columns and groups the
+    layout doesn't know (added in a later version) keep their default place at the end of their group / the table."""
+    if not layout:
+        return cols
+    pos = {cid: i for i, cid in enumerate(layout.get("order") or [])}
+    widths, opened = layout.get("widths") or {}, layout.get("open") or {}
+    big = len(pos) + 1000
+
+    def key(item):
+        i, c = item
+        ids = [_col_id(ch) for ch in c["children"]] if c.get("children") else [_col_id(c)]
+        known = [pos[x] for x in ids if x in pos]
+        return (min(known) if known else big + i,)
+    out = []
+    for _, c in sorted(enumerate(cols), key=key):
+        c = dict(c)
+        if c.get("children"):
+            kids = [dict(ch) for _, ch in sorted(enumerate(c["children"]),
+                                                  key=lambda it: pos.get(_col_id(it[1]), big + it[0]))]
+            for ch in kids:
+                if isinstance(widths.get(_col_id(ch)), (int, float)):
+                    ch["width"] = int(widths[_col_id(ch)])
+            c["children"] = kids
+            if c.get("groupId") in opened:
+                c["openByDefault"] = bool(opened[c["groupId"]])
+        elif isinstance(widths.get(_col_id(c)), (int, float)):
+            c["width"] = int(widths[_col_id(c)])
+        out.append(c)
+    # pinned columns stay at the left whatever the saved order
+    return [c for c in out if c.get("pinned") == "left"] + [c for c in out if c.get("pinned") != "left"]
+
+
+def layout_from_state(col_state: list[dict], group_state: list[dict]) -> dict:
+    """What to remember from the grid's own state: display order, widths, which groups are open."""
+    return {"order": [c["colId"] for c in col_state or [] if c.get("colId")],
+            "widths": {c["colId"]: c["width"] for c in col_state or [] if c.get("colId") and c.get("width")},
+            "open": {gs["groupId"]: bool(gs.get("open")) for gs in group_state or [] if gs.get("groupId")}}
 
 
 _GM = ("p => { if (p.value == null && p.data) { const k = p.data.gm_kind;"
@@ -642,13 +775,14 @@ def screener_page(compare: str = "", view: str = "both"):
 
         # ---- the map
         with ui.card().classes("oe-card w-full"):
-            with ui.row().classes("w-full items-center justify-between"):
-                ui.label("Quality vs Wonderfulness").classes("oe-h2")
-                counts = ui.label("").classes("oe-small")
+            ui.label("Quality vs Wonderfulness").classes("oe-h2")
             ui.label(f"Each dot is a company. Right of the dashed line = passes the Oracle checklist (Quality {bar:.0f}+ and "
-                     "every must-pass rule); above it = wonderful (70+). Zoom with the sliders (bottom and right), the "
-                     "box tool (top right; ⟲ resets) or Shift + mouse wheel. Click a dot to open the company in a new "
-                     "tab; click a legend entry to hide a group.").classes("oe-small")
+                     "every must-pass rule); above it = wonderful (70+), so top right is the best of both. Colour = how good a buy "
+                     "it is today: dark green in the Buy Zone, light green below value, amber up to 25% over value, red "
+                     "more than that, grey not valued. Zoom with the sliders (bottom and right), the "
+                     "box tool (top right; ⟲ resets) or Shift + mouse wheel: the table below then lists only the "
+                     "companies in view. Click a legend entry to hide a group (from the table too). Click a dot to open "
+                     "the company in a new tab.").classes("oe-small")
             chart = ui.echart({}, on_point_click=lambda e: ui.navigate.to(f"/stock/{e.name}", new_tab=True)
                               if e.name else None).classes("w-full").style("height:480px")
             ui.html(MAP_KEY, sanitize=False).classes("w-full")
@@ -656,6 +790,7 @@ def screener_page(compare: str = "", view: str = "both"):
         # ---- the table
         hidden = set(store.get("wonder_hidden") or [])
         cols, G = columns(bar)
+        cols = apply_layout(cols, store.get("wonder_layout"))
         for c in cols:
             for ch in c.get("children", []):
                 if c.get("groupId") in hidden:
@@ -677,12 +812,23 @@ def screener_page(compare: str = "", view: str = "both"):
                                         on_change=lambda e, gid=gid: show_group(gid, e.value)).classes("px-3")
                         ui.separator()
                         ui.switch("Trend arrows in cells", value=arrows["on"],
-                                  on_change=lambda e: set_arrows(e.value)).classes("px-3 pb-2")
+                                  on_change=lambda e: set_arrows(e.value)).classes("px-3")
+                        ui.separator()
+                        ui.label("Drag a group header to move the group, a column header to move it within its "
+                                 "group; drag an edge to resize. The order, widths and open groups are remembered."
+                                 ).classes("oe-small px-4").style("max-width:300px")
+                        ui.button("Reset column layout", icon="restart_alt", on_click=lambda: reset_layout()).props(
+                            "flat dense no-caps").classes("mx-2 mb-2")
+        with ui.row().classes("items-center gap-2") as map_note_row:
+            map_note = ui.label("").classes("text-sm").style("color:#2c5d8f")
+            ui.button("Show the whole map", icon="zoom_out_map", on_click=lambda: reset_map()).props(
+                "flat dense no-caps size=sm")
+        map_note_row.set_visibility(False)
         ceo_status = ui.label("").classes("oe-small")
         g = ui.aggrid({"columnDefs": cols, "rowData": [], "context": ctx, ":getRowId": "p => p.data.ticker",
                        "defaultColDef": {"sortable": True, "resizable": True, "filter": True, "wrapHeaderText": True,
                                          "autoHeaderHeight": True},
-                       "rowHeight": 36, "suppressCellFocus": True, "tooltipShowDelay": 300, "multiSortKey": "shift",
+                       "rowHeight": 36, "suppressCellFocus": True, "suppressDragLeaveHidesColumns": True, "tooltipShowDelay": 300, "multiSortKey": "shift",
                        "rowSelection": {"mode": "multiRow", "checkboxes": True, "headerCheckbox": False},
                        "selectionColumnDef": {"pinned": "left", "width": 48, "maxWidth": 48,
                                               "suppressHeaderMenuButton": True, "sortable": False, "filter": False}},
@@ -739,6 +885,31 @@ def screener_page(compare: str = "", view: str = "both"):
             for gid in G:
                 g.run_grid_method("setColumnGroupOpened", gid, opened)
 
+        async def save_layout(e=None):
+            """Remember the column order, widths and open groups (after a drag, a resize or a group opening)."""
+            if e is not None and e.args and "finished" in e.args and not (
+                    e.args.get("finished") and str(e.args.get("source", "")).startswith("ui")):
+                return  # mid-resize, or a width the grid set itself
+            st["lseq"] = st.get("lseq", 0) + 1
+            me = st["lseq"]
+            await asyncio.sleep(0.4)
+            if me != st["lseq"]:
+                return
+            try:
+                cs = await g.run_grid_method("getColumnState", timeout=3)
+                gs = await g.run_grid_method("getColumnGroupState", timeout=3)
+            except Exception:
+                return
+            store["wonder_layout"] = layout_from_state(cs, gs)
+
+        def reset_layout():
+            store.pop("wonder_layout", None)
+            ui.navigate.reload()
+
+        g.on("dragStopped", save_layout, [])
+        g.on("columnGroupOpened", save_layout, [])
+        g.on("columnResized", save_layout, ["finished", "source"])
+
         def set_arrows(on):
             store["wonder_arrows"] = bool(on)
             ctx["arrows"] = bool(on)
@@ -752,12 +923,8 @@ def screener_page(compare: str = "", view: str = "both"):
             label, t, _f, _k = VIEWS[st["view"]]
             tip.text = f"{label}: {t} {len(xs):,} companies."
             allx = base()
-            n = {k: sum(1 for r in allx if r["quality"] is not None and _quad(r) == k) for k in QUAD_COL}
-            counts.text = (f"{n['both']:,} best of both · {n['nocheck']:,} wonderful but fail the checklist · "
-                           f"{n['notwonder']:,} pass the checklist but aren't wonderful")
-            g.options["rowData"] = xs
-            st["last_view"] = xs
-            g.run_grid_method("setGridOption", "rowData", xs)
+            st["view_rows"], st["all_rows"] = xs, allx
+            show_rows()
             # grade the CEOs of the companies in view first (best first): never looked up, or stuck without a start date
             # or a CEO since before this version could find more (0.17.6: SEC certifications)
             retry_from = ceo.retry_from_date()
@@ -766,9 +933,66 @@ def screener_page(compare: str = "", view: str = "both"):
             todo = todo[:400]
             st.setdefault("watch", set()).update(r["cik"] for r in todo)
             ceo.queue_grades([(r["cik"], r["ticker"]) for r in todo], front=True)
+            draw_chart()
+
+        def draw_chart():
+            """The map from the page state (view, zoom window, hidden groups), so redrawing never jumps the zoom."""
+            xs, allx, zoom = st.get("view_rows", []), st.get("all_rows", []), st.get("zoom")
             chart.options.clear()
-            chart.options.update(map_options(allx, {r["ticker"] for r in xs}, bar))
+            chart.options.update(map_options(allx, {r["ticker"] for r in xs}, bar, zoom,
+                                             st.setdefault("hidden_groups", set()), legend_counts(allx, xs, zoom)))
             chart.update()
+
+        def show_rows():
+            """The table follows the map: rows in the zoomed window and not in a hidden group."""
+            xs, zoom, hidden = st.get("view_rows", []), st.get("zoom"), st.setdefault("hidden_groups", set())
+            shown = map_view(xs, zoom, hidden)
+            g.options["rowData"] = shown
+            st["last_view"] = shown
+            g.run_grid_method("setGridOption", "rowData", shown)
+            why = (["the zoomed area of the map"] if zoom else []) + (
+                ["hiding " + ", ".join(BAND_NAME[k] for k in BAND_COL if k in hidden)] if hidden else [])
+            map_note.text = f"Showing {len(shown):,} of {len(xs):,} companies: " + " · ".join(why) if why else ""
+            map_note_row.set_visibility(bool(why))
+
+        async def on_zoom(_e=None):
+            # zoom events stream while a slider is dragged: act once it settles
+            st["zseq"] = st.get("zseq", 0) + 1
+            me = st["zseq"]
+            await asyncio.sleep(0.35)
+            if me != st["zseq"]:
+                return
+            try:
+                ext = await ui.run_javascript(
+                    f"const c = getElement({chart.id}).chart, m = c.getModel();"
+                    " return [m.getComponent('xAxis', 0).axis.scale.getExtent(),"
+                    " m.getComponent('yAxis', 0).axis.scale.getExtent()];", timeout=3)
+            except Exception:
+                return
+            zoom = norm_zoom(*(ext or [None, None]))
+            if zoom == st.get("zoom"):
+                return
+            st["zoom"] = zoom
+            show_rows()
+            draw_chart()  # legend counts for the new window
+
+        def on_restore(_e=None):
+            st["zoom"] = None
+            refresh()
+
+        def on_legend(e):
+            sel = (e.args or {}).get("selected") or {}
+            st["hidden_groups"] = {k for k in BAND_COL if sel.get(BAND_NAME[k]) is False}
+            show_rows()
+            draw_chart()
+
+        def reset_map():
+            st["zoom"], st["hidden_groups"] = None, set()
+            refresh()
+
+        chart.on("chart:datazoom", on_zoom, [])
+        chart.on("chart:restore", on_restore, [])
+        chart.on("chart:legendselectchanged", on_legend, ["selected"])
 
         def set_view(k):
             st["view"] = k

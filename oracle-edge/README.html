@@ -74,7 +74,7 @@ footer { color:var(--muted); font-size:12.5px; margin-top:50px; border-top:1px s
   <h1><img src="brand/logo/oracle-edge-header-tagline.png" srcset="brand/logo/oracle-edge-header-tagline@2x.png 2x"
      alt="Oracle Edge: Screen, Rank, Signal"></h1>
   <p>A local stock screener that thinks like the Oracle. This guide explains <b>what</b> the app does,
-  <b>how</b> it decides, and <b>why</b> it was built this way. Version 0.17.6.</p>
+  <b>how</b> it decides, and <b>why</b> it was built this way. Version 0.17.7.</p>
   <p style="font-size:14px">Two documents: this <b>guide</b> is the user manual, kept current with every release and opened from
   "Guide" in the app. The <b>plan</b> (<code>docs/Value-Picker-Plan.html</code> with the source code) is the design record: the research, architecture,
   database layout and the decision log behind the app.</p>
@@ -416,13 +416,21 @@ one year in the decade fell under 10%, even for companies whose average is 25% o
 <li><b>The map</b>: every company as a dot, Quality across and Wonderfulness up, with dashed lines at the checklist bar and at 70.
 The top-right corner is the best of both; dots outside the current view fade. Each dot also shows:
 <ul>
-<li><b>Colour</b>: the group (best of both, wonderful but fails the checklist, passes but not wonderful, neither).</li>
+<li><b>Colour</b>: how good a buy the stock is today, from the Value columns (price against the value-driver value at your
+required return; version 0.17.7): <b>dark green</b> in the Buy Zone (at or under the buy-below price, i.e. the value less your
+margin of safety), <b>light green</b> below the value but not by the full margin, <b>amber</b> up to 25% over the value,
+<b>red</b> more than 25% over, <b>grey</b> not valued (banks, insurers, too little data). The groups are shown by position
+instead: right of the dashed line passes the checklist, above it is wonderful, so the top right is the best of both, and the
+best buys there are the dark green dots. Hover a dot for its price, value and margin of safety. The legend counts the companies
+of each colour that are in the table, "12 of 134" when the view, the filters or the zoom leave some out.</li>
 <li><b>Shape</b>: Wonderfulness over the last 3 fiscal years: ▲ rising (+5 or more), ▼ falling (−5 or more), ● steady, ◆ new.</li>
 <li><b>Size</b>: how many years in a row it has been 70+ (the longer, the bigger). On the app's history, consistency predicted
 staying on top better than a rising score, so the big dots are the proven ones.</li>
 </ul>
-<b>Zoom</b> with the sliders under and beside the chart, the box tool (top right; ⟲ resets) or Shift + mouse wheel. Hover a dot
-for the details; <b>click it to open the company in a new tab</b>; click a legend entry to hide a group.</li>
+<b>Zoom</b> with the sliders under and beside the chart, the box tool (top right; ⟲ resets) or Shift + mouse wheel. <b>The table
+follows the map</b> (version 0.17.7): zoomed in, it lists only the companies in view, and a group hidden by clicking its legend
+entry leaves the table too. A line above the table says how many are shown and why, with <i>Show the whole map</i> to undo both.
+Hover a dot for the details; <b>click it to open the company in a new tab</b>.</li>
 <li><b>Quick filters</b>: text search, market value ($2B+ by default), hide companies slipping now (a business-health or hard
 warning in the latest 10-Q), and only those in the Buy Zone today.</li>
 <li><b>Add filter</b> (version 0.17.0): pick any column from the menu. Numbers get an "at least" and "at most" box in the units
@@ -432,8 +440,12 @@ industries). Active filters show as chips above the map: click ✕ to remove one
 to the map and the table and are remembered next time.</li>
 <li><b>The table</b>: columns sit in groups (Scores, CEO, Pillars, Key measures, Price &amp; size, Company info). A group header
 with › or ‹ opens or closes the group: closed, Scores shows Wonderfulness, Quality and their average; Pillars shows four mini bars
-(M G S A); Key measures shows ROIC, gross margin and operating margin. <i>Expand groups</i> and <i>Collapse groups</i> do all at once, and the
-<b>Columns</b> menu hides whole groups (remembered). Click a <b>ticker or company name</b> to open the stock in a new tab; click the
+(M G S A); Key measures shows ROIC and the gross, operating, net and cash flow margins (version 0.17.7; opened, also sales
+growth, years sales grew, debt payback and the $1 test). <i>Expand groups</i> and <i>Collapse groups</i> do all at once, and the
+<b>Columns</b> menu hides whole groups. <b>Arrange the table your way</b> (version 0.17.7): drag a group header to move the whole
+group, drag a column header to move it within its group (a column stays in its group), and drag a header's edge to resize. The
+order, widths and which groups are open are remembered for next time, along with hidden groups; <i>Columns → Reset column
+layout</i> goes back to the original. Click a <b>ticker or company name</b> to open the stock in a new tab; click the
 Trend sparkline for the full score history. Tick 2–5 rows and press <b>Compare</b> for a side-by-side view, or export the view to
 CSV. Links like <code>/screener?view=nocheck</code> open a view directly (old <code>/wonderful</code> links still work).</li>
 <li><b>Trends in every cell</b>: a small ▲ or ▼ next to a number shows its direction over recent years (the last two years
@@ -1519,7 +1531,7 @@ their old results until you recalculate them.</p>
 <tr><td><b>XBRL</b></td><td>The tagged data format companies use to file financial statements with the SEC</td></tr>
 </table>
 
-<footer>Oracle Edge v0.17.6 · research tool, not financial advice · MIT license. The full design plan, with research sources,
+<footer>Oracle Edge v0.17.7 · research tool, not financial advice · MIT license. The full design plan, with research sources,
 is in <code>docs/Value-Picker-Plan.html</code> with the source code.</footer>
 </main>
 </div>
