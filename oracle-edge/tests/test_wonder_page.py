@@ -289,8 +289,11 @@ def test_the_column_layout_is_remembered():
     cols, G = wp.columns(70)
     assert "nm_med" in G["measures"] and "ocfm_med" in G["measures"]
     meas = next(c for c in cols if c.get("groupId") == "measures")
-    shown = [c["field"] for c in meas["children"] if c.get("columnGroupShow") != "open"]
-    assert {"nm_med", "ocfm_med"} <= set(shown)  # visible with the group collapsed
+    closed = [c.get("field") or c.get("colId") for c in meas["children"] if c.get("columnGroupShow") != "open"]
+    opened = [c.get("field") or c.get("colId") for c in meas["children"] if c.get("columnGroupShow") != "closed"]
+    assert closed == ["measures_mini"]  # collapsed: one summary column (ROIC and the margins at a glance)
+    assert {"roic_med", "gm_med", "om_med", "nm_med", "ocfm_med", "rev_g5", "dollar_test"} <= set(opened)
+    assert "measures_mini" not in opened
     assert all(c.get("marryChildren") for c in cols if c.get("children"))
     # the user moved Value first, Cash flow margin to the front of Key measures, widened Net margin, opened Pillars
     state = [{"colId": x, "width": 150 if x == "nm_med" else 100} for x in
@@ -302,7 +305,7 @@ def test_the_column_layout_is_remembered():
     assert [c.get("groupId") for c in out if c.get("groupId")] == ["value", "scores", "mgmt", "pillars", "measures", "info"]
     m = next(c for c in out if c.get("groupId") == "measures")
     assert m["children"][0]["field"] == "ocfm_med"
-    assert next(ch for ch in m["children"] if ch["field"] == "nm_med")["width"] == 150
+    assert next(ch for ch in m["children"] if ch.get("field") == "nm_med")["width"] == 150
     assert next(c for c in out if c.get("groupId") == "pillars")["openByDefault"] is True
     assert next(c for c in out if c.get("groupId") == "value")["openByDefault"] is False
     # a column the saved layout doesn't know keeps a place at the end of its group; no layout = defaults
@@ -311,3 +314,34 @@ def test_the_column_layout_is_remembered():
     assert m["children"][-1]["field"] == "dollar_test"
     assert wp.apply_layout(cols, None) is cols
     assert cols[3]["groupId"] == "scores"  # the defaults weren't changed in place
+
+
+def test_search_finds_any_company_by_ticker_name_or_industry():
+    rows = [{"ticker": "AAPL", "name": "Apple Inc.", "industry": "Electronic Computers", "score": 80},
+            {"ticker": "APLE", "name": "Apple Hospitality REIT, Inc.", "industry": "Real Estate Investment Trusts", "score": 40},
+            {"ticker": "BRK-B", "name": "Berkshire Hathaway Inc", "industry": "Fire, Marine & Casualty Insurance", "score": 70},
+            {"ticker": "NVDA", "name": "NVIDIA Corp", "industry": "Semiconductors & Related Devices", "score": 90},
+            {"ticker": "MPWR", "name": "Monolithic Power Systems", "industry": "Semiconductors & Related Devices", "score": 85}]
+    t = lambda q: [r["ticker"] for r in wp.search_rows(rows, q)]  # noqa: E731
+    assert t("aapl") == ["AAPL"]
+    assert t("apple")[:2] == ["AAPL", "APLE"]          # name word, better-scored first
+    assert t("berk hath") == ["BRK-B"]                 # every word must match
+    assert t("semi") == ["NVDA", "MPWR"]               # industry, best Wonderfulness first
+    assert t("nvidia") == ["NVDA"] and t("zzz") == [] and wp.search_rows(rows, "  ") == rows
+    assert t("apl")[0] == "APLE"                       # ticker prefix beats a name fragment
+
+
+def test_header_search_ranks_tickers_and_name_words():
+    from oracle_edge.ui import data
+
+    rows = [(9101, "ZQAP", "Zqapple Orchards Inc", 1), (9102, "ZQB", "Big Zqapple Holdings", 1),
+            (9103, "ZQAPX", "Old Zqapple Co", 0), (9104, "ZQC", "Zqcola Bottling Zqapple", 1)]
+    for c, t, n, a in rows:
+        db.get().execute("INSERT OR REPLACE INTO securities(cik, ticker, name, active) VALUES(?,?,?,?)", (c, t, n, a))
+    data._SLOW_CACHE.pop("search_index", None)
+    hits = [h["ticker"] for h in data.search("zqapple")]
+    assert hits[0] == "ZQAP" and set(hits) == {"ZQAP", "ZQB", "ZQAPX", "ZQC"}
+    assert hits.index("ZQAPX") > hits.index("ZQB")  # delisted after listed
+    assert [h["ticker"] for h in data.search("zqap")][:2] == ["ZQAP", "ZQAPX"]  # ticker prefix first
+    assert [h["ticker"] for h in data.search("zqcola zqapple")] == ["ZQC"]  # every word must match
+    assert data.search("  ") == []

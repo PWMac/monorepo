@@ -15,6 +15,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import re
 from collections import Counter
 
 from nicegui import app, ui
@@ -104,6 +105,40 @@ def map_view(xs: list[dict], zoom: dict | None, hidden: set[str]) -> list[dict]:
     if not zoom and not hidden:
         return xs
     return [r for r in xs if r.get("quality") is not None and band(r) not in hidden and in_zoom(r, zoom)]
+
+
+def search_rows(rows: list[dict], text: str, limit: int = 200) -> list[dict]:
+    """Companies matching the search box, best match first, across every company (the view, quick filters and Add
+    filter are ignored while searching, so a search always finds the company). Each word must match the ticker, a
+    word of the name or the industry: "apple", "AAPL", "semi", "berk hath" all work."""
+    words = [w for w in re.split(r"[\s,]+", (text or "").lower().strip()) if w]
+    if not words:
+        return rows
+    out = []
+    for r in rows:
+        t = (r.get("ticker") or "").lower()
+        name = (r.get("name") or "").lower()
+        ind = (r.get("industry") or "").lower()
+        nwords = re.split(r"[^a-z0-9&]+", name)
+        score = 0
+        for w in words:
+            if t == w:
+                s_ = 100
+            elif t.startswith(w):
+                s_ = 60
+            elif any(x.startswith(w) for x in nwords):
+                s_ = 50 if name.startswith(w) else 40
+            elif w in name:
+                s_ = 25
+            elif w in ind:
+                s_ = 10
+            else:
+                break
+            score += s_
+        else:
+            out.append((score, r))
+    out.sort(key=lambda z: (-z[0], -(z[1].get("score") or 0)))
+    return [r for _, r in out[:limit]]
 
 
 def legend_counts(allx: list[dict], xs: list[dict], zoom: dict | None) -> dict[str, str]:
@@ -268,6 +303,14 @@ _PILLARS_MINI = """p => {
       <span style="font-size:8px;color:#6b7280;margin-top:2px">${l}</span></span>`; }).join('') + '</span>';
 }"""
 
+_MEASURES_MINI = """p => {
+  const r = p.data || {}; const f = v => v == null ? '—' : (v * 100).toFixed(0) + '%';
+  const gm = r.gm_med != null ? f(r.gm_med) : (r.gm_kind === 'none' ? 'n/a' : '—');
+  const parts = [['ROIC', f(r.roic_med)], ['GM', gm], ['OM', f(r.om_med)], ['NM', f(r.nm_med)], ['CF', f(r.ocfm_med)]];
+  return '<span style="font-size:11px;color:#374151;white-space:nowrap" title="10-year medians: return on invested capital, ' +
+    'gross, operating, net and cash flow margins. Open the group (›) for every measure with its trend.">' +
+    parts.map(([k, v]) => `<span style="color:#9aa5a0">${k}</span> <b>${v}</b>`).join(' · ') + '</span>'; }"""
+
 _CEO = """p => {
   const r = p.data || {};
   const nw = r.ceo_changed ? ' <span style="background:#2c5d8f;color:#fff;border-radius:3px;font-size:9px;padding:0 3px;' +
@@ -366,6 +409,9 @@ def columns(bar: float) -> tuple[list[dict], dict[str, list[str]]]:
             columnGroupShow="open"),
     ]
     measures = [
+        {"colId": "measures_mini", "headerName": "ROIC · margins", "width": 290, "minWidth": 200,
+         "columnGroupShow": "closed", ":cellRenderer": _MEASURES_MINI, "sortable": False, "filter": False,
+         "headerTooltip": "Closed: the 10-year medians at a glance. Open the group for each measure, its trend and history."},
         _tc("roic_med", "ROIC 10-yr median", F_PCT, 1, 116, None, "Return on invested capital each year", "pct",
             "The column is the 10-year median; the arrow and chart follow each year's ROIC."),
         {**_tc("gm_med", "Gross margin", F_PCT, 1, 104, "Gross margin, 10-year median. n/a = the company reports no "
@@ -389,6 +435,8 @@ def columns(bar: float) -> tuple[list[dict], dict[str, list[str]]]:
             "Lower is better.", columnGroupShow="open"),
         _tc("dollar_test", "$1 test", F_X, 1, 90, None, "$1 test as known each year", "x", columnGroupShow="open"),
     ]
+    for c in measures[1:]:  # closed: the one-line summary; open: every measure (and no summary)
+        c["columnGroupShow"] = "open"
     value = [
         {**_c("v_mos", "Margin of safety", None, 104, "1 − price ÷ likely value (value-driver model, at a 9% "
                                                      "discount rate). Green = at least the profile's margin of safety."),
@@ -662,7 +710,10 @@ def screener_page(compare: str = "", view: str = "both"):
                 btns[k] = ui.button(label, on_click=lambda k=k: set_view(k)).props("no-caps")
         tip = ui.label("").classes("oe-small")
         with ui.row().classes("items-center gap-3 w-full"):
-            q = ui.input(placeholder="Search ticker, name or industry").props("dense outlined clearable").classes("w-64")
+            q = ui.input(placeholder="Search every company: ticker, name, industry").props(
+                "dense outlined clearable debounce=250").classes("w-72")
+            with q.add_slot("prepend"):
+                ui.icon("search").classes("text-gray-400")
             size = ui.select({0: "Any size", 2e9: "$2B+", 10e9: "$10B+", 50e9: "$50B+"}, value=2e9,
                              label="Market value").props("dense outlined").classes("w-36")
             healthy = ui.switch("Hide companies slipping now", value=False)
@@ -825,6 +876,8 @@ def screener_page(compare: str = "", view: str = "both"):
             ui.button("Show the whole map", icon="zoom_out_map", on_click=lambda: reset_map()).props(
                 "flat dense no-caps size=sm")
         map_note_row.set_visibility(False)
+        search_note = ui.label("").classes("text-sm").style("color:#2c5d8f")
+        search_note.set_visibility(False)
         ceo_status = ui.label("").classes("oe-small")
         g = ui.aggrid({"columnDefs": cols, "rowData": [], "context": ctx, ":getRowId": "p => p.data.ticker",
                        "defaultColDef": {"sortable": True, "resizable": True, "filter": True, "wrapHeaderText": True,
@@ -924,6 +977,11 @@ def screener_page(compare: str = "", view: str = "both"):
             label, t, _f, _k = VIEWS[st["view"]]
             tip.text = f"{label}: {t} {len(xs):,} companies."
             allx = base()
+            if st.get("search"):  # searching: every company, best match first (view and filters set aside)
+                xs = search_rows(rows, st["search"])
+                for i, r in enumerate(xs):
+                    r["pos"] = i + 1
+                allx = rows
             st["view_rows"], st["all_rows"] = xs, allx
             show_rows()
             # grade the CEOs of the companies in view first (best first): never looked up, or stuck without a start date
@@ -947,14 +1005,20 @@ def screener_page(compare: str = "", view: str = "both"):
         def show_rows():
             """The table follows the map: rows in the zoomed window and not in a hidden group."""
             xs, zoom, hidden = st.get("view_rows", []), st.get("zoom"), st.setdefault("hidden_groups", set())
-            shown = map_view(xs, zoom, hidden)
+            searching = bool(st.get("search"))
+            shown = xs if searching else map_view(xs, zoom, hidden)
             g.options["rowData"] = shown
             st["last_view"] = shown
             g.run_grid_method("setGridOption", "rowData", shown)
             why = (["the zoomed area of the map"] if zoom else []) + (
                 ["hiding " + ", ".join(BAND_NAME[k] for k in BAND_COL if k in hidden)] if hidden else [])
             map_note.text = f"Showing {len(shown):,} of {len(xs):,} companies: " + " · ".join(why) if why else ""
-            map_note_row.set_visibility(bool(why))
+            map_note_row.set_visibility(bool(why) and not searching)
+            search_note.text = ((f"{len(shown):,} {'match' if len(shown) == 1 else 'matches'} for “{st['search']}” across "
+                                 "every company (the view and filters are set aside while you search; the map "
+                                 "highlights them). Press Enter to open the top match.") if shown else
+                                f"No company matches “{st['search']}”.") if searching else ""
+            search_note.set_visibility(searching)
 
         async def on_zoom(_e=None):
             # zoom events stream while a slider is dragged: act once it settles
@@ -1000,7 +1064,16 @@ def screener_page(compare: str = "", view: str = "both"):
             refresh()
         for el in (size, healthy, buyable):
             el.on_value_change(lambda e: refresh())
-        q.on_value_change(lambda e: g.run_grid_method("setGridOption", "quickFilterText", e.value or ""))
+        def on_search(e):
+            st["search"] = (e.value or "").strip()
+            refresh()
+
+        def open_top():
+            xs = st.get("last_view") or []
+            if st.get("search") and xs:
+                ui.navigate.to(f"/stock/{xs[0]['ticker']}", new_tab=True)
+        q.on_value_change(on_search)
+        q.on("keydown.enter", open_top)
 
         # the Trend cell opens the full history; ticker and name are links (new tab)
         dlg = ui.dialog()

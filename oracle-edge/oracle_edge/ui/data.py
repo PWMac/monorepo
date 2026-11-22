@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import math
+import re
 from datetime import date, timedelta
 
 from .. import db, rules
@@ -393,13 +394,44 @@ def market_now() -> dict:
             "t30_hist": list(zip(*m.s.get("DGS30", ([], []))))}
 
 
-def search(q: str) -> list[dict]:
-    q = q.strip().upper()
-    if not q:
+def _search_index() -> list[tuple]:
+    rows = db.rows("SELECT ticker, name, active FROM securities WHERE ticker IS NOT NULL")
+    out = []
+    for r in rows:
+        name = r["name"] or ""
+        out.append((r["ticker"], name, r["ticker"].lower(), name.lower(), re.split(r"[^a-z0-9&]+", name.lower()),
+                    bool(r["active"])))
+    return out
+
+
+def search(q: str, limit: int = 10) -> list[dict]:
+    """Header search: every word must match the ticker or the company name. Best first: exact ticker, ticker
+    starting with it, a name word starting with it, anywhere in the name; listed companies before delisted ones.
+    "apple", "AAPL", "berk hath", "coca" all work."""
+    words = [w for w in re.split(r"[\s,]+", (q or "").lower().strip()) if w]
+    if not words:
         return []
-    return [dict(r) for r in db.rows(
-        "SELECT ticker, name FROM securities WHERE ticker LIKE ? OR UPPER(name) LIKE ? ORDER BY "
-        "CASE WHEN ticker=? THEN 0 ELSE 1 END, ticker LIMIT 12", (q + "%", "%" + q + "%", q))]
+    idx = _cached("search_index", _search_index, ttl=600)
+    hits = []
+    for t, name, tl, nl, nwords, active in idx:
+        sc = 0
+        for w in words:
+            if tl == w:
+                sc += 100
+            elif tl.startswith(w):
+                sc += 60
+            elif nl.startswith(w):
+                sc += 50
+            elif any(x.startswith(w) for x in nwords):
+                sc += 40
+            elif w in nl:
+                sc += 20
+            else:
+                break
+        else:
+            hits.append((sc + (10 if active else 0), -len(t), t, name, active))
+    hits.sort(reverse=True)
+    return [{"ticker": t, "name": name, "active": active} for _, _, t, name, active in hits[:limit]]
 
 
 _SLOW_CACHE: dict = {}

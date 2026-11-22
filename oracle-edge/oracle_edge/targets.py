@@ -72,10 +72,12 @@ def technicals_from(b: list[tuple]) -> dict | None:
         trend = "up"
     else:
         trend = "sideways"
-    mom = cl[-21] / cl[-252] - 1 if len(cl) >= 252 and cl[-252] else None
+    mom = cl[-21] / cl[-252] - 1 if len(cl) >= 252 and cl[-252] else None  # 12-1 momentum (skips the last month)
+    chg_1m = last / cl[-22] - 1 if len(cl) >= 22 and cl[-22] else None
+    chg_12m = last / cl[-253] - 1 if len(cl) >= 253 and cl[-253] else (last / cl[0] - 1 if cl[0] else None)
     return {"date": dates[-1], "close": last, "high": hi[-1], "low": lo[-1], "sma50": sma50, "sma200": sma200,
             "atr": atr, "atr_pct": atr / last if last else None, "hi52": hi52, "lo52": lo52, "swing": swing,
-            "fibs": fibs, "trend": trend, "falling": falling, "mom_12_1": mom}
+            "fibs": fibs, "trend": trend, "falling": falling, "mom_12_1": mom, "chg_1m": chg_1m, "chg_12m": chg_12m}
 
 
 def technicals(ticker: str, asof: str | None = None) -> dict | None:
@@ -106,29 +108,34 @@ def band(price: float, atr: float | None, st: dict) -> float:
     return min(st.get("alert_band_max", 0.08), max(st.get("alert_band_min", 0.02), raw))
 
 
+def ladder_step(atr_pct: float | None) -> float:
+    """How far apart the staged buys sit: two average daily ranges, as a share of the price (5-15%). A share, not
+    dollars: the average range is measured at today's price, and the buys may sit far below it."""
+    return min(0.15, max(0.05, 2 * (atr_pct or 0.02)))
+
+
 def plan(price: float | None, buy_below: float | None, strong: float | None, iv: float | None, t: dict | None,
          st: dict) -> dict:
     """Suggested buy limit / staged entry, trim level, and context. Pure function (easy to test)."""
+    extra = st.get("strong_extra_mos", 0.15)
     out = {"price": price, "buy_below": buy_below, "strong": strong, "iv": iv,
            "trim_above": st.get("nosebleed_iv_mult", 2.0) * iv if iv else None,
            "limit": None, "limit_label": None, "tranches": [], "status": None, "note": "", "levels": [],
-           "trend": t["trend"] if t else None, "band": None}
+           "trend": t["trend"] if t else None, "band": None, "gap": None}
     if not price or not buy_below or buy_below <= 0:
         out["note"] = "Targets appear once the stock can be valued."
         return out
     atr = (t or {}).get("atr") or price * 0.02
+    atr_pct = atr / price
     out["band"] = band(price, atr, st)
     levels = support_levels(t) if t else []
     out["levels"] = levels
-    strong = strong or buy_below * 0.8
+    # strong buy is always an extra margin under buy below (a P/E-based buy price can fall under the model's strong)
+    if not strong or strong >= buy_below:
+        strong = buy_below * (1 - extra)
+    out["strong"] = strong
+    out["gap"] = price / buy_below - 1
     stage = bool(t and t["trend"] == "down" and st.get("stage_in_downtrend", True))
-
-    def next_below(p, gap):
-        """Highest support at least `gap` under p (and above zero)."""
-        for v, lab in levels:
-            if 0 < v <= p - gap:
-                return v, lab
-        return None
 
     if price <= buy_below:
         near = [(v, lab) for v, lab in levels if price - atr <= v <= price]
@@ -140,15 +147,25 @@ def plan(price: float | None, buy_below: float | None, strong: float | None, iv:
         out["status"] = "above_zone"
     out["limit"], out["limit_label"] = first
     if stage:
-        t2 = next_below(first[0], atr) or (max(first[0] - 2 * atr, first[0] * 0.9), "2 average daily ranges lower")
-        if strong < t2[0] - 0.5 * atr:
-            t3 = (strong, "strong-buy price")
-        else:
-            t3 = next_below(t2[0], atr) or (t2[0] - 2 * atr, "2 more daily ranges lower")
+        step = ladder_step(atr_pct)
+        gap = max(atr_pct, 0.04)  # each buy at least one average day's move (and 4%) under the one before
+        # candidates: support levels and the strong-buy price, highest first
+        cands = sorted([(v, lab) for v, lab in levels if v > 0] + [(strong, "strong-buy price")], key=lambda x: -x[0])
+
+        def below(p):
+            nxt = next(((v, lab) for v, lab in cands if v <= p * (1 - gap)), None)
+            if nxt and nxt[0] >= p * (1 - 2.5 * step):  # a level not absurdly far down
+                return nxt
+            return p * (1 - step), f"{step:.0%} lower ({'2 average daily ranges' if step < 0.15 else 'capped at 15%'})"
+        t2 = below(first[0])
+        t3 = below(t2[0])
         out["tranches"] = [(first[0], 1 / 3, first[1]), (t2[0], 1 / 3, t2[1]), (t3[0], 1 / 3, t3[1])]
         out["note"] = ("The price is sliding (below a falling 50-day average), so the plan buys in thirds at "
                        "successive support levels instead of guessing the bottom. Whatever doesn't fill, the "
                        "buy-below price still stands.")
+        if out["status"] == "above_zone":
+            out["note"] = (f"Not cheap enough yet: today's price is {out['gap']:.0%} above the buy-below price. "
+                           + out["note"])
     else:
         out["tranches"] = [(first[0], 1.0, first[1])]
         if out["status"] == "in_zone":
@@ -156,9 +173,11 @@ def plan(price: float | None, buy_below: float | None, strong: float | None, iv:
                                                          "move, so it may fill cheaper." if near else
                                                          " No support level is close, so buying at the open is fine."))
         else:
-            gap = price / first[0] - 1
-            out["note"] = (f"Not cheap enough yet: {gap:.1%} above the suggested limit. A good-till-cancelled limit at "
-                           f"the {first[1]} buys only once the price is right.")
+            out["note"] = (f"Not cheap enough yet: today's price is {out['gap']:.0%} above the suggested limit. A "
+                           f"good-till-cancelled limit at the {first[1]} buys only once the price is right."
+                           if first[0] == buy_below else
+                           f"Not cheap enough yet: today's price is {price / first[0] - 1:.0%} above the suggested "
+                           f"limit. A good-till-cancelled limit at the {first[1]} buys only once the price is right.")
     return out
 
 

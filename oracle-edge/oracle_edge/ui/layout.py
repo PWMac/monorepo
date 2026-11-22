@@ -88,21 +88,36 @@ def frame(title: str):
         with ui.row().classes("items-center gap-3"):
             _job_bar()
             search = ui.input(placeholder="Search ticker or name  ( / )").props(
-                "dense outlined dark color=white input-class=text-white").classes("w-64")
-            results = ui.menu().props("no-focus")
+                "dense outlined dark color=white input-class=text-white debounce=200").classes("w-64")
+            results = ui.menu().props("no-focus no-parent-event")
+            found: list[dict] = []
 
             def do_search(e=None):
                 results.clear()
-                hits = data.search(search.value or "")
+                found[:] = data.search(search.value or "")
                 with results:
-                    for h in hits:
-                        ui.menu_item(f"{h['ticker']} · {h['name'][:40]}",
-                                     on_click=lambda h=h: ui.navigate.to(f"/stock/{h['ticker']}"))
-                if hits:
+                    for h in found:
+                        with ui.menu_item(on_click=lambda h=h: ui.navigate.to(f"/stock/{h['ticker']}")):
+                            with ui.row().classes("items-center gap-2 no-wrap"):
+                                ui.label(h["ticker"]).classes("font-bold w-16")
+                                ui.label(h["name"][:44]).classes("text-sm")
+                                if not h["active"]:
+                                    ui.label("delisted").classes("oe-small")
+                    if not found and len(search.value or "") >= 2:
+                        ui.menu_item("No company matches").props("disable")
+                if found or len(search.value or "") >= 2:
                     results.open()
+                else:
+                    results.close()
 
-            search.on("keydown.enter", do_search)
-            search.on_value_change(lambda e: do_search() if len(e.value or "") >= 2 else None)
+            def go_top():
+                if not found:
+                    do_search()
+                if found:
+                    ui.navigate.to(f"/stock/{found[0]['ticker']}")
+
+            search.on("keydown.enter", go_top)
+            search.on_value_change(lambda e: do_search() if len(e.value or "") >= 1 else results.close())
 
             def toggle_dark():
                 dark.value = not dark.value

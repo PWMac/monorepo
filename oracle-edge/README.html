@@ -62,6 +62,10 @@ tr:last-child td { border-bottom:none; }
 .small { font-size:13px; color:var(--muted); }
 .kbd { font-family:inherit; border:1px solid #cfcabd; border-bottom-width:2px; border-radius:4px; padding:0 5px;
   background:#fff; font-size:12.5px; }
+figure.shot { margin:16px 0 18px; }
+figure.shot img { display:block; max-width:100%; height:auto; border:1px solid var(--line); border-radius:8px;
+  box-shadow:0 1px 6px rgba(0,0,0,.08); }
+figure.shot figcaption { font-size:13px; color:var(--muted); margin-top:6px; }
 footer { color:var(--muted); font-size:12.5px; margin-top:50px; border-top:1px solid var(--line); padding-top:14px; }
 @media (max-width: 900px) { .wrap { grid-template-columns:1fr; } nav.toc { position:static; max-height:none; }
   .grid2, .grid3 { grid-template-columns:1fr; } }
@@ -74,7 +78,7 @@ footer { color:var(--muted); font-size:12.5px; margin-top:50px; border-top:1px s
   <h1><img src="brand/logo/oracle-edge-header-tagline.png" srcset="brand/logo/oracle-edge-header-tagline@2x.png 2x"
      alt="Oracle Edge: Screen, Rank, Signal"></h1>
   <p>A local stock screener that thinks like the Oracle. This guide explains <b>what</b> the app does,
-  <b>how</b> it decides, and <b>why</b> it was built this way. Version 0.17.8.</p>
+  <b>how</b> it decides, and <b>why</b> it was built this way. Version 0.17.9.</p>
   <p style="font-size:14px">Two documents: this <b>guide</b> is the user manual, kept current with every release and opened from
   "Guide" in the app. The <b>plan</b> (<code>docs/Value-Picker-Plan.html</code> with the source code) is the design record: the research, architecture,
   database layout and the decision log behind the app.</p>
@@ -85,33 +89,41 @@ footer { color:var(--muted); font-size:12.5px; margin-top:50px; border-top:1px s
   <b>Contents</b>
   <a href="#what">1. What it is</a>
   <a href="#start">2. Quick start</a>
-  <a href="#day">3. What happens each day</a>
-  <a href="#data">4. Where the data comes from</a>
-  <a href="#universe">5. Which companies are screened</a>
-  <a href="#quality">6. Scoring the business (Quality)</a>
-  <a href="#wonder" style="padding-left:22px">Wonderfulness and CEO track records</a>
-  <a href="#rules">7. The rules, one by one</a>
-  <a href="#value">8. Judging the price (Value)</a>
-  <a href="#rank">9. Ranking and the lists</a>
+  <a href="#tour">3. A tour of the app</a>
+  <a href="#charts" style="padding-left:22px">Working with the charts</a>
+  <a href="#day">4. What happens each day</a>
+  <a href="#data">5. Where the data comes from</a>
+  <a href="#universe">6. Which companies are screened</a>
+  <a href="#quality">7. Scoring the business (Quality)</a>
+  <a href="#rules">8. The rules, one by one</a>
+  <a href="#wonder">9. Wonderfulness: ranking the best businesses</a>
+  <a href="#screener">10. The Screener</a>
+  <a href="#ceo">11. CEO track record</a>
+  <a href="#value">12. Judging the price (Value)</a>
+  <a href="#valuedriver" style="padding-left:22px">The value-driver model</a>
+  <a href="#valueaccuracy" style="padding-left:22px">How accurate is the value</a>
+  <a href="#stockpage">13. The stock page</a>
+  <a href="#outlook" style="padding-left:22px">Outlook</a>
+  <a href="#totalreturn" style="padding-left:22px">Total return</a>
   <a href="#lists" style="padding-left:22px">Comparing stocks side by side</a>
-  <a href="#signals">10. Buy and sell signals</a>
+  <a href="#rank">14. Ranking and the lists</a>
+  <a href="#signals">15. Buy and sell signals</a>
   <a href="#strength" style="padding-left:22px">How strong is a signal?</a>
-  <a href="#selling">11. When it sells</a>
-  <a href="#targets">12. Price targets and alerts</a>
-  <a href="#portfolio">13. Model portfolio: how many, new money</a>
+  <a href="#selling">16. When it sells</a>
+  <a href="#targets">17. Price targets and alerts</a>
+  <a href="#portfolio">18. Model portfolio: how many, new money</a>
   <a href="#newmoney" style="padding-left:22px">Where new money goes</a>
   <a href="#rebuild" style="padding-left:22px">Rebuilding the strategy</a>
   <a href="#risk" style="padding-left:22px">Risk controls</a>
-  <a href="#market">14. Market temperature</a>
-  <a href="#backtest">15. Backtests and profiles</a>
-  <a href="#ops">16. Email, schedule, backups, security</a>
+  <a href="#market">19. Market temperature</a>
+  <a href="#backtest">20. Backtests and profiles</a>
+  <a href="#ops">21. Email, schedule, backups, security</a>
   <a href="#trouble" style="padding-left:22px">Troubleshooting</a>
-  <a href="#screens">17. The screens</a>
-  <a href="#folders">18. Where things live</a>
-  <a href="#whys">19. Why it works this way</a>
-  <a href="#limits">20. Known limits</a>
-  <a href="#audit">20a. Accuracy audit</a>
-  <a href="#glossary">21. Glossary</a>
+  <a href="#folders">22. Where things live</a>
+  <a href="#whys">23. Why it works this way</a>
+  <a href="#limits">24. Known limits</a>
+  <a href="#audit">25. Accuracy audit</a>
+  <a href="#glossary">26. Glossary</a>
 </nav>
 
 <main>
@@ -153,21 +165,127 @@ trades yourself.</div>
   <b>Save &amp; (re)register task</b> so Windows runs the update after each close, even when the app isn't open.</li>
   <li><b>Set your money:</b> in <b>Profiles → Portfolio</b>, enter your starting money and what you add each week.</li>
   <li><b>Pick holdings and a new-money rule:</b> open <b>Backtest → Find the best number of holdings</b>, run it from 2019,
-  and save the winner to a profile (section 13). Then <b>Rebuild live signals</b> so daily signals use it.</li>
+  and save the winner to a profile (<a href="#portfolio">section 18</a>). Then <b>Rebuild live signals</b> so daily signals use it.</li>
   <li><b>Use it:</b> open <b>Today</b> each evening or read the email. Click any ticker for its full report card.</li>
 </ol>
 <p class="small">Press <span class="kbd">/</span> anywhere to search for a ticker or company name.</p>
 
 <!-- ================================================================ 3 -->
-<h2 id="day"><span class="n">3</span>What happens each day</h2>
+<h2 id="tour"><span class="n">3</span>A tour of the app</h2>
+<p>The screenshots use the app's demo data (made-up companies), so the names and numbers are illustrations only.</p>
+<h3>Today</h3>
+<figure class="shot"><img src="docs/guide/today.jpg" alt="Today: the summary cards (each opens its list), the week's score movers, then the actions for the next open, price alerts, news and the lists." loading="lazy"><figcaption>Today: the summary cards (each opens its list), the week's score movers, then the actions for the next open, price alerts, news and the lists.</figcaption></figure>
+<p>Start here each day. <b>Score movers</b> lists the companies whose Wonderfulness rose or fell most with an annual report filed
+this week (or month): the change against last year's score, the new score, the pillar that moved most and the change in Quality.
+The market readings (Buffett Indicator, Bitcoin early warning) are in the first two cards; the Market page has the detail.</p>
+<h3>The Screener</h3>
+<figure class="shot"><img src="docs/guide/screener-map.jpg" alt="The Screener's map: each dot is a company, placed by Quality and Wonderfulness and coloured by how good a buy it is today. Zooming in narrows the table to the dots in view." loading="lazy"><figcaption>The Screener's map: each dot is a company, placed by Quality and Wonderfulness and coloured by how good a buy it is today. Zooming in narrows the table to the dots in view.</figcaption></figure>
+<figure class="shot"><img src="docs/guide/screener-table.jpg" alt="The Screener's table: column groups open and close with › and ‹ (here Key measures is closed, showing ROIC and the margins in one line). Drag headers to rearrange; the layout is remembered." loading="lazy"><figcaption>The Screener's table: column groups open and close with › and ‹ (here Key measures is closed, showing ROIC and the margins in one line). Drag headers to rearrange; the layout is remembered.</figcaption></figure>
+<h3>A stock's page</h3>
+<figure class="shot"><img src="docs/guide/stock-worth.jpg" alt="Report card → What it's worth: the fair value with its range, the expected return at today's price, the strict buy-below price and what the price assumes." loading="lazy"><figcaption>Report card → What it's worth: the fair value with its range, the expected return at today's price, the strict buy-below price and what the price assumes.</figcaption></figure>
+<figure class="shot"><img src="docs/guide/stock-targets.jpg" alt="Report card → Price targets: today's price against the buy-below price, the suggested limit, strong buy, trim level, and support and resistance from the chart." loading="lazy"><figcaption>Report card → Price targets: today's price against the buy-below price, the suggested limit, strong buy, trim level, and support and resistance from the chart.</figcaption></figure>
+<figure class="shot"><img src="docs/guide/stock-chart.jpg" alt="Report card → Price vs value: price, value and buy-below lines with the 50/200-day averages and the Fibonacci levels." loading="lazy"><figcaption>Report card → Price vs value: price, value and buy-below lines with the 50/200-day averages and the Fibonacci levels.</figcaption></figure>
+<figure class="shot"><img src="docs/guide/stock-wonderful.jpg" alt="The Wonderful? tab: the Wonderfulness score, rank and the four pillars, measure by measure." loading="lazy"><figcaption>The Wonderful? tab: the Wonderfulness score, rank and the four pillars, measure by measure.</figcaption></figure>
+<figure class="shot"><img src="docs/guide/stock-total-return.jpg" alt="The Total return tab: what money put in would have grown to, dividends reinvested, against up to 10 other tickers." loading="lazy"><figcaption>The Total return tab: what money put in would have grown to, dividends reinvested, against up to 10 other tickers.</figcaption></figure>
+<h3>Market</h3>
+<figure class="shot"><img src="docs/guide/market-buffett.jpg" alt="Market: the Buffett Indicator (thick line, coloured by valuation zone) with the stock market's value and GDP behind it." loading="lazy"><figcaption>Market: the Buffett Indicator (thick line, coloured by valuation zone) with the stock market's value and GDP behind it.</figcaption></figure>
+<h3 id="charts">Working with the charts</h3>
+<p>Every chart over time (stock price, price vs value, your money, growth of $1, the Buffett Indicator, the Bitcoin early warning,
+financials) works the same way:</p>
+<ul>
+<li><b>Timeframe buttons</b> above the chart: 1M, 3M, 6M, YTD, 1Y, 3Y, 5Y, 10Y and Max (only the ones the data covers).</li>
+<li><b>Zoom and pan:</b> scroll the mouse wheel over the chart to zoom, drag to move along in time, or drag either end of the slider
+underneath. The slider shows the whole history in miniature, so you always see where the window sits.</li>
+<li><b>Tools</b> at the top right: box zoom (drag a rectangle around the part you want), undo zoom, reset to the full view, and save the
+chart as a PNG image.</li>
+<li><b>Crosshair:</b> hover to read exact values; on charts with two panels (price and volume, Bitcoin and QQQ) the crosshair and zoom
+move together.</li>
+<li><b>Legend:</b> click a name to hide or show that line; when the legend is long, arrows page through it.</li>
+<li>On a stock's price chart, the <b>vs S&amp;P 500</b> switch shows both as % change from the start of whatever range you pick, so
+the comparison restarts at zero each time you change the timeframe.</li>
+</ul>
+<h3 id="layout">Navigation and layout</h3>
+<ul>
+<li>The menu is grouped (Daily, Analysis, Setup) and marks the page you're on. The <b>☰</b> button folds it into a narrow rail of
+icons (hover an icon for its name) and back; the app remembers your choice. On a narrow window the menu slides over the page instead.</li>
+<li>Pages use the full width of the window (up to very wide screens); rows of summary cards wrap into as many columns as fit, and long
+descriptions keep a comfortable line length.</li>
+</ul>
+<table>
+<tr><th>Screen</th><th>What it's for</th></tr>
+<tr><td><b>Today</b></td><td>The Buffett Indicator and the Bitcoin early warning (summary cards), the week's or month's score movers,
+actions for the next open with strength ratings (and "mark done"), price alerts, news, the Buy Zone, pricey and near-miss lists,
+holdings. <b>Price alerts</b> lists every alert of the last 7 days; open one (or switch on <b>Show all reasons</b>) to see why it did
+or didn't lead to a trade: it led to a signal on a given day, or the stock is already held, still confirming, has no free slot, closed
+above the buy price, failed a quality check, and so on. An alert only means a price touched a level. <b>News</b>: market headlines,
+and headlines on your holdings, the model's holdings and stocks with price alerts (filter by each); they load after the page, so a
+slow news site never holds it up. The summary cards are clickable: each opens its full list (below).</td></tr>
+<tr><td><b>Stock lists</b></td><td>Opened from the Today cards (Buy Zone, Wonderful but pricey, Model holdings), with tabs for near misses and
+all wonderful companies. One sortable table per list: rank, strength, Rank score, Quality, Value; price, intrinsic value, buy and strong-buy
+prices, margin of safety, % above the buy price, expected 10-year return, earnings yield, P/E vs its 10-year median, market cap; and the
+10-year business record the Oracle checks (ROE, ROIC, gross and net margin, EPS and owner-earnings growth, cash conversion, capex, debt
+payback, debt-to-equity, buybacks, the $1 test, predictability). Shift-click to sort by a second column, hover a header for its meaning,
+filter by text, export to CSV, click a row to open the stock.</td></tr>
+<tr><td><b>Stock page: Report card tab</b></td><td>Every stock gets the full report card. The daily update only tracks the
+shortlist (companies that pass the checklist, near misses and holdings); for any other company the page works the figures out on
+the spot with the same rules and valuation at the latest close, and says so ("Worked out just now for this page"); such a company
+has no signal history or price alerts until it joins the shortlist (since 0.17.1; before, these pages showed no value, ladder or
+targets, or a near miss's last, possibly years-old, evaluation). Quality, value, rank, the price ladder, price targets and your own alerts, the price-vs-value chart,
+early warnings, every rule with its 10-year history, your judgment checklist (circle of competence, management, moat) and signal
+history: the live signals and the backtests of the current profile version only (holdings tests, experiments and backtests of
+older versions are left out), newest first, with <b>Show all</b></td></tr>
+<tr><td><b>Stock page: Wonderful? tab</b></td><td>The Wonderfulness score, tier and rank, the four pillars, what sets the company apart,
+red flags with what would need to change, the score over time, what management did with the money, and leaders and ownership
+(<a href="#wonder">Wonderfulness</a>, <a href="#ceo">CEO track record</a>)</td></tr>
+<tr><td><b>Screener</b></td><td>Every scored company ranked: views, the Quality vs Wonderfulness map, filters on any column,
+search across every company, column groups to open, close, hide and rearrange, CSV export and a side-by-side comparison of up to 5
+companies (<a href="#screener">The Screener</a>)</td></tr>
+<tr><td><b>Stock page: Outlook and Total return tabs</b></td><td>Analysts' forecasts next to the app's own view, and what an
+investment would have grown to against other tickers (<a href="#stockpage">The stock page</a>)</td></tr>
+<tr><td><b>Stock page: Chart &amp; key stats tab</b></td><td>What a Yahoo or Google Finance quote page shows, from the app's own data:
+<ul style="margin:4px 0">
+<li><b>Chart:</b> the stock's whole history as candles or a line, with volume and the 50- and 200-day averages; timeframes from
+1M to Max plus zoom, pan and box zoom (see <a href="#charts">Working with the charts</a>); "vs S&amp;P 500" switches to % change from
+the start of the chosen range. Returns for 1D to 5Y under it.</li>
+<li><b>Key statistics:</b> previous close, open, day's and 52-week range, volume and 3-month average, market cap, shares outstanding,
+beta (5 years of monthly returns against the S&amp;P 500), P/E and EPS (trailing 12 months when the 10-Qs allow, otherwise the last
+fiscal year), dividend and yield, revenue, net margin, return on equity, 1-year change against the S&amp;P 500, the last quarterly
+report and an estimated date for the next one. Hover a label for how it's worked out.</li>
+<li><b>Financials:</b> income statement, balance sheet and cash flow, annual or quarterly, 6, 10 or all periods, with a revenue and
+net income chart and year-over-year change. 10-Qs report cash flow year-to-date and the fourth quarter only appears in the annual report, so quarters are
+rebuilt from the differences (Q4 = full year minus nine months).</li>
+</ul>
+Prices are end-of-day; there are no live quotes, analyst estimates or news. Foreign filers' statements are in their reporting
+currency, and their P/E uses the valuation's US-dollar conversion.</td></tr>
+<tr><td><b>My holdings</b></td><td>Your real positions with badges</td></tr>
+<tr><td><b>Signals</b></td><td>The full signal journal with strength ratings, scores, filters and CSV export</td></tr>
+<tr><td><b>Performance</b></td><td>Your money vs the same money in the S&amp;P 500, growth of $1, drawdowns, episodes, rank-bucket results
+against the S&amp;P over the same days, Buy Zone stints</td></tr>
+<tr><td><b>Market</b></td><td>The US Buffett Indicator with the market value and GDP behind it, on one chart with its history and
+valuation zones; the global Buffett Indicator from World Bank data with world market value and GDP, also on one chart; Treasury yields; the Bitcoin
+early warning: today's reading, its
+history against the cut-offs with every past call marked right or wrong, scores against the base rate, a table of every call,
+what QQQ did after each kind of reading, the live record and recent market alerts</td></tr>
+<tr><td><b>Profiles</b></td><td>A card per profile: what it is for, what differs from the one it was copied from, and what it
+does. Edit the description, rules (standard, bank and insurer tabs) and the portfolio: starting money, weekly amount, how many to hold, where new money goes, swap limits</td></tr>
+<tr><td><b>Backtest</b></td><td>Find the best number of holdings and new-money rule; run and recalculate historical replays</td></tr>
+<tr><td><b>Data</b></td><td>Price sources (order, API keys, test), recent data problems, coverage gaps, foreign filers' ADR ratios, re-run first-time load, run the daily update now</td></tr>
+<tr><td><b>Settings</b></td><td>Market temperature (Bitcoin window, horizon, cut-offs, market alerts), SEC identity, email, daily schedule,
+backup folder and restore</td></tr>
+</table>
+<p>Checking "Outside my circle of competence" on a stock's report card hides it from your lists. The Oracle's first filter is
+whether he understands the business, and no formula can make that call for you.</p>
+
+<!-- ================================================================ 4 -->
+<h2 id="day"><span class="n">4</span>What happens each day</h2>
 <p>By default the daily run waits until <b>6:00 PM New York time</b>, which leaves time for closing prices to settle.
 It skips weekends and market holidays. If your PC was off, the app catches up the next time it starts.</p>
 <div class="flow">
   <div class="step"><b>1 · Filings</b>Reads the SEC's daily index; downloads new 10-K, 20-F and 40-F annual reports and,
   for shortlisted and owned companies, new 10-Qs</div><div class="arrow">→</div>
-  <div class="step"><b>2 · Prices</b>Updates closing prices for the shortlist, your holdings and the S&amp;P 500</div><div class="arrow">→</div>
+  <div class="step"><b>2 · Prices</b>Updates closing prices for every company (Data → Maintenance can limit it to the shortlist, your holdings and the S&amp;P 500)</div><div class="arrow">→</div>
   <div class="step"><b>3 · Rescore</b>Re-scores any company with a new filing; runs the 10-Q early-warning checks</div><div class="arrow">→</div>
-  <div class="step"><b>4 · Market</b>Treasury yields, exchange rates, market cap ÷ GDP from the Federal Reserve (FRED)</div>
+  <div class="step"><b>4 · Market</b>Treasury yields, exchange rates, consumer prices and market cap ÷ GDP from the Federal Reserve (FRED)</div>
 </div>
 <div class="flow">
   <div class="step"><b>5 · Evaluate</b>Values every qualifying company at today's close; builds the ranked lists</div><div class="arrow">→</div>
@@ -175,10 +293,13 @@ It skips weekends and market holidays. If your PC was off, the app catches up th
   <div class="step"><b>7 · Targets</b>Checks buy, strong-buy, limit and trim prices plus your own alerts</div><div class="arrow">→</div>
   <div class="step"><b>8 · Tell you</b>Email digest (only if something happened), Windows notification, backup to your backup folder</div>
 </div>
+<p>Along the way it also checks for CEO changes (new 8-Ks and the signer of each new 10-K or 10-Q) and grades up to 150 CEOs,
+fills missing gross-margin figures, refreshes analysts' estimates for the shortlist, re-ranks Wonderfulness when annual reports
+arrive (the Today page's score movers come from these), and values every company for the Screener.</p>
 <p>On Fridays you also get a weekly summary email. If a run fails, you get an email explaining the problem in plain words.</p>
 
-<!-- ================================================================ 4 -->
-<h2 id="data"><span class="n">4</span>Where the data comes from</h2>
+<!-- ================================================================ 5 -->
+<h2 id="data"><span class="n">5</span>Where the data comes from</h2>
 <table>
 <tr><th>What</th><th>Source (free)</th><th>Notes</th></tr>
 <tr><td>Financial statements</td><td>SEC EDGAR (XBRL "company facts")</td><td>The audited numbers companies file, keyed by
@@ -217,8 +338,14 @@ the backtests honest: no peeking at numbers nobody had yet ("look-ahead bias").<
 lose nothing. Prices are where free sources wobble, so every source is a plug-in with automatic fallback, and paying
 later is a settings change, not a rewrite.</div>
 
-<!-- ================================================================ 5 -->
-<h2 id="universe"><span class="n">5</span>Which companies are screened</h2>
+<h3 id="allprices">Prices for every company (version 0.16.0)</h3>
+<p>Until 0.16.0 the app downloaded prices only for the shortlist (about 850 companies). It now keeps prices for every company
+with annual reports, so research, backtests and new candidates have complete histories. The first download is a few thousand
+tickers: the next daily update does it, or Data → Maintenance → <i>Download missing price histories now</i>. The switch
+<i>Prices for every company</i> turns it off.</p>
+
+<!-- ================================================================ 6 -->
+<h2 id="universe"><span class="n">6</span>Which companies are screened</h2>
 <ul>
   <li><b>Size and tradability:</b> market cap of at least $100 million and at least $250,000 traded per day. The floors are
   deliberately low because the Oracle has said that with small sums he'd hunt among small, overlooked companies.
@@ -231,8 +358,8 @@ later is a settings change, not a rewrite.</div>
   <li><b>Enough history:</b> at least 7 annual reports with the core line items. Ten are used when available.</li>
 </ul>
 
-<!-- ================================================================ 6 -->
-<h2 id="quality"><span class="n">6</span>Scoring the business (Quality, 0–100)</h2>
+<!-- ================================================================ 7 -->
+<h2 id="quality"><span class="n">7</span>Scoring the business (Quality, 0–100)</h2>
 <p>Quality answers one question: <i>is this a wonderful business?</i> The answer doesn't depend on the share price.</p>
 <h3>Gates: must pass</h3>
 <p>A few rules are pass/fail. A company that fails any gate can't be bought, however cheap it is. For standard companies
@@ -243,7 +370,7 @@ the gates are:</p>
   <li>10-year average return on equity of 15% or more, with no single year under 10%;</li>
   <li>enough data.</li>
 </ul>
-<p>Two more gates apply only to <b>buying</b>: margin of safety and expected return (see section 8).</p>
+<p>Two more gates apply only to <b>buying</b>: margin of safety and expected return (see <a href="#value">section 12</a>).</p>
 <h3>Scored rules: three anchor points</h3>
 <p>Every rule has a <b>floor</b> (scores 0), a <b>target</b> (scores 70) and an <b>excellent</b> level (scores 100), with straight
 lines in between. "Target" is the Oracle's rule of thumb, so a company that just meets every rule of thumb scores about 70.</p>
@@ -266,106 +393,7 @@ profits don't convert well into cash. It never boosts a score.</p>
 thanks to two spectacular years is very different from one that earned 18% every year. The consistency term rewards
 the second.</div>
 
-<!-- ================================================================ 7 -->
-<h3 id="wonder">Wonderfulness: ranking the best businesses</h3>
-<p>Quality answers "does this business pass the Oracle's tests?". <b>Wonderfulness</b> answers a different question: <b>among all
-businesses, which are the very best, and most likely to keep earning high returns and growing?</b> It ignores the share price
-completely. Find it on the <b>Screener</b> (Analysis menu) and on every stock's <b>Wonderful?</b> tab.</p>
-
-<h4>What the evidence says makes a business stay wonderful</h4>
-<ul>
-<li>Berkshire's acquisition criteria ask for <b>demonstrated consistent earning power</b> and <b>good returns on equity while employing
-little or no debt</b>, with management in place.</li>
-<li><b>Returns on capital persist; growth doesn't.</b> McKinsey found companies with high returns on invested capital tend to keep
-them, while high growth is fleeting (only 13% of high-growth companies still grew 20%+ ten years later). Chan, Karceski and
-Lakonishok (Journal of Finance, 2003) found no persistence in long-term earnings growth beyond chance.</li>
-<li>The app's own test agreed. Every company and fiscal year from 2012 to 2022 was followed for three more years. Returns on capital
-(level, how consistent, and the return on capital added) predicted future returns on capital very well and future
-"compounding" best; a steady growth record predicted future sales growth only modestly; past profit growth on its own predicted
-nothing (high profit growth tended to fade).</li>
-</ul>
-
-<h4>How the score works</h4>
-<p>Each measure is ranked against every scored company at the same time (a percentile, 100 = best), so companies of any size or
-industry are compared on the same footing. Measures are averaged into four pillars, and the pillars into the score:</p>
-<table>
-<tr><th>Pillar (weight)</th><th>Measures</th></tr>
-<tr><td><b>Moat</b> (40%): returns on capital and pricing power</td><td>ROIC latest year, 10-year median, worst year, and the share of years at 15%+;
-return on the capital added (incremental ROIC); latest return on equity; gross margin (10-year median, and years at 40%+)</td></tr>
-<tr><td><b>Growth record</b> (30%)</td><td>Sales growth over 5 and 10 years and last year; the share of years sales grew; earnings predictability;
-owner-earnings and EPS growth</td></tr>
-<tr><td><b>Financial strength and steadiness</b> (20%)</td><td>Years of earnings to repay debt; interest as a share of operating income (and years it
-was low); swings in net margin; cash conversion; profitable years; cash ÷ debt</td></tr>
-<tr><td><b>Capital allocation</b> (10%): management</td><td>The $1 test; the share count trend (buybacks vs dilution)</td></tr>
-</table>
-<p>A pillar without enough data counts as average (50), so missing data never lifts a company up the ranking. Banks, lenders, brokers
-and insurers aren't scored: their returns and debt aren't comparable with an operating business's.</p>
-
-<h4>When there's no gross margin (version 0.17.4)</h4>
-<p>About a quarter of companies show no gross margin, for one of two reasons:</p>
-<ul>
-<li><b>No cost of sales at all</b> (shown as <b>n/a</b>): payment networks (Mastercard, Visa, PayPal), asset managers and
-brokers, and many service businesses (restaurants, hospitals, trucking, consultancies) report operating expenses but no
-cost-of-goods line. Gross margin doesn't apply: the gross-margin rules (and those measured against gross profit) are skipped,
-not counted against the company, Wonderfulness's moat pillar uses the other measures, and since 0.17.4 there's no data-confidence
-deduction for it either. Compare the margins every company has instead (below).</li>
-<li><b>Cost of sales reported in pieces</b> (shown as <b>pending</b> until filled): some companies, Cadence among them since
-2016, show "cost of product" and "cost of services" as separate lines with no total. The SEC's company data file the app reads
-carries only undivided figures, so the total is missing. For these companies only (those that reported a total in earlier
-years), the daily update takes Yahoo Finance's yearly cost of revenue, checks Yahoo's sales against the SEC's for the same year
-(within 3%; otherwise it's not used), and stores it dated with that year's annual report. Yahoo covers about the last four
-years, so the "10-year" median uses those years.</li>
-</ul>
-<p><b>Margins every company has</b> (version 0.17.4): the Screener's Key measures also show the <b>operating margin</b>
-(operating income ÷ sales), the <b>net margin</b> (net income ÷ sales) and the <b>cash flow margin</b> (operating cash flow ÷
-sales), each as a 10-year median with the yearly history on hover, a trend arrow and an Add filter entry. On the app's data 94%
-of scored companies have all three, against 76% with a gross margin: Mastercard's operating margin, for example, is about 54%.
-Collapsed, Key measures shows ROIC, gross margin and operating margin. They are shown, not scored: Wonderfulness and Quality are
-unchanged.</p>
-<h4>Tiers, and what they predicted</h4>
-<table>
-<tr><th>Tier</th><th>Share of companies today</th><th>Went on to compound*</th><th>Still passed the Quality bar 3 years later</th><th>Median ROIC next 3 years</th><th>Median sales growth next 3 years</th></tr>
-<tr><td><b>Exceptional</b> (80+)</td><td>about 1.4%</td><td><b>47%</b></td><td>72%</td><td>34%</td><td>10.5% a year</td></tr>
-<tr><td><b>Wonderful</b> (70–80)</td><td>about 7%</td><td>29%</td><td>36%</td><td>22%</td><td>7.0%</td></tr>
-<tr><td>Good (60–70)</td><td>about 17%</td><td>16%</td><td>10%</td><td>14%</td><td>5.7%</td></tr>
-<tr><td>Average (45–60)</td><td></td><td>7%</td><td>1%</td><td>7%</td><td>5.2%</td></tr>
-<tr><td>Weak (under 45)</td><td></td><td>1%</td><td>0%</td><td>−6%</td><td>7.1%</td></tr>
-</table>
-<p>*Compound: sales and net income each grew 7%+ a year over the next three years while ROIC averaged 15%+. Across all companies,
-9% did. By comparison, 32% of the top 5% by the Quality score compounded against 36% of the top 5% by Wonderfulness.
-Each year was scored from that year's annual report (only past sales figures may include later restatements). A high score raises the odds a lot; it doesn't guarantee anything, and
-it says nothing about whether the price is right.</p>
-
-<h4>Score history and trends (version 0.15.0)</h4>
-<p>Every fiscal year is scored against the companies reporting that same year, from that year's annual report, so you can see when
-a business became wonderful and whether it is holding there. The last point is always today's score.</p>
-<ul>
-<li><b>Screener, Trend column</b>: a small line of up to 10 years of Wonderfulness and the change over the last 3 fiscal
-years: ▲ up 5 or more, ▼ down 5 or more, ▬ in between. <b>Hover</b> it for both scores year by year, the years at 70+, the first
-exceptional year and the 3-year changes; <b>click</b> it for the full chart (other cells still open the stock). Sort by it to
-find the biggest risers and fallers.</li>
-<li><b>Years at 70+</b>: how many of the last 5 fiscal years scored wonderful or better.</li>
-<li><b>Stock page, Wonderful? tab, Score history</b>: Wonderfulness, Quality and their average by year, on the exceptional
-(80+) and wonderful (70–80) bands, with each year's rank in the tooltip and the four pillars a click away in the legend. The
-chip under the ticker shows the 3-year change next to the score.</li>
-</ul>
-<p>What the history predicted, for companies scoring 70+ (fiscal years 2016–2022, three years later):</p>
-<table>
-<tr><th>Before that year</th><th>Company-years</th><th>Still 70+ three years later</th></tr>
-<tr><td>70+ in each of the 4 years before</td><td>523</td><td><b>77%</b></td></tr>
-<tr><td>70+ in 3 of the 4</td><td>204</td><td>70%</td></tr>
-<tr><td>70+ in 2 of the 4</td><td>198</td><td>63%</td></tr>
-<tr><td>70+ in 1 of the 4</td><td>189</td><td>53%</td></tr>
-<tr><td>First time at 70+</td><td>191</td><td>47%</td></tr>
-</table>
-<p><b>Consistency mattered more than direction.</b> Steady scores held 70+ 70% of the time; rising ones 62%, because a jump from
-lower down often faded (59%); falling ones 50%. The best case was a company already 70+ every year that kept rising (90%, but only
-62 cases). So a long run at the top is the stronger sign; treat a fresh riser as promising, not proven.</p>
-<p>Version 0.15.0 also fixes the year labels for companies whose fiscal year sometimes ends in the first days of January (52/53-week
-years, e.g. Cadence): two years shared one label and one was lost. The year-by-year scores are recomputed by the next daily
-update.</p>
-
-<h4>The return-on-equity floor looks at the last 5 years (version 0.14.1)</h4>
+<h3>The return-on-equity floor looks at the last 5 years (version 0.14.1)</h3>
 <p>The ROE gate asks for a 10-year average of 15%+ and no year under 10%. Until 0.14.1 that "no year" covered all ten years, so one
 weak year a decade ago (often right after an IPO or a big acquisition) kept an otherwise excellent business off the list. It now
 applies to the <b>last 5 years</b>; you can change it per profile (Profiles → "ROE gate: no year under its floor in the last N
@@ -383,178 +411,8 @@ companies pass the checklist instead of 214 (133 worth $2B+ are now "best of bot
 applies it. In the portfolio backtests the effect was within luck: the 25-stock Quality Core went from 10.6% to 13.0% a year
 for 2019–2026 (10.9% to 10.1% for 2015–2026); the 7-stock live setup went from 5.4% to 2.1%.</p>
 
-<h4>Wonderfulness or Quality: what's the difference?</h4>
-<table>
-<tr><th></th><th>Quality (the Oracle checklist)</th><th>Wonderfulness</th></tr>
-<tr><td>Question it answers</td><td>Does the business pass the Oracle's rules of thumb?</td><td>How does it rank among all businesses, and how
-likely is it to keep earning high returns and growing?</td></tr>
-<tr><td>How it's measured</td><td>Fixed targets for each rule (e.g. ROE 15%+, debt under 4 years of earnings), plus must-pass gates</td>
-<td>Each measure ranked against every company (percentiles), weighted by what predicted staying wonderful</td></tr>
-<tr><td>Editable</td><td>Yes, per profile (rules, targets, weights)</td><td>No: one fixed, tested formula, the same everywhere</td></tr>
-<tr><td>What it does in the app</td><td>Decides what the model may buy: the Buy Zone needs Quality 70+ and every gate passed</td><td>Ranking and
-comparing businesses; plays no part in buy and sell signals</td></tr>
-<tr><td>Typical gap</td><td colspan="2">They agree on most companies (rank correlation about 0.84). Quality is stricter on Buffett-style details
-(it marks down heavy R&amp;D and capital spending, and any failed gate is disqualifying); Wonderfulness gives more credit to fast,
-steady growth. On your data, 140 companies pass the checklist and 338 rate wonderful or better; 104 are both.</td></tr>
-</table>
-<p>Every stock page shows both under the ticker ("Wonderfulness 87 · Exceptional" and "Checklist ✓ · Quality 86").</p>
-
-<h4>The Screener: screen and rank every business (formerly the Wonderful page)</h4>
-<p>One page answers "which are the most wonderful companies that also pass the checklist?" in one click, and shows why the
-others don't:</p>
-<ul>
-<li><b>Five views</b> (buttons along the top):
-<ul>
-<li><b>Best of both</b> (the default): wonderful or better (70+) and passes the checklist, sorted by the average of the two
-scores.</li>
-<li><b>Most wonderful</b>: everything, best Wonderfulness first.</li>
-<li><b>Highest Quality</b>: everything, best checklist score first.</li>
-<li><b>Wonderful, fails checklist</b>: the Checklist column names the rule that fails. Most often it is the return-on-equity gate:
-one year in the decade fell under 10%, even for companies whose average is 25% or more.</li>
-<li><b>Passes checklist, not wonderful</b>: solid, but slower or less profitable than the best.</li>
-</ul></li>
-<li><b>The map</b>: every company as a dot, Quality across and Wonderfulness up, with dashed lines at the checklist bar and at 70.
-The top-right corner is the best of both; dots outside the current view fade. Each dot also shows:
-<ul>
-<li><b>Colour</b>: how good a buy the stock is today, from the Value columns (price against the value-driver value; version 0.17.7):
-<b>dark green</b> in the Buy Zone (at or under the strict buy-below price, the one the buy signals use), <b>light green</b> below
-the fair value but not a buy yet, <b>amber</b> up to 25% over the value,
-<b>red</b> more than 25% over, <b>grey</b> not valued (banks, insurers, too little data). The groups are shown by position
-instead: right of the dashed line passes the checklist, above it is wonderful, so the top right is the best of both, and the
-best buys there are the dark green dots. Hover a dot for its price, value and margin of safety. The legend counts the companies
-of each colour that are in the table, "12 of 134" when the view, the filters or the zoom leave some out.</li>
-<li><b>Shape</b>: Wonderfulness over the last 3 fiscal years: ▲ rising (+5 or more), ▼ falling (−5 or more), ● steady, ◆ new.</li>
-<li><b>Size</b>: how many years in a row it has been 70+ (the longer, the bigger). On the app's history, consistency predicted
-staying on top better than a rising score, so the big dots are the proven ones.</li>
-</ul>
-<b>Zoom</b> with the sliders under and beside the chart, the box tool (top right; ⟲ resets) or Shift + mouse wheel. <b>The table
-follows the map</b> (version 0.17.7): zoomed in, it lists only the companies in view, and a group hidden by clicking its legend
-entry leaves the table too. A line above the table says how many are shown and why, with <i>Show the whole map</i> to undo both.
-Hover a dot for the details; <b>click it to open the company in a new tab</b>.</li>
-<li><b>Quick filters</b>: text search, market value ($2B+ by default), hide companies slipping now (a business-health or hard
-warning in the latest 10-Q), and only those in the Buy Zone today.</li>
-<li><b>Add filter</b> (version 0.17.0): pick any column from the menu. Numbers get an "at least" and "at most" box in the units
-shown (percent for margins and growth, $B for market value, years for debt payback) with the range the companies span; lists
-(industry, tier, CEO grade, checklist, Wonderfulness trend) get a pick-list where you can choose one or many (type to search
-industries). Active filters show as chips above the map: click ✕ to remove one, <i>Clear all</i> to start over. Filters apply
-to the map and the table and are remembered next time.</li>
-<li><b>The table</b>: columns sit in groups (Scores, CEO, Pillars, Key measures, Price &amp; size, Company info). A group header
-with › or ‹ opens or closes the group: closed, Scores shows Wonderfulness, Quality and their average; Pillars shows four mini bars
-(M G S A); Key measures shows ROIC and the gross, operating, net and cash flow margins (version 0.17.7; opened, also sales
-growth, years sales grew, debt payback and the $1 test). <i>Expand groups</i> and <i>Collapse groups</i> do all at once, and the
-<b>Columns</b> menu hides whole groups. <b>Arrange the table your way</b> (version 0.17.7): drag a group header to move the whole
-group, drag a column header to move it within its group (a column stays in its group), and drag a header's edge to resize. The
-order, widths and which groups are open are remembered for next time, along with hidden groups; <i>Columns → Reset column
-layout</i> goes back to the original. Click a <b>ticker or company name</b> to open the stock in a new tab; click the
-Trend sparkline for the full score history. Tick 2–5 rows and press <b>Compare</b> for a side-by-side view, or export the view to
-CSV. Links like <code>/screener?view=nocheck</code> open a view directly (old <code>/wonderful</code> links still work).</li>
-<li><b>Trends in every cell</b>: a small ▲ or ▼ next to a number shows its direction over recent years (the last two years
-against the three before, so one odd year doesn't count), <span style="color:#1f6f4a">green</span> when that's an improvement
-and <span style="color:#a33a2b">red</span> when it isn't (falling debt payback is green); no arrow means steady. Hover the
-cell for its yearly history. For ROIC, gross margin and sales growth the column shows the 10-year median (or 5-year growth)
-while the arrow and history follow each year's figure. The Columns menu turns the arrows off.</li>
-<li><b>Value</b> (version 0.17.0; recalibrated in 0.17.8): every company valued with the value-driver model at a 9% discount rate and its
-latest price (worked out for every company after each daily update). Closed, the group shows the <b>margin of safety</b>
-(green = at least the profile's margin) and the <b>expected return</b> (green = at least your hurdle); open, it adds
-the price, the likely value and its range, <b>what the price assumes</b> (the growth today's price needs, next to the growth the
-record supports; amber when the price expects more), the P/E against the company's usual, whether the price is below the
-buy price, and the live profile's own Buy Zone status (which uses that profile's valuation model). All of these can be
-filtered with Add filter. Banks and insurers aren't valued this way and show blank.</li>
-<li><b>CEO grade</b>: the CEO's track-record grade (A–F, with the score; career-weighted when they ran other companies; see
-CEO track record). Hover for the name and since when. Opening the Screener starts grading the CEOs of the companies in
-the current view in the background, best first (a dozen or so SEC documents plus Wikidata and Yahoo each the first time, so a few seconds apiece); the
-column shows "rating…" and fills in as the grades arrive, with a progress line above the table. The daily update grades up to
-150 more a day, opening a stock's Wonderful? tab grades it at once, and grades are refreshed after 30 days. A company without a
-grade says why: <i>new CEO</i> (under two fiscal years in the role and no record elsewhere), <i>no start date</i> (the CEO is
-known but not when they started, so there's no record to grade), or <i>not found</i> (no CEO in the SEC filings, Wikidata or
-Yahoo); the line above the table counts each for the current view. If neither the SEC nor Wikidata can be reached nothing is
-recorded, so the company is simply tried again later (since 0.17.2).</li>
-<li><b>Start dates from SEC filings</b> (version 0.17.5): Wikidata often names a CEO without saying when they started. The app
-then reads the company's latest proxy statement (DEF 14A), or its annual report, for the biography sentence ("has served as
-Chief Executive Officer since March 2014", "was appointed CEO in 2019"); the sentence must name the person and the CEO role,
-and interim or former roles don't count. The stock's CEO card shows where the date came from. Companies that were left without
-a start date or a CEO before 0.17.5 are looked up once more. You can always enter the right CEO and start date yourself on the
-stock's Wonderful? tab.</li>
-<li><b>The CEO from the SEC certifications</b> (version 0.17.6): see <i>Who and since when</i> under CEO track record. Companies
-left without a CEO or a start date before 0.17.6 are looked up once more.</li>
-</ul>
-
-<h4>CEO track record</h4>
-<p>Each stock's Wonderful? tab rates the current CEO on <b>how the company did for its owners while they were in charge</b>,
-measured from the last annual report before they started to the latest one:</p>
-<table>
-<tr><th>Part (25% each)</th><th>Measures and scale</th></tr>
-<tr><td>Owners' return</td><td>The stock's total return a year minus the S&amp;P 500's over the same days: −10 points = 0, even = 50, +10 = 100</td></tr>
-<tr><td>Growth</td><td>Sales growth and profit-per-share growth a year: 0% = 0, 15%+ = 100</td></tr>
-<tr><td>Returns on capital</td><td>Average ROIC in office (5% = 0, 25%+ = 100) and its change against the 3 years before (−10 points = 0,
-unchanged = 50, +10 = 100)</td></tr>
-<tr><td>Capital allocation</td><td>Market value created per $1 kept ($0 = 0, $1 = 50, $2+ = 100); the return on capital added (0% = 0,
-20%+ = 100); the share count a year (+3% = 0, flat = 50, −3% = 100)</td></tr>
-</table>
-<p>Grades: A 80+, B 65–80, C 50–65, D 35–50, F under 35. A tenure needs two full fiscal years to be rated. The fixed scales
-mean any two CEOs compare directly.</p>
-<p><b>Career grade.</b> When the CEO has run other companies, each tenure is rated the same way and the headline grade is the
-<b>average weighted by the length of each record</b> (ten years at one company count five times as much as two at another); each
-part is weighted the same way. The card lists every CEO role with its years, grade and weight, and says why a role isn't
-counted: a private, foreign or no-longer-listed company isn't in the app's data, and records end where the data start (2010). The
-card also rates the company's earlier CEOs.</p>
-<ul>
-<li><b>Who and since when</b> comes first from the company's own SEC filings (version 0.17.6). Since the Sarbanes-Oxley Act,
-every 10-K and 10-Q must include a certification signed by the principal executive officer (Exhibit 31.1: "I, Jane Smith,
-certify that I have reviewed this report…"); foreign companies certify their 20-F the same way (Exhibit 12.1). So the latest
-report names today's CEO for every US-listed company, large or small. To find <b>since when</b>, the app steps back through the
-company's earlier reports, a few at a time and then halving the gap (about a dozen documents for twenty years of reports), to
-the first report this person signed: they took over between the predecessor's last report and their own first, so the start is
-known to within about a quarter (the card says "since about" and names both reports and the predecessor). If they signed every
-report on file, the card says "at least since" the oldest, and the app also looks for the exact date in their biography in the
-proxy statement. Every report's signer is remembered, so later look-ups read only new reports.
-<br>Wikidata (free, volunteer-edited) is used alongside: when it names the same person, its exact start date is used, and it
-lists the CEO's roles at other companies for the career grade. When Wikidata still lists the predecessor, the SEC wins. Yahoo's
-officer list is the last resort, and if it names someone other than the latest report's signer the card says so (the CEO may
-have changed since that report). You can always <b>correct the CEO and start date</b> on the card; your entry always wins.</li>
-<li><b>Read it as "how owners fared under this CEO", not proof of skill.</b> A CEO inherits a business, an industry and a market;
-under about five years the result is partly luck; and integrity, candor and culture aren't in any data feed. Read the shareholder
-letters and the proxy statement too.</li>
-</ul>
-
-<h5>Keeping CEO information current (version 0.17.3)</h5>
-<p>The daily update checks for CEO changes and keeps the grades fresh:</p>
-<ul>
-<li><b>SEC 8-K filings.</b> A company must file an 8-K within four business days when a director or top officer leaves or
-is appointed (item 5.02). Every day the app reads the SEC's list of new 8-Ks; for each company it follows (any it has graded,
-and every company with Wonderfulness 60+) whose 8-K reports item 5.02, it looks the CEO up again at once, skipping the cached
-answers. Wikidata often takes weeks to catch up, so when Yahoo already names a different CEO, Yahoo's name is used, starting on
-the 8-K's filing date.</li>
-<li><b>New quarterly and annual reports</b> (version 0.17.6). When a company with a CEO on record files a 10-Q, 10-K or 20-F,
-the app reads who certified it; a different signer is a CEO change and is looked up again at once.</li>
-<li><b>New annual reports.</b> A company that files a new annual report is re-graded (the CEO's record now has another year).</li>
-<li><b>Monthly refresh.</b> Every grade is looked up again after 30 days (up to 150 a day), which also catches changes Yahoo or
-Wikidata show without an 8-K.</li>
-<li><b>When the CEO changes</b>, the change is recorded (old and new name, date, and how it was found), the daily email gets a
-<b>CEO changes</b> section, the Screener's CEO cell shows <b>NEW</b> for 12 months (hover for who it replaced; Add filter →
-<i>New CEO</i>), and the stock's CEO card says so. A new CEO isn't graded on this company until they have two fiscal years in
-the role, but their record at other companies counts toward the career grade straight away.</li>
-</ul>
-<h4>The stock page's Wonderful? tab</h4>
-<ul>
-<li><b>The score, tier and rank</b> among all scored companies, and the four pillars with every measure and its percentile bar.</li>
-<li><b>What sets it apart:</b> the measures at a wonderful level or in the top 10%.</li>
-<li><b>Red flags and what would need to change:</b> each weak measure with the level a wonderful business shows and what the company
-would have to do, plus any warning in the latest quarterly report.</li>
-<li><b>Wonderfulness over time:</b> each fiscal year scored against the companies reporting that year.</li>
-<li><b>What management did with the money:</b> profit and free cash flow over ten years, and how much went to dividends, buybacks and
-acquisitions; the $1 test, the share count, stock-based pay and the return on capital added.</li>
-<li><b>CEO track record:</b> the current CEO's career grade (every company they ran, weighted by time), the record here, and
-earlier CEOs (below).</li>
-<li><b>Leaders and ownership</b> (Yahoo Finance, refreshed weekly): business summary, officers with age and pay, insider and
-institutional ownership, insider buying and selling over six months, and ISS governance risk scores (1 = lowest risk). No
-data feed captures integrity or track record: read the proxy statement and shareholder letters too.</li>
-</ul>
-<p>On the <b>Screener</b>, tick 2 to 5 companies and press <b>Compare</b> for a side-by-side view (pillar chart and every
-measure, best of the group in bold). Scores update after each new annual report; the year-by-year history is rebuilt on Saturdays
-and in a full rebuild.</p>
-
-<h2 id="rules"><span class="n">7</span>The rules, one by one</h2>
+<!-- ================================================================ 8 -->
+<h2 id="rules"><span class="n">8</span>The rules, one by one</h2>
 <p>These are the defaults in the locked <b>Oracle Classic</b> profile (<code>rules/oracle_classic.yaml</code>). You can change any of
 them in a copy under <b>Profiles</b>. Each company's report card shows its value, its score, a 10-year sparkline, and the reason
 the rule matters.</p>
@@ -624,8 +482,284 @@ material. An insurer's "debt" is float, the premiums it holds before paying clai
 itself. Standard rules would fail every bank and insurer for the wrong reasons, yet the Oracle owns many. Each company is
 judged only by rules that fit its business.</div>
 
-<!-- ================================================================ 8 -->
-<h2 id="value"><span class="n">8</span>Judging the price (Value, 0–100)</h2>
+<!-- ================================================================ 9 -->
+<h2 id="wonder"><span class="n">9</span>Wonderfulness: ranking the best businesses</h2>
+<p>Quality answers "does this business pass the Oracle's tests?". <b>Wonderfulness</b> answers a different question: <b>among all
+businesses, which are the very best, and most likely to keep earning high returns and growing?</b> It ignores the share price
+completely. Find it on the <b>Screener</b> (Analysis menu) and on every stock's <b>Wonderful?</b> tab.</p>
+
+<h3>What the evidence says makes a business stay wonderful</h3>
+<ul>
+<li>Berkshire's acquisition criteria ask for <b>demonstrated consistent earning power</b> and <b>good returns on equity while employing
+little or no debt</b>, with management in place.</li>
+<li><b>Returns on capital persist; growth doesn't.</b> McKinsey found companies with high returns on invested capital tend to keep
+them, while high growth is fleeting (only 13% of high-growth companies still grew 20%+ ten years later). Chan, Karceski and
+Lakonishok (Journal of Finance, 2003) found no persistence in long-term earnings growth beyond chance.</li>
+<li>The app's own test agreed. Every company and fiscal year from 2012 to 2022 was followed for three more years. Returns on capital
+(level, how consistent, and the return on capital added) predicted future returns on capital very well and future
+"compounding" best; a steady growth record predicted future sales growth only modestly; past profit growth on its own predicted
+nothing (high profit growth tended to fade).</li>
+</ul>
+
+<h3>How the score works</h3>
+<p>Each measure is ranked against every scored company at the same time (a percentile, 100 = best), so companies of any size or
+industry are compared on the same footing. Measures are averaged into four pillars, and the pillars into the score:</p>
+<table>
+<tr><th>Pillar (weight)</th><th>Measures</th></tr>
+<tr><td><b>Moat</b> (40%): returns on capital and pricing power</td><td>ROIC latest year, 10-year median, worst year, and the share of years at 15%+;
+return on the capital added (incremental ROIC); latest return on equity; gross margin (10-year median, and years at 40%+)</td></tr>
+<tr><td><b>Growth record</b> (30%)</td><td>Sales growth over 5 and 10 years and last year; the share of years sales grew; earnings predictability;
+owner-earnings and EPS growth</td></tr>
+<tr><td><b>Financial strength and steadiness</b> (20%)</td><td>Years of earnings to repay debt; interest as a share of operating income (and years it
+was low); swings in net margin; cash conversion; profitable years; cash ÷ debt</td></tr>
+<tr><td><b>Capital allocation</b> (10%): management</td><td>The $1 test; the share count trend (buybacks vs dilution)</td></tr>
+</table>
+<p>A pillar without enough data counts as average (50), so missing data never lifts a company up the ranking. Banks, lenders, brokers
+and insurers aren't scored: their returns and debt aren't comparable with an operating business's.</p>
+
+<h3>When there's no gross margin (version 0.17.4)</h3>
+<p>About a quarter of companies show no gross margin, for one of two reasons:</p>
+<ul>
+<li><b>No cost of sales at all</b> (shown as <b>n/a</b>): payment networks (Mastercard, Visa, PayPal), asset managers and
+brokers, and many service businesses (restaurants, hospitals, trucking, consultancies) report operating expenses but no
+cost-of-goods line. Gross margin doesn't apply: the gross-margin rules (and those measured against gross profit) are skipped,
+not counted against the company, Wonderfulness's moat pillar uses the other measures, and since 0.17.4 there's no data-confidence
+deduction for it either. Compare the margins every company has instead (below).</li>
+<li><b>Cost of sales reported in pieces</b> (shown as <b>pending</b> until filled): some companies, Cadence among them since
+2016, show "cost of product" and "cost of services" as separate lines with no total. The SEC's company data file the app reads
+carries only undivided figures, so the total is missing. For these companies only (those that reported a total in earlier
+years), the daily update takes Yahoo Finance's yearly cost of revenue, checks Yahoo's sales against the SEC's for the same year
+(within 3%; otherwise it's not used), and stores it dated with that year's annual report. Yahoo covers about the last four
+years, so the "10-year" median uses those years.</li>
+</ul>
+<p><b>Margins every company has</b> (version 0.17.4): the Screener's Key measures also show the <b>operating margin</b>
+(operating income ÷ sales), the <b>net margin</b> (net income ÷ sales) and the <b>cash flow margin</b> (operating cash flow ÷
+sales), each as a 10-year median with the yearly history on hover, a trend arrow and an Add filter entry. On the app's data 94%
+of scored companies have all three, against 76% with a gross margin: Mastercard's operating margin, for example, is about 54%.
+Collapsed, Key measures shows ROIC, gross margin and operating margin. They are shown, not scored: Wonderfulness and Quality are
+unchanged.</p>
+<h3>Tiers, and what they predicted</h3>
+<table>
+<tr><th>Tier</th><th>Share of companies today</th><th>Went on to compound*</th><th>Still passed the Quality bar 3 years later</th><th>Median ROIC next 3 years</th><th>Median sales growth next 3 years</th></tr>
+<tr><td><b>Exceptional</b> (80+)</td><td>about 1.4%</td><td><b>47%</b></td><td>72%</td><td>34%</td><td>10.5% a year</td></tr>
+<tr><td><b>Wonderful</b> (70–80)</td><td>about 7%</td><td>29%</td><td>36%</td><td>22%</td><td>7.0%</td></tr>
+<tr><td>Good (60–70)</td><td>about 17%</td><td>16%</td><td>10%</td><td>14%</td><td>5.7%</td></tr>
+<tr><td>Average (45–60)</td><td></td><td>7%</td><td>1%</td><td>7%</td><td>5.2%</td></tr>
+<tr><td>Weak (under 45)</td><td></td><td>1%</td><td>0%</td><td>−6%</td><td>7.1%</td></tr>
+</table>
+<p>*Compound: sales and net income each grew 7%+ a year over the next three years while ROIC averaged 15%+. Across all companies,
+9% did. By comparison, 32% of the top 5% by the Quality score compounded against 36% of the top 5% by Wonderfulness.
+Each year was scored from that year's annual report (only past sales figures may include later restatements). A high score raises the odds a lot; it doesn't guarantee anything, and
+it says nothing about whether the price is right.</p>
+
+<h3>Score history and trends (version 0.15.0)</h3>
+<p>Every fiscal year is scored against the companies reporting that same year, from that year's annual report, so you can see when
+a business became wonderful and whether it is holding there. The last point is always today's score.</p>
+<ul>
+<li><b>Screener, Trend column</b>: a small line of up to 10 years of Wonderfulness and the change over the last 3 fiscal
+years: ▲ up 5 or more, ▼ down 5 or more, ▬ in between. <b>Hover</b> it for both scores year by year, the years at 70+, the first
+exceptional year and the 3-year changes; <b>click</b> it for the full chart (other cells still open the stock). Sort by it to
+find the biggest risers and fallers.</li>
+<li><b>Years at 70+</b>: how many of the last 5 fiscal years scored wonderful or better.</li>
+<li><b>Stock page, Wonderful? tab, Score history</b>: Wonderfulness, Quality and their average by year, on the exceptional
+(80+) and wonderful (70–80) bands, with each year's rank in the tooltip and the four pillars a click away in the legend. The
+chip under the ticker shows the 3-year change next to the score.</li>
+</ul>
+<p>What the history predicted, for companies scoring 70+ (fiscal years 2016–2022, three years later):</p>
+<table>
+<tr><th>Before that year</th><th>Company-years</th><th>Still 70+ three years later</th></tr>
+<tr><td>70+ in each of the 4 years before</td><td>523</td><td><b>77%</b></td></tr>
+<tr><td>70+ in 3 of the 4</td><td>204</td><td>70%</td></tr>
+<tr><td>70+ in 2 of the 4</td><td>198</td><td>63%</td></tr>
+<tr><td>70+ in 1 of the 4</td><td>189</td><td>53%</td></tr>
+<tr><td>First time at 70+</td><td>191</td><td>47%</td></tr>
+</table>
+<p><b>Consistency mattered more than direction.</b> Steady scores held 70+ 70% of the time; rising ones 62%, because a jump from
+lower down often faded (59%); falling ones 50%. The best case was a company already 70+ every year that kept rising (90%, but only
+62 cases). So a long run at the top is the stronger sign; treat a fresh riser as promising, not proven.</p>
+<p>Version 0.15.0 also fixes the year labels for companies whose fiscal year sometimes ends in the first days of January (52/53-week
+years, e.g. Cadence): two years shared one label and one was lost. The year-by-year scores are recomputed by the next daily
+update.</p>
+
+<h3>Wonderfulness or Quality: what's the difference?</h3>
+<table>
+<tr><th></th><th>Quality (the Oracle checklist)</th><th>Wonderfulness</th></tr>
+<tr><td>Question it answers</td><td>Does the business pass the Oracle's rules of thumb?</td><td>How does it rank among all businesses, and how
+likely is it to keep earning high returns and growing?</td></tr>
+<tr><td>How it's measured</td><td>Fixed targets for each rule (e.g. ROE 15%+, debt under 4 years of earnings), plus must-pass gates</td>
+<td>Each measure ranked against every company (percentiles), weighted by what predicted staying wonderful</td></tr>
+<tr><td>Editable</td><td>Yes, per profile (rules, targets, weights)</td><td>No: one fixed, tested formula, the same everywhere</td></tr>
+<tr><td>What it does in the app</td><td>Decides what the model may buy: the Buy Zone needs Quality 70+ and every gate passed</td><td>Ranking and
+comparing businesses; plays no part in buy and sell signals</td></tr>
+<tr><td>Typical gap</td><td colspan="2">They agree on most companies (rank correlation about 0.84). Quality is stricter on Buffett-style details
+(it marks down heavy R&amp;D and capital spending, and any failed gate is disqualifying); Wonderfulness gives more credit to fast,
+steady growth. On your data, 140 companies pass the checklist and 338 rate wonderful or better; 104 are both.</td></tr>
+</table>
+<p>Every stock page shows both under the ticker ("Wonderfulness 87 · Exceptional" and "Checklist ✓ · Quality 86").</p>
+
+<!-- ================================================================ 10 -->
+<h2 id="screener"><span class="n">10</span>The Screener: screen and rank every business (formerly the Wonderful page)</h2>
+<p>One page answers "which are the most wonderful companies that also pass the checklist?" in one click, and shows why the
+others don't:</p>
+<ul>
+<li><b>Five views</b> (buttons along the top):
+<ul>
+<li><b>Best of both</b> (the default): wonderful or better (70+) and passes the checklist, sorted by the average of the two
+scores.</li>
+<li><b>Most wonderful</b>: everything, best Wonderfulness first.</li>
+<li><b>Highest Quality</b>: everything, best checklist score first.</li>
+<li><b>Wonderful, fails checklist</b>: the Checklist column names the rule that fails. Most often it is the return-on-equity gate:
+one year in the decade fell under 10%, even for companies whose average is 25% or more.</li>
+<li><b>Passes checklist, not wonderful</b>: solid, but slower or less profitable than the best.</li>
+</ul></li>
+<li><b>The map</b>: every company as a dot, Quality across and Wonderfulness up, with dashed lines at the checklist bar and at 70.
+The top-right corner is the best of both; dots outside the current view fade. Each dot also shows:
+<ul>
+<li><b>Colour</b>: how good a buy the stock is today, from the Value columns (price against the value-driver value; version 0.17.7):
+<b>dark green</b> in the Buy Zone (at or under the strict buy-below price, the one the buy signals use), <b>light green</b> below
+the fair value but not a buy yet, <b>amber</b> up to 25% over the value,
+<b>red</b> more than 25% over, <b>grey</b> not valued (banks, insurers, too little data). The groups are shown by position
+instead: right of the dashed line passes the checklist, above it is wonderful, so the top right is the best of both, and the
+best buys there are the dark green dots. Hover a dot for its price, value and margin of safety. The legend counts the companies
+of each colour that are in the table, "12 of 134" when the view, the filters or the zoom leave some out.</li>
+<li><b>Shape</b>: Wonderfulness over the last 3 fiscal years: ▲ rising (+5 or more), ▼ falling (−5 or more), ● steady, ◆ new.</li>
+<li><b>Size</b>: how many years in a row it has been 70+ (the longer, the bigger). On the app's history, consistency predicted
+staying on top better than a rising score, so the big dots are the proven ones.</li>
+</ul>
+<b>Zoom</b> with the sliders under and beside the chart, the box tool (top right; ⟲ resets) or Shift + mouse wheel. <b>The table
+follows the map</b> (version 0.17.7): zoomed in, it lists only the companies in view, and a group hidden by clicking its legend
+entry leaves the table too. A line above the table says how many are shown and why, with <i>Show the whole map</i> to undo both.
+Hover a dot for the details; <b>click it to open the company in a new tab</b>.</li>
+<li><b>Quick filters</b>: text search, market value ($2B+ by default), hide companies slipping now (a business-health or hard
+warning in the latest 10-Q), and only those in the Buy Zone today.</li>
+<li><b>Add filter</b> (version 0.17.0): pick any column from the menu. Numbers get an "at least" and "at most" box in the units
+shown (percent for margins and growth, $B for market value, years for debt payback) with the range the companies span; lists
+(industry, tier, CEO grade, checklist, Wonderfulness trend) get a pick-list where you can choose one or many (type to search
+industries). Active filters show as chips above the map: click ✕ to remove one, <i>Clear all</i> to start over. Filters apply
+to the map and the table and are remembered next time.</li>
+<li><b>The table</b>: columns sit in groups (Scores, CEO, Pillars, Key measures, Price &amp; size, Company info). A group header
+with › or ‹ opens or closes the group: closed, Scores shows Wonderfulness, Quality and their average; Pillars shows four mini bars
+(M G S A); Key measures shows ROIC and the gross, operating, net and cash flow
+margins in one compact column (version 0.17.9); opened, every measure gets its own column with its trend and history (ROIC, the four
+margins, sales growth, years sales grew, debt payback and the $1 test). <i>Expand groups</i> and <i>Collapse groups</i> do all at once, and the
+<b>Columns</b> menu hides whole groups. <b>Arrange the table your way</b> (version 0.17.7): drag a group header to move the whole
+group, drag a column header to move it within its group (a column stays in its group), and drag a header's edge to resize. The
+order, widths and which groups are open are remembered for next time, along with hidden groups; <i>Columns → Reset column
+layout</i> goes back to the original. Click a <b>ticker or company name</b> to open the stock in a new tab; click the
+Trend sparkline for the full score history. Tick 2–5 rows and press <b>Compare</b> for a side-by-side view, or export the view to
+CSV. Links like <code>/screener?view=nocheck</code> open a view directly (old <code>/wonderful</code> links still work).</li>
+<li><b>Search</b> (version 0.17.9): the box above the map searches <b>every company</b>, whatever the view and filters, by ticker, any
+word of the name or the industry ("apple", "AAPL", "berk hath", "semi"), best match first; the map highlights the matches and
+<span class="kbd">Enter</span> opens the top one. Clear the box to go back to the view.</li>
+<li><b>Trends in every cell</b>: a small ▲ or ▼ next to a number shows its direction over recent years (the last two years
+against the three before, so one odd year doesn't count), <span style="color:#1f6f4a">green</span> when that's an improvement
+and <span style="color:#a33a2b">red</span> when it isn't (falling debt payback is green); no arrow means steady. Hover the
+cell for its yearly history. For ROIC, gross margin and sales growth the column shows the 10-year median (or 5-year growth)
+while the arrow and history follow each year's figure. The Columns menu turns the arrows off.</li>
+<li><b>Value</b> (version 0.17.0; recalibrated in 0.17.8): every company valued with the value-driver model at a 9% discount rate and its
+latest price (worked out for every company after each daily update). Closed, the group shows the <b>margin of safety</b>
+(green = at least the profile's margin) and the <b>expected return</b> (green = at least your hurdle); open, it adds
+the price, the likely value and its range, <b>what the price assumes</b> (the growth today's price needs, next to the growth the
+record supports; amber when the price expects more), the P/E against the company's usual, whether the price is below the
+buy price, and the live profile's own Buy Zone status (which uses that profile's valuation model). All of these can be
+filtered with Add filter. Banks and insurers aren't valued this way and show blank.</li>
+<li><b>CEO grade</b>: the CEO's track-record grade (A–F, with the score; career-weighted when they ran other companies; see
+CEO track record). Hover for the name and since when. Opening the Screener starts grading the CEOs of the companies in
+the current view in the background, best first (a dozen or so SEC documents plus Wikidata and Yahoo each the first time, so a few seconds apiece); the
+column shows "rating…" and fills in as the grades arrive, with a progress line above the table. The daily update grades up to
+150 more a day, opening a stock's Wonderful? tab grades it at once, and grades are refreshed after 30 days. A company without a
+grade says why: <i>new CEO</i> (under two fiscal years in the role and no record elsewhere), <i>no start date</i> (the CEO is
+known but not when they started, so there's no record to grade), or <i>not found</i> (no CEO in the SEC filings, Wikidata or
+Yahoo); the line above the table counts each for the current view. If neither the SEC nor Wikidata can be reached nothing is
+recorded, so the company is simply tried again later (since 0.17.2).</li>
+<li><b>Start dates from SEC filings</b> (version 0.17.5): Wikidata often names a CEO without saying when they started. The app
+then reads the company's latest proxy statement (DEF 14A), or its annual report, for the biography sentence ("has served as
+Chief Executive Officer since March 2014", "was appointed CEO in 2019"); the sentence must name the person and the CEO role,
+and interim or former roles don't count. The stock's CEO card shows where the date came from. Companies that were left without
+a start date or a CEO before 0.17.5 are looked up once more. You can always enter the right CEO and start date yourself on the
+stock's Wonderful? tab.</li>
+<li><b>The CEO from the SEC certifications</b> (version 0.17.6): see <i>Who and since when</i> under CEO track record. Companies
+left without a CEO or a start date before 0.17.6 are looked up once more.</li>
+</ul>
+
+<!-- ================================================================ 11 -->
+<h2 id="ceo"><span class="n">11</span>CEO track record</h2>
+<p>Each stock's Wonderful? tab rates the current CEO on <b>how the company did for its owners while they were in charge</b>,
+measured from the last annual report before they started to the latest one:</p>
+<table>
+<tr><th>Part (25% each)</th><th>Measures and scale</th></tr>
+<tr><td>Owners' return</td><td>The stock's total return a year minus the S&amp;P 500's over the same days: −10 points = 0, even = 50, +10 = 100</td></tr>
+<tr><td>Growth</td><td>Sales growth and profit-per-share growth a year: 0% = 0, 15%+ = 100</td></tr>
+<tr><td>Returns on capital</td><td>Average ROIC in office (5% = 0, 25%+ = 100) and its change against the 3 years before (−10 points = 0,
+unchanged = 50, +10 = 100)</td></tr>
+<tr><td>Capital allocation</td><td>Market value created per $1 kept ($0 = 0, $1 = 50, $2+ = 100); the return on capital added (0% = 0,
+20%+ = 100); the share count a year (+3% = 0, flat = 50, −3% = 100)</td></tr>
+</table>
+<p>Grades: A 80+, B 65–80, C 50–65, D 35–50, F under 35. A tenure needs two full fiscal years to be rated. The fixed scales
+mean any two CEOs compare directly.</p>
+<p><b>Career grade.</b> When the CEO has run other companies, each tenure is rated the same way and the headline grade is the
+<b>average weighted by the length of each record</b> (ten years at one company count five times as much as two at another); each
+part is weighted the same way. The card lists every CEO role with its years, grade and weight, and says why a role isn't
+counted: a private, foreign or no-longer-listed company isn't in the app's data, and records end where the data start (2010). The
+card also rates the company's earlier CEOs.</p>
+<ul>
+<li><b>Who and since when</b> comes first from the company's own SEC filings (version 0.17.6). Since the Sarbanes-Oxley Act,
+every 10-K and 10-Q must include a certification signed by the principal executive officer (Exhibit 31.1: "I, Jane Smith,
+certify that I have reviewed this report…"); foreign companies certify their 20-F the same way (Exhibit 12.1). So the latest
+report names today's CEO for every US-listed company, large or small. To find <b>since when</b>, the app steps back through the
+company's earlier reports, a few at a time and then halving the gap (about a dozen documents for twenty years of reports), to
+the first report this person signed: they took over between the predecessor's last report and their own first, so the start is
+known to within about a quarter (the card says "since about" and names both reports and the predecessor). If they signed every
+report on file, the card says "at least since" the oldest, and the app also looks for the exact date in their biography in the
+proxy statement. Every report's signer is remembered, so later look-ups read only new reports.
+<br>Wikidata (free, volunteer-edited) is used alongside: when it names the same person, its exact start date is used, and it
+lists the CEO's roles at other companies for the career grade. When Wikidata still lists the predecessor, the SEC wins. Yahoo's
+officer list is the last resort, and if it names someone other than the latest report's signer the card says so (the CEO may
+have changed since that report). You can always <b>correct the CEO and start date</b> on the card; your entry always wins.</li>
+<li><b>Read it as "how owners fared under this CEO", not proof of skill.</b> A CEO inherits a business, an industry and a market;
+under about five years the result is partly luck; and integrity, candor and culture aren't in any data feed. Read the shareholder
+letters and the proxy statement too.</li>
+</ul>
+
+<h3>Keeping CEO information current (version 0.17.3)</h3>
+<p>The daily update checks for CEO changes and keeps the grades fresh:</p>
+<ul>
+<li><b>SEC 8-K filings.</b> A company must file an 8-K within four business days when a director or top officer leaves or
+is appointed (item 5.02). Every day the app reads the SEC's list of new 8-Ks; for each company it follows (any it has graded,
+and every company with Wonderfulness 60+) whose 8-K reports item 5.02, it looks the CEO up again at once, skipping the cached
+answers. Wikidata often takes weeks to catch up, so when Yahoo already names a different CEO, Yahoo's name is used, starting on
+the 8-K's filing date.</li>
+<li><b>New quarterly and annual reports</b> (version 0.17.6). When a company with a CEO on record files a 10-Q, 10-K or 20-F,
+the app reads who certified it; a different signer is a CEO change and is looked up again at once.</li>
+<li><b>New annual reports.</b> A company that files a new annual report is re-graded (the CEO's record now has another year).</li>
+<li><b>Monthly refresh.</b> Every grade is looked up again after 30 days (up to 150 a day), which also catches changes Yahoo or
+Wikidata show without an 8-K.</li>
+<li><b>When the CEO changes</b>, the change is recorded (old and new name, date, and how it was found), the daily email gets a
+<b>CEO changes</b> section, the Screener's CEO cell shows <b>NEW</b> for 12 months (hover for who it replaced; Add filter →
+<i>New CEO</i>), and the stock's CEO card says so. A new CEO isn't graded on this company until they have two fiscal years in
+the role, but their record at other companies counts toward the career grade straight away.</li>
+</ul>
+<h3>The stock page's Wonderful? tab</h3>
+<ul>
+<li><b>The score, tier and rank</b> among all scored companies, and the four pillars with every measure and its percentile bar.</li>
+<li><b>What sets it apart:</b> the measures at a wonderful level or in the top 10%.</li>
+<li><b>Red flags and what would need to change:</b> each weak measure with the level a wonderful business shows and what the company
+would have to do, plus any warning in the latest quarterly report.</li>
+<li><b>Wonderfulness over time:</b> each fiscal year scored against the companies reporting that year.</li>
+<li><b>What management did with the money:</b> profit and free cash flow over ten years, and how much went to dividends, buybacks and
+acquisitions; the $1 test, the share count, stock-based pay and the return on capital added.</li>
+<li><b>CEO track record:</b> the current CEO's career grade (every company they ran, weighted by time), the record here, and
+earlier CEOs (below).</li>
+<li><b>Leaders and ownership</b> (Yahoo Finance, refreshed weekly): business summary, officers with age and pay, insider and
+institutional ownership, insider buying and selling over six months, and ISS governance risk scores (1 = lowest risk). No
+data feed captures integrity or track record: read the proxy statement and shareholder letters too.</li>
+</ul>
+<p>On the <b>Screener</b>, tick 2 to 5 companies and press <b>Compare</b> for a side-by-side view (pillar chart and every
+measure, best of the group in bold). Scores update after each new annual report; the year-by-year history is rebuilt on Saturdays
+and in a full rebuild.</p>
+
+<!-- ================================================================ 12 -->
+<h2 id="value"><span class="n">12</span>Judging the price (Value, 0–100)</h2>
 <p>A wonderful business is only a good investment at the right price. Two deliberately conservative models estimate
 <b>intrinsic value</b> per share, and the app uses the <b>lower</b> value and the <b>lower</b> expected return.</p>
 <div class="grid2">
@@ -647,7 +781,8 @@ and the price that would earn exactly the profile's hurdle (10% in Oracle Classi
 <tr><td><b>Buy below</b></td><td>The highest price that passes both tests: the lower of value × 0.75 and the price at which every model
 still earns the hurdle. <b>A stock is in the Buy Zone exactly when its close is at or below this price</b> (and it passes the
 quality checks), so the price shown and the decision always agree.</td></tr>
-<tr><td><b>Strong buy below</b></td><td>The lower of value × 0.60 (an extra 15% margin) and the hurdle price</td></tr>
+<tr><td><b>Strong buy below</b></td><td>The lower of value × 0.60 (an extra 15% margin) and the hurdle price less 15%: always a
+further 15% under buy below (version 0.17.9; before, when the hurdle price was the lower limit, strong buy equalled buy below)</td></tr>
 <tr><td><b>Value score</b> (0–100)</td><td>From the expected return: 0 at 5% a year, 70 at the hurdle, 100 at 20% (or at the hurdle + 5
 points when the hurdle is 15% or more), straight lines in between. Minus 10 points when the owner-earnings yield is below the
 30-year Treasury yield.</td></tr>
@@ -787,31 +922,6 @@ this sample leans toward today's tracked companies); that is why the Screener pu
 rather than ranking by value alone.</li>
 </ul>
 
-<h3 id="outlook">Forecasts: the Outlook tab</h3>
-<p>Every stock page has an <b>Outlook</b> tab that puts analysts' forecasts next to the app's own view:</p>
-<ul>
-<li><b>The headline cards:</b> this and next fiscal year's EPS estimate and growth, how many quarters the company beat the estimate,
-how much the estimate moved in 90 days, and the average 12-month price target.</li>
-<li><b>In short:</b> plain-English takeaways, for example "analysts expect 9% a year, the record supports 9%, and today's price
-assumes 37%."</li>
-<li><b>Earnings: reported, forecast and assumed.</b> Reported EPS as bars; analysts' average with their low and high; and two
-paths from the last reported year: the growth the app's value assumes (green) and the growth today's price assumes (amber,
-dashed). When the amber line runs far above the others, the price needs more than the record or the analysts suggest.</li>
-<li><b>Beat or miss, quarter by quarter,</b> and <b>are the estimates rising or falling</b> (90/60/30/7 days ago, and how many
-analysts raised or cut). The app stores one copy of the estimates a day for holdings and the shortlist (and whenever you open
-the tab), so it builds its own record of revisions over time.</li>
-<li><b>Price, value and analysts' targets</b> on one number line.</li>
-</ul>
-<p>Source: Yahoo Finance (free, unofficial). Its EPS is usually the company's "adjusted" figure, often above the EPS reported to
-the SEC; the tab says so when they differ by more than 10%. Backtests never use estimates that didn't exist yet. Data →
-Maintenance has the switch.</p>
-
-<h3 id="allprices">Prices for every company (version 0.16.0)</h3>
-<p>Until 0.16.0 the app downloaded prices only for the shortlist (about 850 companies). It now keeps prices for every company
-with annual reports, so research, backtests and new candidates have complete histories. The first download is a few thousand
-tickers: the next daily update does it, or Data → Maintenance → <i>Download missing price histories now</i>. The switch
-<i>Prices for every company</i> turns it off.</p>
-
 <h3 id="enhanced">Enhanced valuation (optional, per profile)</h3>
 <p>Setting a profile's <b>Valuation</b> to <i>Enhanced</i> keeps both models but changes their inputs:</p>
 <table>
@@ -833,19 +943,55 @@ weighted 25 / 50 / 25.</td><td>One growth path pretends to know the future; a ra
 safety as earnings predictability falls: a perfectly steady business needs the usual margin, one with erratic earnings up to 20
 points more. Both options can be compared under Backtest → Experiments.</p>
 
-<!-- ================================================================ 9 -->
-<h2 id="rank"><span class="n">9</span>Ranking and the lists</h2>
-<div class="formula">Oracle Rank = Quality<sup>0.65</sup> × Value<sup>0.35</sup> × Confidence</div>
-<p>Quality carries more weight than price, following the Oracle's "a wonderful company at a fair price beats a fair
-company at a wonderful price". Multiplying rather than adding means a terrible score on either side can't be hidden by
-the other.</p>
+<!-- ================================================================ 13 -->
+<h2 id="stockpage"><span class="n">13</span>The stock page</h2>
+<p>Open any company from a list, the Screener or the search box at the top (type a ticker or any word of the name; press
+<span class="kbd">/</span> to jump to it and <span class="kbd">Enter</span> to open the top match). Five tabs:</p>
 <table>
-<tr><th>List on Today</th><th>Meaning</th></tr>
-<tr><td><b>Buy Zone</b></td><td>Passes every gate, Quality ≥ 70, margin of safety ≥ 25% and expected return ≥ 10%. Ranked best first.</td></tr>
-<tr><td><b>Wonderful, but pricey</b></td><td>Passes the business gates and the Quality bar, but the price is too high. Sorted by how close it is to its buy-below price.</td></tr>
-<tr><td><b>Near misses</b></td><td>Fails exactly one gate, by less than 15%. Shows which one.</td></tr>
-<tr><td><b>Pending</b></td><td>Can't be valued yet: usually a foreign filer missing an ADR ratio or exchange rate, or no recent price.</td></tr>
+<tr><th>Tab</th><th>What it shows</th></tr>
+<tr><td><b>Report card</b></td><td>What it's worth, price targets and alerts, the price-vs-value chart, early warnings, every rule with
+its 10-year history, your checklist and the signal history (<a href="#value">Value</a>, <a href="#targets">Price targets</a>)</td></tr>
+<tr><td><b>Wonderful?</b></td><td>Wonderfulness, the four pillars, red flags, the score over time and the CEO's track record
+(<a href="#wonder">Wonderfulness</a>, <a href="#ceo">CEO track record</a>)</td></tr>
+<tr><td><b>Outlook</b></td><td>Analysts' estimates, how often the company beat them, and how they compare with the record (below)</td></tr>
+<tr><td><b>Chart &amp; key stats</b></td><td>A quote page from the app's own data: candles, volume, key statistics, financial statements</td></tr>
+<tr><td><b>Total return</b></td><td>What an investment would have grown to, against up to 10 other tickers (below)</td></tr>
 </table>
+<h3 id="outlook">Forecasts: the Outlook tab</h3>
+<p>Every stock page has an <b>Outlook</b> tab that puts analysts' forecasts next to the app's own view:</p>
+<ul>
+<li><b>The headline cards:</b> this and next fiscal year's EPS estimate and growth, how many quarters the company beat the estimate,
+how much the estimate moved in 90 days, and the average 12-month price target.</li>
+<li><b>In short:</b> plain-English takeaways, for example "analysts expect 9% a year, the record supports 9%, and today's price
+assumes 37%."</li>
+<li><b>Earnings: reported, forecast and assumed.</b> Reported EPS as bars; analysts' average with their low and high; and two
+paths from the last reported year: the growth the app's value assumes (green) and the growth today's price assumes (amber,
+dashed). When the amber line runs far above the others, the price needs more than the record or the analysts suggest.</li>
+<li><b>Beat or miss, quarter by quarter,</b> and <b>are the estimates rising or falling</b> (90/60/30/7 days ago, and how many
+analysts raised or cut). The app stores one copy of the estimates a day for holdings and the shortlist (and whenever you open
+the tab), so it builds its own record of revisions over time.</li>
+<li><b>Price, value and analysts' targets</b> on one number line.</li>
+</ul>
+<p>Source: Yahoo Finance (free, unofficial). Its EPS is usually the company's "adjusted" figure, often above the EPS reported to
+the SEC; the tab says so when they differ by more than 10%. Backtests never use estimates that didn't exist yet. Data →
+Maintenance has the switch.</p>
+
+<h3 id="totalreturn">Total return: what an investment would have grown to (version 0.17.9)</h3>
+<p>Like totalrealreturns.com, for this stock and up to 10 others side by side:</p>
+<ul>
+<li><b>Inputs:</b> an initial investment, an optional recurring amount every week, month or year, and start and end dates (or the 1Y,
+3Y, 5Y, 10Y and Max buttons). Type any ticker into <i>Compare with</i> and press Enter; tickers the app doesn't have yet are
+downloaded the first time (prices go back to 2009). Your choices are remembered.</li>
+<li><b>Dividends are reinvested:</b> the calculation uses dividend-adjusted closing prices, so each dividend buys more shares on its
+ex-date. Each contribution buys at the first trading day on or after its date.</li>
+<li><b>Same days for everyone:</b> all tickers start on the later of your start date and the first day every one of them has prices,
+and the page says when it had to start later.</li>
+<li><b>After inflation:</b> switch it on to see every figure in start-date dollars (consumer prices, CPI-U, downloaded from FRED with
+the daily update).</li>
+<li><b>The table:</b> end value, money put in, gain, total return, the <b>yearly return</b> of the stock itself (time-weighted: what a
+single lump sum earned) and <b>your yearly return</b> (money-weighted, IRR: counts when each contribution went in), and the worst
+fall from a high. ★ marks the best end value. Taxes and trading costs aren't included.</li>
+</ul>
 <h3 id="lists">Comparing stocks side by side</h3>
 <p>Click the <b>In the Buy Zone</b>, <b>Wonderful, but pricey</b> or <b>Model holdings</b> card on Today to open that list as a sortable
 table (the other two cards open Market and Performance). Each list shows the same columns, so stocks can be compared the way the Oracle would:</p>
@@ -859,18 +1005,32 @@ businesses are closest to buyable.</li>
 <p>The business columns are 10-year figures from the latest annual report. Banks and insurers use their own rulebooks, so some of those
 columns are blank for them. Hover any column header for a one-line explanation.</p>
 
-<!-- ================================================================ 10 -->
-<h2 id="signals"><span class="n">10</span>Buy and sell signals</h2>
+<!-- ================================================================ 14 -->
+<h2 id="rank"><span class="n">14</span>Ranking and the lists</h2>
+<div class="formula">Oracle Rank = Quality<sup>0.65</sup> × Value<sup>0.35</sup> × Confidence</div>
+<p>Quality carries more weight than price, following the Oracle's "a wonderful company at a fair price beats a fair
+company at a wonderful price". Multiplying rather than adding means a terrible score on either side can't be hidden by
+the other.</p>
+<table>
+<tr><th>List on Today</th><th>Meaning</th></tr>
+<tr><td><b>Buy Zone</b></td><td>Passes every gate, Quality ≥ 70, margin of safety ≥ 25% and expected return ≥ 10%. Ranked best first.</td></tr>
+<tr><td><b>Wonderful, but pricey</b></td><td>Passes the business gates and the Quality bar, but the price is too high. Sorted by how close it is to its buy-below price.</td></tr>
+<tr><td><b>Near misses</b></td><td>Fails exactly one gate, by less than 15%. Shows which one.</td></tr>
+<tr><td><b>Pending</b></td><td>Can't be valued yet: usually a foreign filer missing an ADR ratio or exchange rate, or no recent price.</td></tr>
+</table>
+
+<!-- ================================================================ 15 -->
+<h2 id="signals"><span class="n">15</span>Buy and sell signals</h2>
 <p>Signals are made after the close and meant for the <b>next open</b>. The model portfolio records its fills at the next
 day's opening price.</p>
 <table>
 <tr><th>Badge</th><th>When</th></tr>
 <tr><td><span class="pill" style="background:#1f6f4a;color:#fff">▲▲ STRONG BUY</span></td><td>A BUY where Quality ≥ 80 and margin of safety ≥ 40%. Gets 1.5 slices instead of one.</td></tr>
 <tr><td><span class="pill" style="background:#e3f1ea;color:#1f6f4a">▲ BUY</span></td><td>In the Buy Zone for <b>2 closes in a row</b> (a one-day price blip doesn't trigger a buy), with no hard 10-Q warning open.</td></tr>
-<tr><td><span class="pill" style="background:#fff;color:#1f6f4a;border-color:#1f6f4a">＋ ADD</span></td><td>Put more money into a stock you own. In a focused portfolio this is where this week's new money (or cash from a sale) goes, with the dollar amount: only into holdings still in the Buy Zone, never while a REVIEW is open or Quality has slipped, and never above 25% of the portfolio (section 13). In the old variable style, ADD means buying more after a 10% dip, at most twice per stock.</td></tr>
+<tr><td><span class="pill" style="background:#fff;color:#1f6f4a;border-color:#1f6f4a">＋ ADD</span></td><td>Put more money into a stock you own. In a focused portfolio this is where this week's new money (or cash from a sale) goes, with the dollar amount: only into holdings still in the Buy Zone, never while a REVIEW is open or Quality has slipped, and never above 25% of the portfolio (<a href="#portfolio">section 18</a>). In the old variable style, ADD means buying more after a 10% dip, at most twice per stock.</td></tr>
 <tr><td><span class="pill" style="background:#eceae3;color:#4b524f">● HOLD</span></td><td>You own it and the business is intact. This is the normal state, and doing nothing is the usual right answer.</td></tr>
 <tr><td><span class="pill" style="background:#fbf0dc;color:#9a5b00">◎ WATCH</span></td><td>Not owned: wonderful but pricey, confirming a buy, or a buy held back by a 10-Q warning or the optional timing filter.</td></tr>
-<tr><td><span class="pill" style="background:#ffe7cc;color:#a24d00">⚠ REVIEW</span></td><td>You own it and something weakened. See section 11.</td></tr>
+<tr><td><span class="pill" style="background:#ffe7cc;color:#a24d00">⚠ REVIEW</span></td><td>You own it and something weakened. See <a href="#selling">section 16</a>.</td></tr>
 <tr><td><span class="pill" style="background:#a33a2b;color:#fff">▼ SELL</span></td><td>The business no longer qualifies: a gate failed, Quality fell below 55, or a hard REVIEW was confirmed by the next filing.</td></tr>
 <tr><td><span class="pill" style="background:#2c5d8f;color:#fff">⇄ SWAP</span></td><td>When all N slots are full: sell the weakest holding to fund a much better idea (Rank 15+ points higher and expected return 4+ points higher). The holding must have been owned at least a year, so winners aren't churned.</td></tr>
 <tr><td><span class="pill" style="background:#7a4f9e;color:#fff">✂ TRIM</span></td><td>Sell a third at nosebleed prices (2× value and P/E 2× its 10-year norm for 10 days in a row), or trim a position that has grown too large.</td></tr>
@@ -891,8 +1051,8 @@ The Buy Zone list and the Signals log have sortable columns for them.</p>
 <p>Every signal stores its reason with the actual numbers, so the Signals page reads like a journal:
 <i>"SELL XYZ: thesis broken: Debt payback 4.6 yrs (limit 4.0 yrs)"</i>.</p>
 
-<!-- ================================================================ 11 -->
-<h2 id="selling"><span class="n">11</span>When it sells, and why so rarely</h2>
+<!-- ================================================================ 16 -->
+<h2 id="selling"><span class="n">16</span>When it sells, and why so rarely</h2>
 <p>The Oracle's favorite holding period is "forever". He sells for a few reasons: the business has deteriorated, he made a
 mistake, the price has become absurd, or he needs the money for something clearly better. Oracle Edge follows the
 same rules and <b>never sells because the price fell</b>. A lower price for an intact business is an ADD, not a SELL.</p>
@@ -923,22 +1083,35 @@ filing, not "wait and hope".</div>
 (or an equal share). It only applies with 2 or more holdings.</li>
 </ul>
 
-<!-- ================================================================ 12 -->
-<h2 id="targets"><span class="n">12</span>Price targets and alerts</h2>
+<!-- ================================================================ 17 -->
+<h2 id="targets"><span class="n">17</span>Price targets and alerts</h2>
 <div class="good"><b>The house rule: value decides <i>what</i> price is good; the chart only helps with <i>when</i>.</b>
 Every buy, strong-buy and trim price comes from the valuation. Moving averages and Fibonacci levels never create a
 signal on their own. They only choose a smarter limit price inside the Buy Zone.</div>
 <h3>What the stock page shows</h3>
 <table>
 <tr><th>Level</th><th>How it's set</th></tr>
+<tr><td><b>Today's price</b></td><td>With how far it is above the buy-below price, or "in the Buy Zone".</td></tr>
 <tr><td><b>Suggested buy limit</b></td><td>If the price is above the Buy Zone: the highest support level at or below the buy-below price (or the buy-below price itself). If already in the zone: a support within one average day's move below today's price, otherwise buy at the open.</td></tr>
 <tr><td><b>Support levels</b></td><td>50- and 200-day moving averages, Fibonacci retracements (38.2%, 50%, 61.8%) of the last 52 weeks' move, and the 52-week low</td></tr>
-<tr><td><b>Buying in thirds</b></td><td>While the price is below a falling 50-day average (a "falling knife"): ⅓ at the limit, ⅓ at the next support at least one daily range lower, ⅓ at the strong-buy price</td></tr>
-<tr><td><b>Trim above</b></td><td>2× intrinsic value (the nosebleed level)</td></tr>
+<tr><td><b>Buy below / strong buy below</b></td><td>From the profile's valuation: the margin of safety and the hurdle return (or
+the P/E test in profiles that use it). Strong buy is always a further 15% lower (version 0.17.9: when the hurdle price was the
+binding limit, strong buy used to equal buy below, so every buy also counted as a strong buy).</td></tr>
+<tr><td><b>Buying in thirds</b></td><td>While the price is below a falling 50-day average (a "falling knife"): ⅓ at the limit, then ⅓
+at each of the next two support levels or the strong-buy price, each at least one average day's move (and 4%) lower. With no level a
+sensible distance down, the next third goes two average daily ranges lower, as a share of the price (5–15%), so the plan never runs
+toward zero (version 0.17.9 fixed a ladder that subtracted today's dollar range from much lower prices). Each third shows how far it is
+from today's price.</td></tr>
+<tr><td><b>Value (this profile's model)</b></td><td>The profile's own valuation, which sets the buy prices; not a sell price. The
+fair value-driver estimate is in <i>What it's worth</i> above.</td></tr>
+<tr><td><b>Trim above</b></td><td>2× value (the nosebleed level), when the P/E is also 2× its norm; only for stocks you own</td></tr>
 <tr><td><b>Trend</b></td><td>Uptrend (above a rising 200-day average), downtrend (below a falling 50-day average) or sideways</td></tr>
 </table>
-<p>The price chart overlays the 50- and 200-day averages, the Fibonacci levels (purple, over the last 52 weeks) and the
-suggested limit on top of the value and buy-below lines.</p>
+<p>Under the cards: <b>support</b> below today's price, <b>resistance</b> above
+it (the 50- and 200-day averages included: in a downtrend they are the first ceilings) and context: the average daily range, the
+alert band, the price change over a month and 12 months, and the 52-week move the Fibonacci levels come from. The price chart overlays
+the averages, the Fibonacci levels (purple dashes across the whole chart, labelled at the right edge, so they stay readable when you
+zoom) and the suggested limit on top of the value and buy-below lines.</p>
 <h3>Alerts</h3>
 <ul>
 <li><b>Watched:</b> Buy Zone, pricey and near-miss stocks (limit, buy-below, strong-buy prices); stocks you own (strong-buy add
@@ -959,8 +1132,8 @@ stock. Measuring in average daily ranges warns about one to two typical days ahe
 buys while the price is below a falling 50-day average (for up to 60 signal days). Backtest it against Oracle Classic before
 switching it on.</p>
 
-<!-- ================================================================ 13 -->
-<h2 id="portfolio"><span class="n">13</span>Model portfolio: how many stocks, and where new money goes</h2>
+<!-- ================================================================ 18 -->
+<h2 id="portfolio"><span class="n">18</span>Model portfolio: how many stocks, and where new money goes</h2>
 <p>Several badges depend on whether you <i>own</i> a stock (HOLD vs WATCH, ADD, SELL, TRIM), so the app keeps a <b>model
 portfolio</b> that follows every signal. How it's built is set per profile under <b>Profiles → Portfolio</b>, so backtests can
 test it.</p>
@@ -1043,7 +1216,7 @@ which particular stocks happened to fill the slots, so treat the recommendation 
 also means bumpier results.</div>
 <h3 id="rebuild">Rebuilding the strategy (November 2026)</h3>
 <div class="note"><b>The earlier choice of "best 7" no longer stands.</b> It was picked from tests that returned about 27% a year, on
-data with the stock-split error fixed in version 0.12.0 (section 20a). On corrected data the same setup returned <b>5.4% a year
+data with the stock-split error fixed in version 0.12.0 (<a href="#audit">section 25</a>). On corrected data the same setup returned <b>5.4% a year
 against 15.4% for the S&amp;P 500</b> (2019–2026), with a worst drop of −49% (S&amp;P −34%). The live profile hasn't been changed;
 that is your decision.</div>
 
@@ -1109,7 +1282,7 @@ trailed by 4 points. Results that flip with the method are within luck for this 
 <p><b>What this means.</b> On this history, the app finds wonderful businesses reliably but can't show that buying them by a price rule
 beats simply owning the index, which is also Buffett's advice for anyone who isn't analyzing each business personally. The most
 useful way to use it is as a <b>shortlist of wonderful, healthy companies at fair prices</b> for your own judgment, next to an index
-core. These are backtests of one period with survivorship bias (section 20); they are not a forecast.</p>
+core. These are backtests of one period with survivorship bias (<a href="#limits">section 24</a>); they are not a forecast.</p>
 
 <h4>What was built</h4>
 <ul>
@@ -1177,11 +1350,11 @@ The holdings columns show the return against the S&amp;P while actually owned (n
 <li><b>My holdings:</b> enter your real positions to get badges for them alongside the model's.</li>
 </ul>
 
-<!-- ================================================================ 14 -->
-<h2 id="market"><span class="n">14</span>Market temperature (the Buffett Indicator and the Bitcoin early warning)</h2>
-<p>Two readings are tracked every day, on Today and the Market page. <b>Neither is a hard stop</b>: the model keeps
-following its rules. When either one reaches an extreme, Today shows a <b>Market temperature</b> card with a
-recommendation, and the daily email includes a market alert (sent once, when a reading moves into or out of an extreme).</p>
+<!-- ================================================================ 19 -->
+<h2 id="market"><span class="n">19</span>Market temperature (the Buffett Indicator and the Bitcoin early warning)</h2>
+<p>Two readings are tracked every day: in Today's summary cards and in full on the Market page. <b>Neither is a hard stop</b>: the
+model keeps following its rules. When either one reaches an extreme, the daily email includes a market alert with a recommendation
+(sent once, when a reading moves into or out of an extreme). (Until 0.17.9 Today also showed a Market temperature card.)</p>
 <h3>The Buffett Indicator</h3>
 <p>Total U.S. stock market value divided by GDP, which the Oracle once called "probably the best single measure of where
 valuations stand." It's built from the Fed's quarterly Z.1 market value of nonfinancial corporate equities and GDP, then
@@ -1198,8 +1371,9 @@ four quarters (for example, 5% a year for 50 days adds about 0.7%).</li>
 </ul>
 When a new quarter is published, the next daily update downloads it and the reading switches to it at once; the estimate then
 continues from the new quarter.</li>
-<li><b>Both numbers are shown</b> on the Market page with how each was estimated, and charted: solid lines are the official
-quarter-end figures, the dashed line is the weekly estimate since the last official quarter, ending with today's reading.</li>
+<li><b>Both numbers are shown</b> on the Market page with how each was estimated, and charted together with the indicator (version
+0.17.9): the indicator on the right axis, coloured by zone, and the market value and GDP in trillions on the left. Solid lines are the
+official quarter-end figures, dashed lines the weekly estimate since the last official quarter, ending with today's reading.</li>
 <li><b>Backtests see only what was known on each day.</b> A past day's reading is built the same way, but only from quarters already
 published by that day (about ten weeks after a quarter's end for market value, a month for GDP), so a backtest can't use numbers
 nobody had yet. Revised figures are used, since FRED doesn't keep the first-published versions.</li>
@@ -1251,15 +1425,15 @@ until at least one eases.</li>
 <li><b>Data.</b> Bitcoin (BTC-USD) and QQQ come from the price sources (Stooq, then Yahoo) with every daily update.</li>
 </ul>
 
-<!-- ================================================================ 15 -->
-<h2 id="backtest"><span class="n">15</span>Backtests and profiles</h2>
+<!-- ================================================================ 20 -->
+<h2 id="backtest"><span class="n">20</span>Backtests and profiles</h2>
 <ul>
 <li><b>Backtest</b> replays any date range (default 2019 → today) day by day or week by week with any profile. It uses only the
 filings and prices known on each date, fills at the next open, and reports return vs the S&amp;P 500, drawdowns, episodes and
 how each rank bucket performed afterwards.</li>
 <li><b>Recalculate</b> (on each backtest, or "Recalculate all") re-runs it over the same dates with the profile's
 <i>current</i> rules and portfolio settings and replaces the old results. Use it after changing the number of holdings.</li>
-<li><b>Find the best number of holdings</b> is explained in section 13.</li>
+<li><b>Find the best number of holdings</b> is explained in <a href="#portfolio">section 18</a>.</li>
 <li><b>Experiments</b> compare risk-control setups side by side and rank them by a robustness score.</li>
 <li><b>Profiles</b> hold every rule, threshold and setting. Shipped profiles are locked:
 <ul>
@@ -1268,7 +1442,7 @@ how each rank bucket performed afterwards.</li>
   <li><i>Relaxed backfill (5y)</i>, with shorter lookbacks so tests can start earlier;</li>
   <li><i>Oracle Classic + timing</i>;</li>
   <li><i>Oracle Edge 15% · Risk Optimized</i> (editable), with the risk controls above;</li>
-  <li><i>Buffettology Quality Core</i> (editable), from the November 2026 rebuild (section 13).</li>
+  <li><i>Buffettology Quality Core</i> (editable), from the November 2026 rebuild (<a href="#portfolio">section 18</a>).</li>
 </ul>
 Use <b>Save as</b> to make an editable copy. Each profile card shows three things: what the profile is <b>for</b> (a description you
 can write in the editor; the built-in ones come with one), for a copy <b>what differs</b> from the profile it was copied from
@@ -1277,8 +1451,9 @@ always accurate after an edit. The editor previews live how many companies would
 in portfolio, signal or alert settings share company scores, so trying another portfolio size never rescores everything.</li>
 <li>Several profiles can be <b>active</b> at once; each gets its own live signals and model portfolio.</li>
 </ul>
-<!-- ================================================================ 16 -->
-<h2 id="ops"><span class="n">16</span>Email, schedule, backups, security</h2>
+
+<!-- ================================================================ 21 -->
+<h2 id="ops"><span class="n">21</span>Email, schedule, backups, security</h2>
 <table>
 <tr><th>Feature</th><th>How it works</th></tr>
 <tr><td><b>Email</b></td><td>Sent from your own account over SMTP. There are presets for Google (Gmail/Workspace), Outlook and iCloud,
@@ -1334,94 +1509,8 @@ If a <b>first-time load</b> stopped after the SEC statements were read in, <b>Da
 It picks up at the market data, scoring, prices and history replay and skips the long download and read.</td></tr>
 </table>
 
-<!-- ================================================================ 17 -->
-<h2 id="screens"><span class="n">17</span>The screens</h2>
-<h3 id="charts">Working with the charts</h3>
-<p>Every chart over time (stock price, price vs value, your money, growth of $1, the Buffett Indicator, the Bitcoin early warning,
-financials) works the same way:</p>
-<ul>
-<li><b>Timeframe buttons</b> above the chart: 1M, 3M, 6M, YTD, 1Y, 3Y, 5Y, 10Y and Max (only the ones the data covers).</li>
-<li><b>Zoom and pan:</b> scroll the mouse wheel over the chart to zoom, drag to move along in time, or drag either end of the slider
-underneath. The slider shows the whole history in miniature, so you always see where the window sits.</li>
-<li><b>Tools</b> at the top right: box zoom (drag a rectangle around the part you want), undo zoom, reset to the full view, and save the
-chart as a PNG image.</li>
-<li><b>Crosshair:</b> hover to read exact values; on charts with two panels (price and volume, Bitcoin and QQQ) the crosshair and zoom
-move together.</li>
-<li><b>Legend:</b> click a name to hide or show that line; when the legend is long, arrows page through it.</li>
-<li>On a stock's price chart, the <b>vs S&amp;P 500</b> switch shows both as % change from the start of whatever range you pick, so
-the comparison restarts at zero each time you change the timeframe.</li>
-</ul>
-<h3 id="layout">Navigation and layout</h3>
-<ul>
-<li>The menu is grouped (Daily, Analysis, Setup) and marks the page you're on. The <b>☰</b> button folds it into a narrow rail of
-icons (hover an icon for its name) and back; the app remembers your choice. On a narrow window the menu slides over the page instead.</li>
-<li>Pages use the full width of the window (up to very wide screens); rows of summary cards wrap into as many columns as fit, and long
-descriptions keep a comfortable line length.</li>
-</ul>
-<table>
-<tr><th>Screen</th><th>What it's for</th></tr>
-<tr><td><b>Today</b></td><td>The Buffett Indicator and the Bitcoin early warning, a Market temperature card when either is at an extreme,
-actions for the next open with strength ratings (and "mark done"), price alerts, news, the Buy Zone, pricey and near-miss lists,
-holdings. <b>Price alerts</b> lists every alert of the last 7 days; open one (or switch on <b>Show all reasons</b>) to see why it did
-or didn't lead to a trade: it led to a signal on a given day, or the stock is already held, still confirming, has no free slot, closed
-above the buy price, failed a quality check, and so on. An alert only means a price touched a level. <b>News</b>: market headlines,
-and headlines on your holdings, the model's holdings and stocks with price alerts (filter by each); they load after the page, so a
-slow news site never holds it up. The summary cards are clickable: each opens its full list (below).</td></tr>
-<tr><td><b>Stock lists</b></td><td>Opened from the Today cards (Buy Zone, Wonderful but pricey, Model holdings), with tabs for near misses and
-all wonderful companies. One sortable table per list: rank, strength, Rank score, Quality, Value; price, intrinsic value, buy and strong-buy
-prices, margin of safety, % above the buy price, expected 10-year return, earnings yield, P/E vs its 10-year median, market cap; and the
-10-year business record the Oracle checks (ROE, ROIC, gross and net margin, EPS and owner-earnings growth, cash conversion, capex, debt
-payback, debt-to-equity, buybacks, the $1 test, predictability). Shift-click to sort by a second column, hover a header for its meaning,
-filter by text, export to CSV, click a row to open the stock.</td></tr>
-<tr><td><b>Stock page: Report card tab</b></td><td>Every stock gets the full report card. The daily update only tracks the
-shortlist (companies that pass the checklist, near misses and holdings); for any other company the page works the figures out on
-the spot with the same rules and valuation at the latest close, and says so ("Worked out just now for this page"); such a company
-has no signal history or price alerts until it joins the shortlist (since 0.17.1; before, these pages showed no value, ladder or
-targets, or a near miss's last, possibly years-old, evaluation). Quality, value, rank, the price ladder, price targets and your own alerts, the price-vs-value chart,
-early warnings, every rule with its 10-year history, your judgment checklist (circle of competence, management, moat) and signal
-history: the live signals and the backtests of the current profile version only (holdings tests, experiments and backtests of
-older versions are left out), newest first, with <b>Show all</b></td></tr>
-<tr><td><b>Stock page: Wonderful? tab</b></td><td>The Wonderfulness score, tier and rank, the four pillars, what sets the company apart,
-red flags with what would need to change, the score over time, what management did with the money, and leaders and ownership
-(section 6)</td></tr>
-<tr><td><b>Wonderful</b></td><td>Every scored company ranked by Wonderfulness, with filters (size, slipping now), key measures, CSV export and a
-side-by-side comparison of up to 5 companies</td></tr>
-<tr><td><b>Stock page: Chart &amp; key stats tab</b></td><td>What a Yahoo or Google Finance quote page shows, from the app's own data:
-<ul style="margin:4px 0">
-<li><b>Chart:</b> the stock's whole history as candles or a line, with volume and the 50- and 200-day averages; timeframes from
-1M to Max plus zoom, pan and box zoom (see <a href="#charts">Working with the charts</a>); "vs S&amp;P 500" switches to % change from
-the start of the chosen range. Returns for 1D to 5Y under it.</li>
-<li><b>Key statistics:</b> previous close, open, day's and 52-week range, volume and 3-month average, market cap, shares outstanding,
-beta (5 years of monthly returns against the S&amp;P 500), P/E and EPS (trailing 12 months when the 10-Qs allow, otherwise the last
-fiscal year), dividend and yield, revenue, net margin, return on equity, 1-year change against the S&amp;P 500, the last quarterly
-report and an estimated date for the next one. Hover a label for how it's worked out.</li>
-<li><b>Financials:</b> income statement, balance sheet and cash flow, annual or quarterly, 6, 10 or all periods, with a revenue and
-net income chart and year-over-year change. 10-Qs report cash flow year-to-date and the fourth quarter only appears in the annual report, so quarters are
-rebuilt from the differences (Q4 = full year minus nine months).</li>
-</ul>
-Prices are end-of-day; there are no live quotes, analyst estimates or news. Foreign filers' statements are in their reporting
-currency, and their P/E uses the valuation's US-dollar conversion.</td></tr>
-<tr><td><b>My holdings</b></td><td>Your real positions with badges</td></tr>
-<tr><td><b>Signals</b></td><td>The full signal journal with strength ratings, scores, filters and CSV export</td></tr>
-<tr><td><b>Performance</b></td><td>Your money vs the same money in the S&amp;P 500, growth of $1, drawdowns, episodes, rank-bucket results
-against the S&amp;P over the same days, Buy Zone stints</td></tr>
-<tr><td><b>Market</b></td><td>The US Buffett Indicator with the market value and GDP behind it (each charted), its history and
-valuation zones; the global Buffett Indicator from World Bank data with world market value and GDP; Treasury yields; the Bitcoin
-early warning: today's reading, its
-history against the cut-offs with every past call marked right or wrong, scores against the base rate, a table of every call,
-what QQQ did after each kind of reading, the live record and recent market alerts</td></tr>
-<tr><td><b>Profiles</b></td><td>A card per profile: what it is for, what differs from the one it was copied from, and what it
-does. Edit the description, rules (standard, bank and insurer tabs) and the portfolio: starting money, weekly amount, how many to hold, where new money goes, swap limits</td></tr>
-<tr><td><b>Backtest</b></td><td>Find the best number of holdings and new-money rule; run and recalculate historical replays</td></tr>
-<tr><td><b>Data</b></td><td>Price sources (order, API keys, test), recent data problems, coverage gaps, foreign filers' ADR ratios, re-run first-time load, run the daily update now</td></tr>
-<tr><td><b>Settings</b></td><td>Market temperature (Bitcoin window, horizon, cut-offs, market alerts), SEC identity, email, daily schedule,
-backup folder and restore</td></tr>
-</table>
-<p>Checking "Outside my circle of competence" on a stock's report card hides it from your lists. The Oracle's first filter is
-whether he understands the business, and no formula can make that call for you.</p>
-
-<!-- ================================================================ 18 -->
-<h2 id="folders"><span class="n">18</span>Where things live</h2>
+<!-- ================================================================ 22 -->
+<h2 id="folders"><span class="n">22</span>Where things live</h2>
 <div class="formula" style="white-space:pre">C:\OracleEdge\
   Start.bat              start the app (one click)
   Run-Daily.bat          what the scheduled task runs
@@ -1451,8 +1540,8 @@ installed, it says so, changes nothing, and points you to the desktop shortcut o
 <b>FRESH</b> and then <b>YES</b> does it delete <code>C:\OracleEdge</code> (database, settings and history) and install from scratch;
 your backups are kept, so one can be restored afterwards. Run-Daily.bat likewise only runs from the installed copy.</p>
 
-<!-- ================================================================ 19 -->
-<h2 id="whys"><span class="n">19</span>Why it works this way</h2>
+<!-- ================================================================ 23 -->
+<h2 id="whys"><span class="n">23</span>Why it works this way</h2>
 <div class="card"><b>Why rules of thumb instead of machine learning?</b><br>Every decision can be traced to a number and a rule
 you can read and change. A model that "likes" a stock for unexplainable reasons would be the opposite of the Oracle's "invest
 in what you understand".</div>
@@ -1481,8 +1570,8 @@ up, copy and inspect. SQLite handles this volume easily.</div>
 <div class="card"><b>Why all Python with NiceGUI?</b><br>One language for data, rules and screens makes it easier to maintain and share.
 NiceGUI provides polished tables and charts without a separate web front end.</div>
 
-<!-- ================================================================ 20 -->
-<h2 id="limits"><span class="n">20</span>Known limits</h2>
+<!-- ================================================================ 24 -->
+<h2 id="limits"><span class="n">24</span>Known limits</h2>
 <ul>
 <li><b>End of day only.</b> Prices and alerts use daily closes; intraday alerts need a real-time feed (planned with Schwab).</li>
 <li><b>Free price data can have gaps.</b> The Data page lists missing tickers; adding a Tiingo or EODHD key fixes most.</li>
@@ -1500,7 +1589,7 @@ little. <b>Data → Coverage gaps</b> lists only the gaps that better tagging co
 <li><b>Auditor changes</b> aren't checked: the free data doesn't reliably include auditor names.</li>
 <li><b>Foreign filers</b> file annually, so they get no quarterly early warnings.</li>
 <li><b>10-Qs</b> are pulled only for shortlisted and owned companies, to keep the daily run fast.</li>
-<li><b>Backtests</b> may suffer some survivorship bias (see section 15).</li>
+<li><b>Backtests</b> may suffer some survivorship bias (see <a href="#backtest">section 20</a>).</li>
 <li><b>Cash earns nothing</b> in the model portfolio, so periods with idle cash (more likely with the Patient rule or a strict profile like
 Buffettology 20%) slightly understate returns compared with real T-bills.</li>
 <li><b>Fractional shares</b> are assumed, so small weekly amounts buy exactly the dollar amount shown. At your broker, round to whole
@@ -1516,7 +1605,8 @@ Indicators are estimates (market value moved by an ETF's price, GDP grown at its
 until the official figures arrive.</li>
 </ul>
 
-<h2 id="audit"><span class="n">20a</span>Accuracy audit (versions 0.12.0 and 0.13.0)</h2>
+<!-- ================================================================ 25 -->
+<h2 id="audit"><span class="n">25</span>Accuracy audit (versions 0.12.0 and 0.13.0)</h2>
 <p>Every calculation in the app was reviewed line by line and checked against independently worked answers: the financial
 metrics, quality scoring, both valuation models and the bank/insurer model, the rank, the signal ladder, portfolio accounting
 (fills, cash, time-weighted returns, CAGR, drawdowns, Sharpe), the Buy Zone records, the quarterly checks, price targets and
@@ -1527,7 +1617,7 @@ database. What was wrong, and is now fixed:</p>
 <tr><td><b>Stock splits</b>: SEC per-share figures on the filing day's share basis, prices on today's</td><td>A stock that later split
 looked many times cheaper in the history (LRCX, AAPL, TSCO, CTAS and others sat in the Buy Zone for hundreds of days with P/Es
 below 4); a stock that had just split looked far cheaper until its next annual report; a split looked like share dilution</td>
-<td>All per-share figures restated to one share basis (see section 4)</td></tr>
+<td>All per-share figures restated to one share basis (see <a href="#data">section 5</a>)</td></tr>
 <tr><td><b>Price history after a split or dividend</b>: updates re-fetched only the last 10 days</td><td>Going forward, a split would
 have shown as a 50–90% one-day loss in the portfolio, and dividends would have been lost from the total return</td>
 <td>The older stored history is rescaled and holdings restated whenever a source re-adjusts</td></tr>
@@ -1557,8 +1647,8 @@ that "price ≤ buy-below" gives exactly the same answer as "margin of safety �
 updating, the app rebuilds its results once (a notice with a <b>Rebuild now</b> button appears until it has). Backtests keep
 their old results until you recalculate them.</p>
 
-<!-- ================================================================ 21 -->
-<h2 id="glossary"><span class="n">21</span>Glossary</h2>
+<!-- ================================================================ 26 -->
+<h2 id="glossary"><span class="n">26</span>Glossary</h2>
 <table>
 <tr><td><b>ADR ratio</b></td><td>How many foreign ordinary shares one U.S.-traded share represents</td></tr>
 <tr><td><b>ATR-14</b></td><td>Average true range: the average size of a day's price move over 14 days</td></tr>
@@ -1572,20 +1662,21 @@ their old results until you recalculate them.</p>
 <tr><td><b>Intrinsic value</b></td><td>The cash a business will produce over its life, in today's dollars</td></tr>
 <tr><td><b>Margin of safety</b></td><td>How far the price is below intrinsic value</td></tr>
 <tr><td><b>Moving average</b></td><td>The average closing price over the last 50 or 200 trading days</td></tr>
-<tr><td><b>New-money rule</b></td><td>Which stock gets each week's money: best value, best Rank, spread evenly or patient (section 13)</td></tr>
+<tr><td><b>New-money rule</b></td><td>Which stock gets each week's money: best value, best Rank, spread evenly or patient (<a href="#portfolio">section 18</a>)</td></tr>
 <tr><td><b>Owner earnings</b></td><td>Net income + depreciation − capital spending: cash an owner could take out</td></tr>
 <tr><td><b>Point-in-time</b></td><td>Using only information published on or before the date being evaluated</td></tr>
 <tr><td><b>Recalculate</b></td><td>Re-run a backtest with the profile's current settings, replacing the old results</td></tr>
 <tr><td><b>ROE / ROA / ROIC</b></td><td>Profit as a share of equity / of total assets / of all capital invested</td></tr>
 <tr><td><b>Sharpe ratio</b></td><td>Return per unit of volatility; higher means a smoother ride for the same return</td></tr>
-<tr><td><b>Signal strength</b></td><td>1–5 stars for buys and a severity label for sells, reviews and trims (section 10)</td></tr>
+<tr><td><b>Signal strength</b></td><td>1–5 stars for buys and a severity label for sells, reviews and trims (<a href="#signals">section 15</a>)</td></tr>
 <tr><td><b>Slice</b></td><td>A new holding's first purchase in a focused portfolio: about 1/N of the portfolio (e.g. 1/8 = 12.5%)</td></tr>
 <tr><td><b>TTM</b></td><td>Trailing twelve months: the most recent four quarters combined</td></tr>
 <tr><td><b>XBRL</b></td><td>The tagged data format companies use to file financial statements with the SEC</td></tr>
 </table>
 
-<footer>Oracle Edge v0.17.8 · research tool, not financial advice · MIT license. The full design plan, with research sources,
+<footer>Oracle Edge v0.17.9 · research tool, not financial advice · MIT license. The full design plan, with research sources,
 is in <code>docs/Value-Picker-Plan.html</code> with the source code.</footer>
+
 </main>
 </div>
 </body>

@@ -7,6 +7,7 @@ Series used:
   GDP                nominal GDP, $ billions SAAR, quarterly
   DGS30 / DGS10      30-yr and 10-yr Treasury yields, %, daily
   VIXCLS             CBOE volatility index (VIX), daily close (market overlay)
+  CPIAUCSL           consumer prices (CPI-U), monthly index (the stock page's Total return tab, after inflation)
 """
 
 from __future__ import annotations
@@ -19,7 +20,7 @@ from .. import db
 from .http import Http
 
 URL = "https://fred.stlouisfed.org/graph/fredgraph.csv"
-SERIES = ["NCBEILQ027S", "BOGZ1LM893064105Q", "GDP", "DGS30", "DGS10", "VIXCLS"]
+SERIES = ["NCBEILQ027S", "BOGZ1LM893064105Q", "GDP", "DGS30", "DGS10", "VIXCLS", "CPIAUCSL"]
 
 # Daily FX (H.10). invert=True means the series is "foreign units per 1 USD".
 FX_SERIES = {

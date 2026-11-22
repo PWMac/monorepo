@@ -64,7 +64,7 @@ def test_plan_in_zone_downtrend_stages_in_thirds():
     p = targets.plan(98.0, 100.0, 80.0, 133.0, t, ST)
     prices = [x[0] for x in p["tranches"]]
     assert len(prices) == 3 and prices == sorted(prices, reverse=True)
-    assert prices[0] == 98.0 and prices[1] == 91.0 and prices[2] == 80.0  # market, next support, strong buy
+    assert prices[0] == 98.0 and prices[1] == 91.0 and prices[2] == 85.0  # market, then the next two supports
     assert sum(x[1] for x in p["tranches"]) == pytest.approx(1.0)
 
 
@@ -148,3 +148,34 @@ def test_profiles_have_timing_comparison():
     pid = db.scalar("SELECT id FROM profiles WHERE name=?", (rules.TIMING_NAME,))
     assert rules.get_profile(pid).settings["timing_filter"] is True
     assert rules.default_profile().settings["timing_filter"] is False
+
+
+def test_ladder_never_collapses_or_runs_to_zero():
+    # the reported case: price $51 far above a $13.85 buy-below, 10% daily range, every support above the zone
+    t = {"trend": "down", "atr": 5.24, "close": 51.31, "sma50": 80.0, "sma200": 70.0,
+         "fibs": {0.382: 100.54, 0.5: 87.62, 0.618: 74.70}, "lo52": 32.89, "hi52": 142.35}
+    p = targets.plan(51.31, 13.85, 13.85, 30.34, t, {})
+    assert p["strong"] == pytest.approx(13.85 * 0.85)  # strong buy is always under buy below
+    prices = [x[0] for x in p["tranches"]]
+    assert prices[0] == 13.85 and prices[1] == pytest.approx(p["strong"])
+    assert prices[2] == pytest.approx(prices[1] * 0.85)  # steps are a share of the price (2 ATR%, capped at 15%)
+    assert all(b < a for a, b in zip(prices, prices[1:])) and min(prices) > 13.85 * 0.6
+    assert p["gap"] == pytest.approx(51.31 / 13.85 - 1) and "above the buy-below price" in p["note"]
+    # a calm stock: steps are two average days' moves, and a support level is used when it's a sensible distance down
+    t = {"trend": "down", "atr": 1.0, "close": 100.0, "sma50": 110.0, "sma200": 120.0, "fibs": {}, "lo52": 88.0,
+         "hi52": 150.0}
+    p = targets.plan(100.0, 98.0, 70.0, 140.0, t, {})
+    assert p["tranches"][0] == (88.0, 1 / 3, "52-week low")  # the first support inside the zone
+    assert p["tranches"][1][0] == pytest.approx(88.0 * 0.95)  # 2 x 1% = 2%, raised to the 5% floor
+    assert p["tranches"][2][0] == pytest.approx(88.0 * 0.95 ** 2)  # strong buy (70) is too far down to be next
+
+
+def test_strong_buy_is_below_buy_below_when_the_hurdle_binds():
+    from oracle_edge.valuation import value
+
+    st = {**rules.load_yaml_profile()["settings"], "hurdle": 0.15}
+    vi = {"oe_ps": 2.0, "sust_g": 0.08, "eps_cagr": 0.08, "eps_by_fy": {}, "eps_last": 2.0, "bvps": 10.0, "roe": 0.2,
+          "payout": 0.3, "shares": 100.0}
+    v = value(30.0, vi, st, 0.04, 0.25, {})
+    assert v.strong_buy_below < v.buy_below
+    assert v.strong_buy_below <= v.buy_below * 0.85 + 1e-9

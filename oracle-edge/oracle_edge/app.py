@@ -14,6 +14,9 @@ from .ui import pages_admin, pages_main  # noqa: F401  (registers pages)
 
 if (paths.APP_DIR / "README.html").exists():  # the user guide, opened from "Guide" in the menu
     app.add_static_file(local_file=paths.APP_DIR / "README.html", url_path="/guide")
+GUIDE_IMG = paths.APP_DIR / "docs" / "guide"
+if GUIDE_IMG.exists():  # the guide's screenshots (relative links from /guide)
+    app.add_static_files("/docs/guide", str(GUIDE_IMG))
 BRAND_DIR = paths.APP_DIR / "brand"
 if BRAND_DIR.exists():  # logo, icons, fonts and theme (brand/README.md); /brand also serves the guide's relative links
     app.add_static_files("/static/brand", str(BRAND_DIR))
