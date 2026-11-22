@@ -43,7 +43,8 @@ def ensure_portfolio(run_id: int, profile: Profile, name: str = "Model portfolio
     weekly = 0.0
     if mode == "focused":
         max_pos = int(max_holdings or st.get("max_holdings") or 15)
-        cash = last_value = float(st.get("initial_capital") or 10000.0)
+        ic = st.get("initial_capital")
+        cash = last_value = float(10000.0 if ic is None else ic)  # $0 is allowed: start from new money only
         weekly = float(st.get("weekly_contribution") or 0.0)
     else:
         max_pos = max_holdings or db.cfg("max_positions")  # None = variable holdings
@@ -136,7 +137,8 @@ class PortfolioSim:
         if self.focused:
             # sells first, so their cash pays for today's buys
             pending = sorted(pending, key=lambda s: (0 if s["type"] in ("SELL", "SWAP", "TRIM") else 1, s["id"]))
-            if self.weekly and self.last_date and _week(d) != _week(self.last_date):
+            first = not self.last_date and not self.contributed  # started with $0: the first week's money now
+            if self.weekly and (first or (self.last_date and _week(d) != _week(self.last_date))):
                 self.cash += self.weekly  # this week's new money
                 flows_in += self.weekly
                 self.contributed += self.weekly
@@ -625,6 +627,8 @@ class PortfolioSim:
 
         if not signal_day:
             return res
+        if st.get("buy_rule") == "top_ranked" and self.focused:
+            return self._decide_ranked(d, res, sig, V)
 
         def pos_value(cik):
             p = self.positions.get(cik)
@@ -858,6 +862,114 @@ class PortfolioSim:
             if e.list == "pricey" and e.cik not in self.positions and e.cik not in res.badges:
                 res.badges[e.cik] = ("WATCH", f"wonderful, but pricey: buy below ${e.buy_below:,.2f}" if e.buy_below
                                      else "wonderful, but pricey")
+        return res
+
+    # ------------------------------------------------------------ top-ranked buying (0.18.1)
+    def ranking(self, d: str) -> list[tuple[float, float, float, int]]:
+        """Every scored company with a recent price, best first: (combined, Wonderfulness, Quality, cik), where
+        combined = (Wonderfulness + Quality) / 2 as known on d. Not limited to the Buy Zone or the must-pass rules:
+        this is the ranking the top-ranked rule was tested on."""
+        snaps = getattr(self, "snaps", None)
+        if snaps is None:
+            return []
+        out = []
+        for cik in snaps.ciks():
+            t = self.tk.get(cik)
+            if not t:
+                continue
+            last = self.pb.last_date(t, d)
+            if not last or _days(last, d) > 7:
+                continue
+            s = snaps.asof(cik, d)
+            if s is None or s["quality"] is None:
+                continue
+            w = snaps.wonder_asof(cik, d)
+            if w is None:
+                continue
+            out.append(((w + s["quality"]) / 2, w, s["quality"], cik))
+        out.sort(reverse=True)
+        return out
+
+    def _revenue_flag(self, cik: int, d: str) -> dict | None:
+        """The latest 10-Q's 'Revenue shrinking' warning, if one is open (whatever the health-check setting)."""
+        snaps = self.snaps
+        s = snaps.asof(cik, d)
+        q = snaps.quarterly(cik, d, s["filed"] if s else None)
+        if not q:
+            return None
+        return next((f for f in json.loads(q["flags_json"] or "[]") if f.get("id") == "rev_decline"), None)
+
+    def _decide_ranked(self, d: str, res: DayResult, sig, V: float) -> DayResult:
+        """Once a week (the first signal day of each week): sell holdings that dropped out of the top
+        `ranked_sell_outside` by combined score, or whose latest 10-Q shows sales shrinking; then split all cash
+        (new money plus the sales) equally across the top `ranked_buy_count` that pass the same tests, at any
+        price. Holdings that stay highly ranked are never trimmed: in the tests (Guide, 'Top-ranked buying'),
+        every trim-on-the-way-up rule cost return."""
+        st = self.st
+        n_buy = max(int(st.get("ranked_buy_count") or 4), 1)
+        k_sell = max(int(st.get("ranked_sell_outside") or 2 * n_buy), n_buy)
+        rev_rule = bool(st.get("ranked_sell_on_revenue", True))
+        max_w = st.get("ranked_max_weight")
+        ranked = self.ranking(d)
+        pos_of = {c: i for i, (*_, c) in enumerate(ranked)}
+        comb = {c: x for x, *_, c in ranked}
+
+        def pos_value(cik):
+            p = self.positions.get(cik)
+            return p["units"] * (self.pb.adj(self.tk.get(cik), d) or 0) if p else 0.0
+
+        if self.last_deploy and _week(self.last_deploy) == _week(d):
+            for cik in self.positions:
+                r = pos_of.get(cik)
+                res.badges[cik] = ("HOLD", (f"#{r + 1} by combined score ({comb[cik]:.1f})" if r is not None
+                                            else "not ranked today") + " · next weekly check next week")
+            return res
+        self.last_deploy = d
+        cash = self.cash
+        leaving = set()
+        for cik in list(self.positions):
+            r = pos_of.get(cik)
+            if r is None:
+                if self.snaps.asof(cik, d) is None:
+                    res.badges[cik] = ("HOLD", "no score yet")
+                    continue
+                why = "no longer ranked (no recent price or score)"
+            elif r >= k_sell:
+                why = f"fell to #{r + 1} by combined score ({comb[cik]:.1f}); sells outside the top {k_sell}"
+            elif rev_rule and (f := self._revenue_flag(cik, d)):
+                why = f"10-Q: {f['name']} ({f['detail']})"
+            else:
+                res.badges[cik] = ("HOLD", f"#{r + 1} by combined score ({comb[cik]:.1f}) · inside the top {k_sell}")
+                continue
+            sig(cik, "SELL", why, 1.0, {"rank": (r + 1) if r is not None else None})
+            res.badges[cik] = ("SELL", why)
+            leaving.add(cik)
+            cash += pos_value(cik)
+        total = sum(pos_value(c) for c in self.positions if c not in leaving)  # invested, without cash
+        picks = []
+        for x, w, q, cik in ranked:
+            if len(picks) == n_buy:
+                break
+            if cik in leaving:
+                continue
+            if rev_rule and self._revenue_flag(cik, d):
+                if pos_of[cik] < n_buy:
+                    res.badges.setdefault(cik, ("WATCH", "top ranked, but the latest 10-Q shows sales shrinking"))
+                continue
+            if max_w and cik in self.positions and total > 0 and pos_value(cik) / total > float(max_w):
+                res.badges[cik] = ("HOLD", f"#{pos_of[cik] + 1} by combined score · already {pos_value(cik) / total:.0%}"
+                                           f" of the portfolio, so new money goes to the next one")
+                continue
+            picks.append((cik, x, w, q))
+        if picks and cash >= 1.0:
+            amt = cash / len(picks)
+            for cik, x, w, q in picks:
+                r = pos_of[cik] + 1
+                why = (f"#{r} by combined score {x:.1f} (Wonderfulness {w:.0f}, Quality {q:.0f}) · "
+                       f"{'add' if cik in self.positions else 'buy'} {_money(amt)}")
+                typ = "ADD" if cik in self.positions else "BUY"
+                sig(cik, typ, why, amt, {"quality": q, "rank": r, "combined": x})
+                res.badges[cik] = (typ, why)
         return res
 
     def stints(self, d: str, evals: list[Eval]) -> None:

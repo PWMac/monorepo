@@ -55,6 +55,14 @@ settings:
   initial_capital: 10000       # starting money ($) for the model portfolio and backtests
   weekly_contribution: 250     # new money added every week ($); set it to what you really invest
   new_money: best_value        # where cash goes: best_value | best_rank | spread | patient | reserve
+  # buying rule (0.18.1): buy_zone = buy below the buy price (the price test above) |
+  # top_ranked = every week split the cash across the best-scored companies by (Wonderfulness + Quality) / 2,
+  # at any price; sell when one drops out of the top ranked_sell_outside or a 10-Q shows sales shrinking
+  buy_rule: buy_zone
+  ranked_buy_count: 4          # top_ranked: how many of the best-scored companies get each week's money
+  ranked_sell_outside: 8       # top_ranked: sell a holding once it ranks below this (twice the buy count tested best)
+  ranked_sell_on_revenue: true # top_ranked: sell (and don't buy) while the latest 10-Q shows sales shrinking
+  ranked_max_weight: null      # top_ranked: optional, no new money into a holding above this share of the portfolio
   max_buy_weight: 0.25         # new money never pushes one holding above this share of the portfolio
   patient_extra_mos: 0.15      # patient: wait for a margin of safety this much above the buy gate...
   patient_max_weeks: 26        # ...but never hold the cash longer than this
