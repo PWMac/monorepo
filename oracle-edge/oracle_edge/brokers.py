@@ -395,6 +395,7 @@ def import_file(text: str, filename: str = "", account_id: int | None = None, br
     else:
         res["messages"].append("Couldn't tell what this file is: no header row with a Symbol and a Quantity or "
                                "Action column was found.")
+    db.log("import", kind, bool(res["rows"]), f"{filename}: " + " · ".join(res["messages"]))
     return res
 
 
@@ -585,6 +586,9 @@ class Schwab:
         """Accounts, positions and cash, plus the last `days` of transactions (a year per request)."""
         nums = {str(x["accountNumber"]): x["hashValue"] for x in self.get("/accounts/accountNumbers")}
         accts = self.get("/accounts", {"fields": "positions"})
+        if not accts:
+            raise SchwabError("Schwab returned no accounts for this sign-in. Sign in again and tick every account on "
+                              "Schwab's approval page.")
         msgs, ids = [], []
         for k, a in enumerate(accts):
             sa = self.parse_account(a.get("securitiesAccount") or {})
@@ -618,6 +622,37 @@ class Schwab:
             if progress:
                 progress((k + 1) / max(len(accts), 1), msgs[-1])
         return {"accounts": ids, "messages": msgs}
+
+
+# ===================================================================== running a sync
+def run_sync(source: str, days: int | None = None, progress=None) -> dict:
+    """Sync one connection and record the outcome in the data log (Data page and Accounts & imports), so a failure
+    is never silent. Returns {"ok", "messages"}."""
+    import logging
+
+    cls = {"schwab": Schwab, "snaptrade": SnapTrade}[source]
+    try:
+        api = cls()
+        r = api.sync(days, progress) if days else api.sync(progress=progress)
+        msgs = r["messages"] or ["Nothing new"]
+        db.log(source, "sync", True, " · ".join(msgs))
+        return {"ok": True, "messages": msgs}
+    except Exception as e:
+        import requests
+
+        logging.getLogger("oracle_edge").exception("%s sync failed", source)
+        msg = str(e) or type(e).__name__
+        if isinstance(e, requests.exceptions.RequestException):
+            host = "api.schwabapi.com" if source == "schwab" else "api.snaptrade.com"
+            msg = (f"Couldn't reach {host}: check the internet connection, or a firewall, VPN or antivirus blocking "
+                   f"it. Details: {msg}")
+        db.log(source, "sync", False, msg)
+        return {"ok": False, "messages": [msg]}
+
+
+def sync_log(limit: int = 15) -> list[dict]:
+    return [dict(r) for r in db.rows("SELECT * FROM data_log WHERE source IN ('schwab','snaptrade','import') "
+                                     "ORDER BY id DESC LIMIT ?", (limit,))]
 
 
 # ===================================================================== SnapTrade (Personal API key)
@@ -720,7 +755,15 @@ class SnapTrade:
                 "ext_id": f"snaptrade:{a.get('id')}"}
 
     def sync(self, days: int = 365 * 5, progress=None) -> dict:
-        accts = self.get("/accounts") or self.get("/api/v1/accounts") or []
+        accts = self.get("/accounts")
+        if accts is None:
+            accts = self.get("/api/v1/accounts")
+        if not isinstance(accts, list):
+            raise SnapTradeError(f"SnapTrade sent an unexpected answer for the account list: {str(accts)[:200]}")
+        if not accts:
+            raise SnapTradeError("The keys work, but SnapTrade has no brokerage account connected yet. In the SnapTrade "
+                                 "dashboard, connect E*TRADE, Vanguard, Webull or another brokerage, wait until it "
+                                 "shows as connected, then sync again.")
         msgs, ids = [], []
         for k, a in enumerate(accts):
             if (a.get("account_category") or "investment") not in ("investment", None) or a.get("is_paper"):
