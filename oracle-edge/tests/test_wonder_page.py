@@ -258,22 +258,28 @@ def test_missing_start_date_comes_from_filings_and_coverage_says_why(monkeypatch
 
 
 def test_the_table_follows_the_map_zoom_and_legend():
-    rows = [{"ticker": "A", "quality": 85.0, "score": 80.0, "passes": True},    # best of both
-            {"ticker": "B", "quality": 60.0, "score": 75.0, "passes": False},   # wonderful, fails checklist
-            {"ticker": "C", "quality": 40.0, "score": 30.0, "passes": False},   # neither
-            {"ticker": "D", "quality": None, "score": 50.0, "passes": False}]   # not on the map
+    rows = [{"ticker": "A", "quality": 85.0, "score": 80.0, "passes": True, "v_mos": 0.4, "v_buy": True},
+            {"ticker": "B", "quality": 60.0, "score": 75.0, "passes": False, "v_mos": 0.1, "v_buy": False},
+            {"ticker": "C", "quality": 40.0, "score": 30.0, "passes": False, "v_mos": -0.6, "v_buy": False},
+            {"ticker": "D", "quality": None, "score": 50.0, "passes": False},  # not on the map
+            {"ticker": "E", "quality": 72.0, "score": 66.0, "passes": True, "v_mos": -0.2, "v_buy": False}]
+    assert [wp.band(r) for r in rows] == ["buy", "below", "over", "none", "near"]
     assert wp.norm_zoom([20, 100], [0, 100]) is None  # the whole map
     z = wp.norm_zoom([55.2, 100], [60, 100])
     assert z == {"x": [55.2, 100.0], "y": [60.0, 100.0]}
-    assert [r["ticker"] for r in wp.map_view(rows, None, set())] == ["A", "B", "C", "D"]
-    assert [r["ticker"] for r in wp.map_view(rows, z, set())] == ["A", "B"]
-    assert [r["ticker"] for r in wp.map_view(rows, z, {"both"})] == ["B"]
-    assert [r["ticker"] for r in wp.map_view(rows, None, {"neither"})] == ["A", "B"]
+    assert [r["ticker"] for r in wp.map_view(rows, None, set())] == ["A", "B", "C", "D", "E"]
+    assert [r["ticker"] for r in wp.map_view(rows, z, set())] == ["A", "B", "E"]
+    assert [r["ticker"] for r in wp.map_view(rows, z, {"buy"})] == ["B", "E"]
+    assert [r["ticker"] for r in wp.map_view(rows, None, {"over", "near"})] == ["A", "B"]
     lab = wp.legend_counts(rows, rows, z)
-    assert lab["Best of both"] == "Best of both (1)" and lab["Neither"] == "Neither (0 of 1)"
+    assert lab["Buy zone"] == "Buy zone (1)" and lab["Over 25% above value"] == "Over 25% above value (0 of 1)"
     for r in rows:
         r.update(name=r["ticker"], streak70=0)
-    opt = wp.map_options(rows, {"A", "B"}, 70, z, {"neither"}, lab)
+    opt = wp.map_options(rows, {"A", "B"}, 70, z, {"over"}, lab)
     assert opt["dataZoom"][0]["startValue"] == 55.2 and opt["dataZoom"][1]["startValue"] == 60.0
-    assert opt["legend"]["selected"]["Neither"] is False and "(0 of 1)" in opt["legend"][":formatter"]
-    assert [s["name"] for s in opt["series"]] == list(wp.QUAD_NAME.values())  # stable names keep legend clicks working
+    assert opt["legend"]["selected"]["Over 25% above value"] is False and "(0 of 1)" in opt["legend"][":formatter"]
+    assert opt["legend"]["data"] == list(wp.BAND_NAME.values())  # best first
+    by = {x["name"]: x for x in opt["series"]}
+    assert by["Buy zone"]["itemStyle"]["color"] == wp.BAND_COL["buy"] and [d["name"] for d in by["Buy zone"]["data"]] == ["A"]
+    assert opt["series"][-2]["name"] == "Buy zone"  # drawn on top
+    assert "markLine" in by["lines"] and "lines" not in opt["legend"]["data"]  # quadrant lines never hidden

@@ -50,6 +50,26 @@ def dot_size(streak: int) -> int:
     return 6 if streak <= 0 else 7 if streak == 1 else 9 if streak == 2 else 11 if streak <= 4 else 14 if streak <= 6 else 17
 
 
+# the map's colour: how good a buy the stock is today (price against the value-driver value; Screener Value columns)
+BAND_COL = {"buy": "#1f6f4a", "below": "#86c095", "near": "#e0b43c", "over": "#c0503d", "none": "#c7ccc9"}
+BAND_NAME = {"buy": "Buy zone", "below": "Below value", "near": "Up to 25% over value", "over": "Over 25% above value",
+             "none": "No value"}
+
+
+def band(r) -> str:
+    """Buy zone: price at or under the buy-below price (value less your margin of safety); below value: under the
+    likely value but not by the full margin; then up to 25% over it, or more; no value for banks, insurers and
+    companies the model can't value."""
+    mos = r.get("v_mos")
+    if mos is None:
+        return "none"
+    if r.get("v_buy"):
+        return "buy"
+    if mos >= 0:
+        return "below"
+    return "near" if mos >= -0.25 else "over"  # mos = 1 - price/value: -0.25 = price 25% over value
+
+
 def _quad(r) -> str:
     w, q = r["score"] >= 70, r["passes"]
     return "both" if w and q else "nocheck" if w else "notwonder" if q else "neither"
@@ -83,17 +103,17 @@ def map_view(xs: list[dict], zoom: dict | None, hidden: set[str]) -> list[dict]:
     legend. With the whole map shown and every group on, everything (also companies without a Quality score)."""
     if not zoom and not hidden:
         return xs
-    return [r for r in xs if r.get("quality") is not None and _quad(r) not in hidden and in_zoom(r, zoom)]
+    return [r for r in xs if r.get("quality") is not None and band(r) not in hidden and in_zoom(r, zoom)]
 
 
 def legend_counts(allx: list[dict], xs: list[dict], zoom: dict | None) -> dict[str, str]:
     """Legend label per group: how many of the group are in the table's view (filters and zoom), "of" the group's
     total when that's fewer."""
     out = {}
-    for k in QUAD_COL:
-        tot = sum(1 for r in allx if r.get("quality") is not None and _quad(r) == k)
-        shown = sum(1 for r in xs if r.get("quality") is not None and _quad(r) == k and in_zoom(r, zoom))
-        out[QUAD_NAME[k]] = f"{QUAD_NAME[k]} ({shown:,})" if shown == tot else f"{QUAD_NAME[k]} ({shown:,} of {tot:,})"
+    for k in BAND_COL:
+        tot = sum(1 for r in allx if r.get("quality") is not None and band(r) == k)
+        shown = sum(1 for r in xs if r.get("quality") is not None and band(r) == k and in_zoom(r, zoom))
+        out[BAND_NAME[k]] = f"{BAND_NAME[k]} ({shown:,})" if shown == tot else f"{BAND_NAME[k]} ({shown:,} of {tot:,})"
     return out
 
 
@@ -103,10 +123,10 @@ def legend_formatter(labels: dict[str, str]) -> str:
 
 def map_options(rows: list[dict], inview: set[str], bar: float, zoom: dict | None = None,
                 hidden: set[str] | None = None, labels: dict[str, str] | None = None) -> dict:
-    groups: dict[str, list] = {k: [] for k in QUAD_COL}
+    groups: dict[str, list] = {k: [] for k in reversed(BAND_COL)}  # best drawn last, on top
     for r in rows:
         if r["quality"] is not None:
-            groups[_quad(r)].append(r)
+            groups[band(r)].append(r)
     series = []
     for g, xs in groups.items():
         data = []
@@ -114,22 +134,29 @@ def map_options(rows: list[dict], inview: set[str], bar: float, zoom: dict | Non
             sym, rot = SHAPE.get(r.get("trend_dir") or "new", SHAPE["new"])
             data.append({"name": r["ticker"], "symbol": sym, "symbolRotate": rot, "symbolSize": dot_size(r["streak70"]),
                          "value": [round(r["quality"], 1), round(r["score"], 1), r["name"], r.get("trend_dir") or "new",
-                                   r["streak70"], None if r.get("trend") is None else round(r["trend"], 0)],
+                                   r["streak70"], None if r.get("trend") is None else round(r["trend"], 0),
+                                   r.get("v_price"), r.get("v_iv"), None if r.get("v_mos") is None
+                                   else round(r["v_mos"] * 100), BAND_NAME[g]],
                          "itemStyle": {"opacity": 0.92 if r["ticker"] in inview else 0.15}})
-        series.append({"type": "scatter", "name": QUAD_NAME[g], "itemStyle": {"color": QUAD_COL[g]},
+        series.append({"type": "scatter", "name": BAND_NAME[g], "itemStyle": {"color": BAND_COL[g]},
                        "data": data, "emphasis": {"focus": "none", "scale": 1.6}})
-    series[0]["markLine"] = {"silent": True, "symbol": "none", "lineStyle": {"type": "dashed", "color": "#6b7280"},
-                             "label": {"show": False}, "data": [{"xAxis": bar}, {"yAxis": 70}]}
+    # the quadrant lines on a series of their own (not in the legend), so hiding a colour never hides them
+    series.append({"type": "scatter", "name": "lines", "data": [], "silent": True,
+                   "markLine": {"silent": True, "symbol": "none", "lineStyle": {"type": "dashed", "color": "#6b7280"},
+                                "label": {"show": False}, "data": [{"xAxis": bar}, {"yAxis": 70}]}})
     fmt = ("p => { const v = p.value, d = {up: '▲ rising', down: '▼ falling', flat: '● steady', new: '◆ new'}[v[3]];"
            " const c = v[5] == null ? '' : ` (${v[5] >= 0 ? '+' : ''}${v[5]} in 3 yrs)`;"
            " return `<b>${p.name}</b> ${v[2]}<br>Wonderfulness <b>${v[1]}</b> · Quality <b>${v[0]}</b>"
            "<br>${d}${c}<br>${v[4] ? v[4] + (v[4] === 1 ? ' year' : ' years') + ' in a row at 70+' : 'not at 70+ now'}"
+           " ${v[8] == null ? '<br>No value (banks, insurers, or too little data)' : `<br><b>${v[9]}</b>: price $${v[6]"
+           ".toFixed(2)} vs value $${v[7].toFixed(2)} (margin of safety ${v[8]}%)`}"
            "<br><i>click to open in a new tab</i>`; }")
     zx = zoom["x"] if zoom else list(X_RANGE)
     zy = zoom["y"] if zoom else list(Y_RANGE)
     win_x = {"startValue": zx[0], "endValue": zx[1]}
     win_y = {"startValue": zy[0], "endValue": zy[1]}
-    legend = {"top": 0, "icon": "circle", "selected": {QUAD_NAME[k]: k not in (hidden or set()) for k in QUAD_COL}}
+    legend = {"top": 0, "icon": "circle", "data": list(BAND_NAME.values()),
+              "selected": {BAND_NAME[k]: k not in (hidden or set()) for k in BAND_COL}}
     if labels:
         legend[":formatter"] = legend_formatter(labels)
     return {"tooltip": {":formatter": fmt},
@@ -161,8 +188,8 @@ MAP_KEY = ("<div style='display:flex;gap:22px;flex-wrap:wrap;font-size:12px;colo
            + "".join(f"<span style='display:inline-flex;align-items:center;gap:4px'><span style='display:inline-block;"
                      f"width:{s}px;height:{s}px;border-radius:50%;background:#6b7280'></span>{lab}</span>"
                      for s, lab in ((6, "0"), (9, "2"), (11, "3–4"), (14, "5–6"), (17, "7+")))
-           + "<span style='margin-left:10px'><b>Colour</b>: group (legend above: click one to hide it; the counts "
-             "are the companies in the table)</span></div>")
+           + "<span style='margin-left:10px'><b>Colour</b>: how good a buy today (price against value; legend above: "
+             "click one to hide it; the counts are the companies in the table)</span></div>")
 
 # ---------------------------------------------------------------- table cells
 _LINK = """p => {
@@ -702,7 +729,9 @@ def screener_page(compare: str = "", view: str = "both"):
         with ui.card().classes("oe-card w-full"):
             ui.label("Quality vs Wonderfulness").classes("oe-h2")
             ui.label(f"Each dot is a company. Right of the dashed line = passes the Oracle checklist (Quality {bar:.0f}+ and "
-                     "every must-pass rule); above it = wonderful (70+). Zoom with the sliders (bottom and right), the "
+                     "every must-pass rule); above it = wonderful (70+), so top right is the best of both. Colour = how good a buy "
+                     "it is today: dark green in the Buy Zone, light green below value, amber up to 25% over value, red "
+                     "more than that, grey not valued. Zoom with the sliders (bottom and right), the "
                      "box tool (top right; ⟲ resets) or Shift + mouse wheel: the table below then lists only the "
                      "companies in view. Click a legend entry to hide a group (from the table too). Click a dot to open "
                      "the company in a new tab.").classes("oe-small")
@@ -842,7 +871,7 @@ def screener_page(compare: str = "", view: str = "both"):
             st["last_view"] = shown
             g.run_grid_method("setGridOption", "rowData", shown)
             why = (["the zoomed area of the map"] if zoom else []) + (
-                ["hiding " + ", ".join(QUAD_NAME[k] for k in QUAD_COL if k in hidden)] if hidden else [])
+                ["hiding " + ", ".join(BAND_NAME[k] for k in BAND_COL if k in hidden)] if hidden else [])
             map_note.text = f"Showing {len(shown):,} of {len(xs):,} companies: " + " · ".join(why) if why else ""
             map_note_row.set_visibility(bool(why))
 
@@ -873,7 +902,7 @@ def screener_page(compare: str = "", view: str = "both"):
 
         def on_legend(e):
             sel = (e.args or {}).get("selected") or {}
-            st["hidden_groups"] = {k for k in QUAD_COL if sel.get(QUAD_NAME[k]) is False}
+            st["hidden_groups"] = {k for k in BAND_COL if sel.get(BAND_NAME[k]) is False}
             show_rows()
             draw_chart()
 
