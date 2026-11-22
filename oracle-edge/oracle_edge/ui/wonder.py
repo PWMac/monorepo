@@ -688,6 +688,7 @@ def ranking_rows(prof) -> list[dict]:
     gmk = grossfill.kinds()
     from .. import values
 
+    values.ensure(prof)  # after an upgrade that changed the model: value everything once (~30 s)
     vals = values.all_values()
     out = []
     for r in db.rows("SELECT cik, score, rank, n, as_of, pillars_json, feats_json FROM wonder WHERE profile_id=? AND "

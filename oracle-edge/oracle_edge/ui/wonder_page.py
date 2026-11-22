@@ -57,8 +57,8 @@ BAND_NAME = {"buy": "Buy zone", "below": "Below value", "near": "Up to 25% over 
 
 
 def band(r) -> str:
-    """Buy zone: price at or under the buy-below price (value less your margin of safety); below value: under the
-    likely value but not by the full margin; then up to 25% over it, or more; no value for banks, insurers and
+    """Buy zone: price at or under the strict buy-below price (the cautious model's value at your hurdle, less your
+    margin of safety: the buy signals' rule); below value: under the likely (fair) value but not a buy yet; then up to 25% over it, or more; no value for banks, insurers and
     companies the model can't value."""
     mos = r.get("v_mos")
     if mos is None:
@@ -306,8 +306,8 @@ _IMPLIED = """p => { const r = p.data || {}; if (p.value == null) return '';
   return `<span style="color:${c};font-weight:600">${t}</span> <span style="color:#6b7280;font-size:11px">record ` +
     `${r.v_supports == null ? '—' : (r.v_supports * 100).toFixed(0) + '%'}</span>`; }"""
 _IMPLIED_TIP = """p => { const r = p.data || {}; if (r.v_implied == null) return null;
-  return `Today's price assumes about ${(r.v_implied * 100).toFixed(0)}% a year growth for five years (then fading) at a ` +
-    `${(r.v_required * 100).toFixed(0)}% required return; the record supports ${(r.v_supports * 100).toFixed(0)}%. ` +
+  return `Today's price assumes about ${(r.v_implied * 100).toFixed(0)}% a year growth for ten years (then fading) at a ` +
+    `9% discount rate; the record supports ${(r.v_supports * 100).toFixed(0)}%. ` +
     (r.v_gap > 0.03 ? 'The price expects more than the record supports.' : r.v_gap < -0.03 ?
      'The price expects less than the record supports.' : 'In line with the record.'); }"""
 _BUY = """p => p.value == null ? '' : p.value ? '<span style="color:#1f6f4a;font-weight:700">✓ below</span>' :
@@ -390,16 +390,16 @@ def columns(bar: float) -> tuple[list[dict], dict[str, list[str]]]:
         _tc("dollar_test", "$1 test", F_X, 1, 90, None, "$1 test as known each year", "x", columnGroupShow="open"),
     ]
     value = [
-        {**_c("v_mos", "Margin of safety", None, 104, "1 − price ÷ likely value (value-driver model, at your required "
-                                                     "return). Green = at least the profile's margin of safety."),
+        {**_c("v_mos", "Margin of safety", None, 104, "1 − price ÷ likely value (value-driver model, at a 9% "
+                                                     "discount rate). Green = at least the profile's margin of safety."),
          ":cellRenderer": _MOS, "type": "rightAligned", "filter": "agNumberColumnFilter"},
         {**_c("v_er", "Expected return", None, 100, "The yearly return at which the value equals today's price. Green "
-                                                    "= at least your required return."),
+                                                    "= at least your hurdle."),
          ":cellRenderer": _ER, "type": "rightAligned", "filter": "agNumberColumnFilter"},
         {**_c("v_price", "Price", _USD, 90, "Latest close.", columnGroupShow="open")},
-        {**_c("v_iv", "Likely value", _USD, 100, "What the business is worth per share at your required return "
+        {**_c("v_iv", "Likely value", _USD, 100, "What the business is worth per share at a 9% discount rate "
                                                 "(value-driver model).", columnGroupShow="open")},
-        {**_c("v_low", "Value range", None, 140, "Low: growth 3 points lower and the required return 1 point higher; "
+        {**_c("v_low", "Value range", None, 140, "Low: growth 3 points lower and the discount rate 1 point higher; "
                                                 "high: the reverse.", columnGroupShow="open"),
          ":cellRenderer": _RANGE},
         {**_c("v_implied", "Price assumes", None, 130, "The growth today's price assumes (reverse DCF), and the growth the "
@@ -408,8 +408,9 @@ def columns(bar: float) -> tuple[list[dict], dict[str, list[str]]]:
          ":cellRenderer": _IMPLIED, ":tooltipValueGetter": _IMPLIED_TIP, "filter": "agNumberColumnFilter"},
         {**_c("v_pe_rel", "P/E vs its usual", _X, 96, "P/E on last year's EPS ÷ the company's own 10-year median P/E "
                                                      "(1.00× = its usual).", columnGroupShow="open")},
-        {**_c("v_buy", "Below buy price", None, 96, "Price at or below the value-driver buy-below price (likely value "
-                                                    "less the margin of safety).", columnGroupShow="open"),
+        {**_c("v_buy", "Below buy price", None, 96, "Price at or below the strict buy-below price: the value on "
+                                                    "cautious assumptions at your hurdle, less the margin of safety (the "
+                                                    "buy signals' rule)", columnGroupShow="open"),
          ":cellRenderer": _BUY},
         _c("price_status", "Live profile", None, 150, "Buy Zone, or how far the price is above the buy-below price, "
                                                       "for the live profile's own valuation model.",
@@ -635,7 +636,7 @@ def screener_page(compare: str = "", view: str = "both"):
         ui.label("Screener: every business, screened and ranked").classes("oe-h1")
         ui.label("Screen and rank every company on three things. Wonderfulness: how it ranks against all the others on "
                  "what predicted lasting high returns and growth. Quality: does it pass the Oracle checklist (the bar the "
-                 "model needs before it may buy)? Value: what it's worth at your required return against today's price. "
+                 "model needs before it may buy)? Value: what it's worth (at the market's long-run 9% return) against today's price. "
                  "The views below start from the best businesses; Add filter narrows by any column.").classes("oe-muted")
         from .. import jobs
 
@@ -778,7 +779,7 @@ def screener_page(compare: str = "", view: str = "both"):
             ui.label("Quality vs Wonderfulness").classes("oe-h2")
             ui.label(f"Each dot is a company. Right of the dashed line = passes the Oracle checklist (Quality {bar:.0f}+ and "
                      "every must-pass rule); above it = wonderful (70+), so top right is the best of both. Colour = how good a buy "
-                     "it is today: dark green in the Buy Zone, light green below value, amber up to 25% over value, red "
+                     "it is today: dark green in the Buy Zone (the strict buy price), light green below the fair value, amber up to 25% over value, red "
                      "more than that, grey not valued. Zoom with the sliders (bottom and right), the "
                      "box tool (top right; ⟲ resets) or Shift + mouse wheel: the table below then lists only the "
                      "companies in view. Click a legend entry to hide a group (from the table too). Click a dot to open "

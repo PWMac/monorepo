@@ -79,18 +79,56 @@ def test_value_range_expected_return_and_what_the_price_assumes_are_consistent()
     vi = _vi()
     v = value_driver(30.0, vi, ST, 0.25, {})
     x = v.extra
+    # the value is discounted at the market's long-run return (9%), not the profile's 10% hurdle (0.17.8)
+    assert x["required_return"] == 0.09 and x["hurdle"] == 0.10
     assert x["low"] < v.iv < x["high"]
-    assert v.buy_below == pytest.approx(v.iv * 0.75)
-    # at the likely value the price earns exactly the required return and assumes exactly the blended growth
+    # buy below: what the cautious model (the buy signals' rule) is worth at the hurdle, less the margin of safety
+    sig = value_driver(30.0, vi, ST, 0.25, {}, signal=True)
+    assert sig.discount_rate == 0.10 and sig.iv < v.iv
+    assert v.buy_below == pytest.approx(sig.iv * 0.75) == pytest.approx(sig.buy_below)
+    assert x["hurdle_price"] == pytest.approx(sig.iv)
+    # at the likely value the price earns exactly the discount rate and assumes exactly the blended growth
     at_value = value_driver(v.iv, vi, ST, 0.25, {})
-    assert at_value.er == pytest.approx(0.10, abs=2e-4)
+    assert at_value.er == pytest.approx(0.09, abs=2e-4)
     assert at_value.extra["implied_growth"] == pytest.approx(x["growth"]["g"], abs=2e-4)
     # a higher price needs more growth and earns less
     dear = value_driver(v.iv * 1.5, vi, ST, 0.25, {})
-    assert dear.extra["implied_growth"] > x["growth"]["g"] and dear.er < 0.10
-    # one required return: the 30-yr Treasury plays no part (value() took t30; this model doesn't)
-    assert x["required_return"] == 0.10
+    assert dear.extra["implied_growth"] > x["growth"]["g"] and dear.er < 0.09
+    # a 15% hurdle lowers the buy price, not the value
+    strict = value_driver(30.0, vi, {**ST, "hurdle": 0.15}, 0.25, {})
+    assert strict.iv == pytest.approx(v.iv) and strict.buy_below < v.buy_below
+    # the other buy rule: the fair value less the margin, capped at the price that earns the hurdle
+    alt = value_driver(30.0, vi, {**ST, "vd_buy_rule": "value"}, 0.25, {})
+    assert alt.buy_below == pytest.approx(min(v.iv * 0.75, alt.extra["hurdle_price"]))
+    assert value_driver(alt.extra["hurdle_price"], vi, ST, 0.25, {}).er == pytest.approx(0.10, abs=2e-4)
+    # the discount rate can still be set
     assert value_driver(30.0, vi, {**ST, "vd_required_return": 0.12}, 0.25, {}).iv < v.iv
+    assert value_driver(30.0, vi, {**ST, "vd_discount_rate": 0.08}, 0.25, {}).iv > v.iv
+
+
+def test_margin_dips_count_half_and_values_far_from_the_price_are_not_shown():
+    from oracle_edge.valuation import vd_base
+
+    vi = _vi(vd_margins=[0.20] * 5 + [0.02, 0.21])  # a write-off year: recent median 0.20, no dip
+    assert vd_base(vi)["margin"] == pytest.approx(0.20)
+    vi = _vi(vd_margins=[0.20] * 4 + [0.25, 0.02, 0.01])  # two bad years: halfway back to the 7-year median
+    assert vd_base(vi)["margin"] == pytest.approx((0.02 + 0.20) / 2)
+    vi = _vi(vd_margins=[0.10] * 4 + [0.20, 0.22, 0.24])  # improving: the recent margin
+    assert vd_base(vi)["margin"] == pytest.approx(0.22)
+    v = value_driver(30.0, _vi(), ST, 0.25, {})
+    assert value_driver(v.iv / 11, _vi(), ST, 0.25, {}).iv is None  # 11x the price: bad inputs, not a bargain
+    far = value_driver(v.iv * 11, _vi(), ST, 0.25, {})
+    assert far.iv is None and "inputs look wrong" in far.note
+
+
+def test_share_counts_in_thousands_are_rescaled():
+    from oracle_edge.engine import sane_shares
+
+    assert sane_shares(10_094.0, 10_094_000.0) == pytest.approx(10_094_000.0)
+    assert sane_shares(60_333_000_000.0, 61_104_000.0) == pytest.approx(60_333_000.0)
+    assert sane_shares(9_900_000.0, 10_094_000.0) == 9_900_000.0
+    assert sane_shares(400_000.0, 10_094_000.0) is None  # off by 25x: neither unit slip nor plausible
+    assert sane_shares(None, 1.0) is None and sane_shares(5.0, None) == 5.0
 
 
 def test_net_cash_counts_per_diluted_share_and_losses_have_no_value():
@@ -195,3 +233,46 @@ def test_prices_cover_every_company_unless_switched_off():
     db.set_cfg("prices_all", False)
     assert pipeline.price_universe([123]) == [123]
     db.set_cfg("prices_all", True)
+
+
+def test_the_accuracy_check_measures_value_against_what_it_turned_out_to_be_worth():
+    from oracle_edge import valuecheck
+
+    vi = _vi()
+    iv = value_driver(30.0, vi, ST, 0.25, {}).iv
+    # 40 stocks priced at the value that then returned exactly 9% a year for 10 years: worth exactly the value
+    pts = [{"cik": i, "ticker": f"Z{i}", "year": "2015", "price": iv, "tr": 1.09 ** 10, "years": 10.0, "vi": vi}
+           for i in range(40)]
+    res = valuecheck.evaluate(pts, ST)
+    assert res["n"] == 40 and res["bias"] == pytest.approx(1.0, abs=1e-6) and res["miss"] == pytest.approx(0.0, abs=1e-6)
+    assert res["range_coverage"] == 1.0 and res["verdicts"]["about right"]["n"] == 40
+    # priced at half the value, then doubling relative to a 9% return: the model called it cheap and was right
+    pts = [dict(x, price=iv / 2, tr=2 * 1.09 ** 10) for x in pts]
+    res = valuecheck.evaluate(pts, ST)
+    assert res["verdicts"]["cheap"]["n"] == 40 and res["bias"] == pytest.approx(1.0, abs=1e-6)
+    assert res["price_miss"] == pytest.approx(1.0, abs=1e-6)  # the price was 50% under what it turned out to be worth
+    assert "past valuations" in valuecheck.summary({**res, "tickers": 40})
+
+
+def test_buy_signals_keep_the_pre_0_17_8_model():
+    # signal=True must reproduce the model the backtests were run with: 5 + 5 years, ROIC / 2, the 7-year median
+    # margin x the 3-year average sales, discounted at the hurdle, buy below = value x (1 - margin of safety)
+    from statistics import median
+
+    from oracle_edge.valuation import vd_value
+
+    vi = _vi()
+    sig = value_driver(30.0, vi, ST, 0.25, {}, signal=True)
+    sales = [v for v in vi["vd_sales"] if v]
+    nopat = median(vi["vd_margins"]) * sum(sales) / len(sales) * (1 - vi["vd_tax"])
+    g = sig.growth
+    roic = min(max(vi["vd_roic"], 0.10), 1.0)
+    gs = [0.0] + [g if t <= 5 else g + (0.03 - g) * (t - 5) / 5 for t in range(1, 11)] + [0.03]
+    pv, e = 0.0, nopat
+    for t in range(1, 11):
+        e *= 1 + gs[t]
+        pv += e * (1 - max(gs[t + 1], 0.0) / roic) / 1.10 ** t
+    tv = e * 1.03 * (1 - 0.03 / max(0.10, roic / 2)) / (0.10 - 0.03)
+    old = (pv + tv / 1.10 ** 10 + vi["vd_cash"] - sum(vi["vd_claims"].values())) / vi["vd_shares"]
+    assert sig.iv == pytest.approx(old) and sig.buy_below == pytest.approx(old * 0.75)
+    assert vd_value(nopat, g, roic, 0.10, 0.03, None, 5, 5, 0.5) == pytest.approx(pv + tv / 1.10 ** 10)

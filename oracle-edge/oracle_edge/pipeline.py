@@ -154,6 +154,14 @@ def values_job(job) -> str:
     return f"Valued {values.compute_all(progress=job.sub(0, 1, 'Valuing every company')):,} companies."
 
 
+def value_check_job(job) -> str:
+    """Run the value-driver model on every past annual report (2013-2019) and compare with what each company turned
+    out to be worth (Guide -> How accurate is the value)."""
+    from . import valuecheck
+
+    return valuecheck.summary(valuecheck.run(progress=job.sub(0, 1, "Valuing past annual reports")))
+
+
 def ceo_grades_job(job, limit: int | None = None) -> str:
     """Look up the CEO of every company with Wonderfulness 60+ not looked up in 30 days, best
     first. Each reads the company's SEC certifications (a dozen or so documents the first time, cached after) plus

@@ -48,7 +48,7 @@ def view(s: dict, prof, snap: dict | None, price: float | None = None):
     est = None if foreign else estimates.asof(t, today)
     st = prof.settings
     v = value_driver(price, vi, st, st["mos_gate"], pb.fy_prices(t, list(vi.get("eps_by_fy", {}).keys())), ttm, est)
-    return v if v.iv else None
+    return v if (v.iv or (v.extra or {}).get("implausible")) else None
 
 
 def value_line_html(price, low, likely, high, buy_below=None, targets: dict | None = None) -> str:
@@ -99,9 +99,9 @@ def assumes_text(v, est: dict | None = None) -> tuple[str, str, str]:
         parts.append(f"sales grew {pct(gb['sales'], 0)} a year over 5 years")
     parts.append(f"the classic estimate is {pct(gb['classic'], 0)}")
     parts.append(f"the long-run rate {pct(gb['long_run'], 0)}")
-    s = (f"Today's price assumes about {pct(imp, 0)} a year growth for five years (fading to "
-         f"{pct(min(0.03, x['required_return'] - 0.02), 0)} by year ten) at a {pct(x['required_return'], 0)} required "
-         f"return. The record supports {pct(sup, 0)} ({', '.join(parts)}; averaged and capped).")
+    s = (f"Today's price assumes about {pct(imp, 0)} a year growth for ten years (fading to "
+         f"{pct(min(0.03, x['required_return'] - 0.02), 0)} by year twenty) at a {pct(x['required_return'], 0)} "
+         f"discount rate. The record supports {pct(sup, 0)} ({', '.join(parts)}; averaged and capped).")
     if est and est.get("growth") is not None:
         s += f" Analysts expect {pct(est['growth'], 0)} a year over the next {est.get('years', 2)} years."
     if imp >= 0.59:
@@ -142,6 +142,13 @@ def render(s: dict, prof, snap: dict | None, ev: dict | None) -> None:
     v = view(s, prof, snap, ev["price"] if ev else None)
     if v is None:
         return
+    if not v.iv:
+        with ui.card().classes("oe-card w-full"):
+            ui.label("What it's worth").classes("oe-h2")
+            ui.label(f"No value shown: the model's {v.note}. A value ten times the price or more, either way, has "
+                     "almost always meant bad inputs in the app's backtest, not a real bargain or bubble.").classes(
+                "oe-muted")
+        return
     x = v.extra
     uses = prof.settings.get("valuation_model") == "value_driver"
     est = estimates.asof(s["ticker"], date.today().isoformat())
@@ -161,10 +168,12 @@ def render(s: dict, prof, snap: dict | None, ev: dict | None) -> None:
         price = ev["price"] if ev else None
         with ui.grid(columns=4).classes("w-full gap-3 oe-kpis"):
             kpi(money(v.iv), "Likely value", f"range {money(x['low'])}–{money(x['high'])}")
+            hur = x.get("hurdle") or x["required_return"]
             kpi(pct(v.er, 1) if v.er is not None else "—", "Expected return at today's price",
-                f"a year; needs {pct(x['required_return'], 0)}",
-                GREEN if (v.er or 0) >= x["required_return"] else None)
-            kpi(money(v.buy_below), "Buy below", f"{pct(prof.settings['mos_gate'], 0)} under the likely value")
+                f"a year; your hurdle {pct(hur, 0)}", GREEN if (v.er or 0) >= hur else None)
+            kpi(money(v.buy_below), "Buy below",
+                f"strict: earns your {pct(hur, 0)} hurdle on cautious assumptions, less "
+                f"{pct(prof.settings['mos_gate'], 0)}")
             kpi(pct(v.mos, 0) if v.mos is not None else "—", "Margin of safety", "1 − price ÷ likely value")
         if price:
             ui.html(value_line_html(price, x["low"], v.iv, x["high"], v.buy_below, tg), sanitize=False).classes(
@@ -178,28 +187,34 @@ def render(s: dict, prof, snap: dict | None, ev: dict | None) -> None:
             with ui.row().classes("items-start gap-3 no-wrap"):
                 ui.html(_chip("P/E " + pe[0], pe[1]), sanitize=False)
                 ui.label(pe[2]).classes("text-sm")
-        ui.label("The range is the likely value with growth 3 points lower and the required return 1 point higher "
-                 "(low), and the reverse (high). On the app's history (2013–2021, with the next five years' actual "
-                 "earnings) a range this wide held the business's worth about half the time, so treat the likely "
-                 "value as the middle of a wide band, not a precise figure.").classes("oe-small")
+        ui.label("The range is the likely value with growth 3 points lower and the discount rate 1 point higher "
+                 "(low), and the reverse (high). Tested on 3,500 past valuations (2013–2019) against what the companies "
+                 "turned out to be worth by 2026, the likely value was right on average (about 10% low), but for any "
+                 "one company the outcome landed in this range only about a third of the time; half the time it was "
+                 "between 0.5× and 2.3× the likely value. Read it as the middle of a wide band, not a precise figure "
+                 "(Guide → How accurate is the value).").classes("oe-small")
         with ui.expansion("How the value is built", icon="calculate").classes("w-full"):
             cl = x["claims"]
             rows = [
-                ("Sales base", _big(x["sales"]), "average of the last 3 years" + (
-                    " (the latest 12 months from the 10-Q in place of the oldest)" if x["ttm"] else "")),
-                ("Operating margin", pct(x["margin"], 1), "median of 7 years" + (
+                ("Sales base", _big(x["sales"]), "the latest 12 months from the 10-Q" if x["ttm"] else
+                 "the latest year"),
+                ("Operating margin", pct(x["margin"], 1), "median of the last 3 years; halfway back to the 7-year "
+                 "median when that is higher (a dip tends to recover)" + (
                     "; R&D treated as an investment (see below)" if (x.get("rnd") or {}).get("capitalized") else "")),
                 ("Tax rate", pct(x["tax"], 0), "median of 5 years, 10–30%"),
                 ("Normalized after-tax operating profit", _big(x["nopat"]), "sales × margin × (1 − tax)"),
                 ("Return on capital", pct(x["roic"], 0) if x["roic"] is not None else "—",
                  "median of 5 years; growth is paid for at this rate"),
-                ("Growth, years 1–5", pct(x["growth"]["g"], 1),
+                ("Growth, years 1–10", pct(x["growth"]["g"], 1),
                  "blend of sales growth, the classic estimate and 7%, capped at "
-                 f"{pct(prof.settings.get('vd_growth_cap', 0.12), 0)}; fades to 3% by year 10" + (
+                 f"{pct(prof.settings.get('vd_growth_cap', 0.12), 0)}; fades to 3% by year 20" + (
                      f"; years 1–2 {pct(x['g12'], 1)} with analysts' estimates" if x.get("g12") is not None else "")),
                 ("Reinvested each year", pct(x["reinvest"], 0), "growth ÷ return on capital"),
-                ("Required return", pct(x["required_return"], 1),
-                 "the profile's hurdle" if not prof.settings.get("vd_required_return") else "profile setting"),
+                ("Discount rate", pct(x["required_return"], 1),
+                 "the stock market's long-run return (Profiles → Valuation)"),
+                ("Your hurdle", pct(x.get("hurdle") or x["required_return"], 1),
+                 "buy below = the cautious model's value at this rate, less the margin of safety (the buy signals' "
+                 "rule)"),
                 ("+ Cash and short-term investments", _big(x["cash"]), ""),
                 ("− Debt", _big(cl.get("debt")), ""),
                 ("− Lease liabilities", _big(cl.get("leases")), "operating leases counted as debt"),
@@ -218,7 +233,7 @@ def render(s: dict, prof, snap: dict | None, ev: dict | None) -> None:
                          f"spending is written off over {rd.get('life', 5)} years instead of all at once, which lifts "
                          "operating profit for a growing researcher and adds the unwritten-off research "
                          f"({_big(rd.get('asset'))}) to invested capital.").classes("oe-small")
-            ui.label("Value = 10 years of free cash flow (profit minus the reinvestment growth needs) and a terminal "
+            ui.label("Value = 20 years of free cash flow (profit minus the reinvestment growth needs) and a terminal "
                      "value by the value-driver formula NOPAT × (1 − g ÷ ROIC) ÷ (r − g), in which new capital "
-                     "earns the higher of the required return and half the company's return on capital.").classes(
+                     "earns the company's return on capital (at least the discount rate).").classes(
                 "oe-small")

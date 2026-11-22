@@ -557,6 +557,8 @@ def data_page():
                     "outline" if db.cfg("statements_v16_all") else "unelevated")
                 ui.button("Re-value every company now", icon="calculate",
                           on_click=lambda: _launch("values")).props("flat")
+                ui.button("Check the value's accuracy", icon="fact_check",
+                          on_click=lambda: _launch("value_check")).props("flat")
             ui.label(("Every company's statements were re-read on " + str(db.cfg("statements_v16_all"))[:10] + ". "
                       if db.cfg("statements_v16_all") else
                       "Recommended once after installing 0.16 or later: the rebuild re-read only the shortlist's "
@@ -564,6 +566,14 @@ def data_page():
                       "value-driver model subtracts, and their values on the Screener run high until they next file. ")
                      + "It downloads the SEC's bulk file (about 1.3 GB), reads every company again and re-scores them: "
                        "allow 30–60 minutes. Prices, live histories and backtests are untouched.").classes("oe-small")
+            from .. import valuecheck
+
+            vc = db.cfg("value_check")
+            ui.label("Value accuracy" + (f" (checked {str(vc.get('at'))[:10]}): " if vc else ": ") +
+                     (valuecheck.summary(vc) if vc else "not checked yet. 'Check the value's accuracy' values every "
+                      "company's 2013–2019 annual reports as of their filing day and compares each value with what the "
+                      "company turned out to be worth (a few minutes; best after downloading every company's prices).")
+                     ).classes("oe-small")
             jl = db.rows("SELECT * FROM jobs ORDER BY id DESC LIMIT 8")
             for r in jl:
                 ui.label(f"#{r['id']} {r['kind']} · {r['status']} · {(r['started_at'] or '')[:16]} → "
@@ -754,7 +764,7 @@ def profiles_page(pid: int | None = None):
                                              "maintenance capex, bear/base/bull)"},
                                 value=st.get("valuation_model", "classic"), label="Valuation").props(
                     "outlined dense").classes("w-[520px]")
-                rvr = ui.number("Required return % (value-driver; blank = the hurdle)",
+                rvr = ui.number("Discount rate % for the value (blank = 9%, the market's long-run return)",
                                 value=_pct(st.get("vd_required_return")), format="%.1f", min=4, max=25).props(
                     "outlined dense clearable").classes("w-72")
                 rvg = ui.number("Growth cap %", value=100 * float(st.get("vd_growth_cap", 0.12)), format="%.0f",

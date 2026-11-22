@@ -74,7 +74,7 @@ footer { color:var(--muted); font-size:12.5px; margin-top:50px; border-top:1px s
   <h1><img src="brand/logo/oracle-edge-header-tagline.png" srcset="brand/logo/oracle-edge-header-tagline@2x.png 2x"
      alt="Oracle Edge: Screen, Rank, Signal"></h1>
   <p>A local stock screener that thinks like the Oracle. This guide explains <b>what</b> the app does,
-  <b>how</b> it decides, and <b>why</b> it was built this way. Version 0.17.7.</p>
+  <b>how</b> it decides, and <b>why</b> it was built this way. Version 0.17.8.</p>
   <p style="font-size:14px">Two documents: this <b>guide</b> is the user manual, kept current with every release and opened from
   "Guide" in the app. The <b>plan</b> (<code>docs/Value-Picker-Plan.html</code> with the source code) is the design record: the research, architecture,
   database layout and the decision log behind the app.</p>
@@ -416,9 +416,9 @@ one year in the decade fell under 10%, even for companies whose average is 25% o
 <li><b>The map</b>: every company as a dot, Quality across and Wonderfulness up, with dashed lines at the checklist bar and at 70.
 The top-right corner is the best of both; dots outside the current view fade. Each dot also shows:
 <ul>
-<li><b>Colour</b>: how good a buy the stock is today, from the Value columns (price against the value-driver value at your
-required return; version 0.17.7): <b>dark green</b> in the Buy Zone (at or under the buy-below price, i.e. the value less your
-margin of safety), <b>light green</b> below the value but not by the full margin, <b>amber</b> up to 25% over the value,
+<li><b>Colour</b>: how good a buy the stock is today, from the Value columns (price against the value-driver value; version 0.17.7):
+<b>dark green</b> in the Buy Zone (at or under the strict buy-below price, the one the buy signals use), <b>light green</b> below
+the fair value but not a buy yet, <b>amber</b> up to 25% over the value,
 <b>red</b> more than 25% over, <b>grey</b> not valued (banks, insurers, too little data). The groups are shown by position
 instead: right of the dashed line passes the checklist, above it is wonderful, so the top right is the best of both, and the
 best buys there are the dark green dots. Hover a dot for its price, value and margin of safety. The legend counts the companies
@@ -453,9 +453,9 @@ against the three before, so one odd year doesn't count), <span style="color:#1f
 and <span style="color:#a33a2b">red</span> when it isn't (falling debt payback is green); no arrow means steady. Hover the
 cell for its yearly history. For ROIC, gross margin and sales growth the column shows the 10-year median (or 5-year growth)
 while the arrow and history follow each year's figure. The Columns menu turns the arrows off.</li>
-<li><b>Value</b> (version 0.17.0): every company valued with the value-driver model at your required return and its
+<li><b>Value</b> (version 0.17.0; recalibrated in 0.17.8): every company valued with the value-driver model at a 9% discount rate and its
 latest price (worked out for every company after each daily update). Closed, the group shows the <b>margin of safety</b>
-(green = at least the profile's margin) and the <b>expected return</b> (green = at least your required return); open, it adds
+(green = at least the profile's margin) and the <b>expected return</b> (green = at least your hurdle); open, it adds
 the price, the likely value and its range, <b>what the price assumes</b> (the growth today's price needs, next to the growth the
 record supports; amber when the price expects more), the P/E against the company's usual, whether the price is below the
 buy price, and the live profile's own Buy Zone status (which uses that profile's valuation model). All of these can be
@@ -670,37 +670,56 @@ discount rates (Model A the 30-year Treasury + 2 points, about 5–7%; Model B t
 the model in charge flip from company to company and year to year. Version 0.16.0 adds <b>one consistent model</b>. Choose it
 per profile (Profiles → Valuation → <i>Value-driver</i>); its value, range and checks show on every stock's Report card and
 Outlook tab whichever model a profile uses.</p>
-<div class="formula">Value = NOPAT × (1 − g ÷ ROIC) ÷ (r − g), year by year for 10 years, then the same formula for the terminal value</div>
+<div class="formula">Value = NOPAT × (1 − g ÷ ROIC) ÷ (r − g), year by year for 20 years, then the same formula for the terminal value</div>
+<p><b>Recalibrated in version 0.17.8</b> after a check against what companies turned out to be worth (see
+<a href="#valueaccuracy">How accurate is the value</a>): the discount rate is now the stock market's long-run return (9%)
+instead of the profile's hurdle, growth runs 10 years before fading over the next 10, and profit starts from the latest sales
+and recent margins. The table below describes the current model.</p>
 <table>
 <tr><th>Piece</th><th>How</th><th>Why</th></tr>
-<tr><td><b>Normalized profit</b> (NOPAT)</td><td>Median operating margin of 7 years × average sales of 3 years × (1 − tax rate,
-median of 5 years, 10–30%)</td><td>One boom or bust year shouldn't move the value</td></tr>
+<tr><td><b>Normalized profit</b> (NOPAT)</td><td>The latest year's sales × the median operating margin of the last 3 years (when
+that is below the 7-year median, halfway back to it) × (1 − tax rate, median of 5 years, 10–30%)</td><td>Up to date, but one
+write-off or bad year shouldn't sink the value; until 0.17.8 a 7-year median margin × 3-year average sales lagged a growing
+company by a year</td></tr>
 <tr><td><b>Growth is paid for</b></td><td>Each year reinvests g ÷ ROIC of its profit (ROIC = median of 5 years) to fund next
-year's growth; in the terminal value new capital earns the higher of the required return and half the company's ROIC</td>
+year's growth; in the terminal value new capital earns the company's ROIC (at least the discount rate; until 0.17.8, half the ROIC)</td>
 <td>Growth that earns only the required return adds nothing; the formula makes that automatic</td></tr>
 <tr><td><b>Blended growth</b></td><td>The average of 5-year sales growth, the classic estimate (the lower of ROE × retained share
-and 10-year EPS growth) and a 7% long-run rate, capped at <b>12%</b>; years 1–5, fading to 3% over years 6–10</td><td>Past growth
-barely predicts future growth; at the old 15% cap growth came in about 4 points lower</td></tr>
-<tr><td><b>One required return</b></td><td>The profile's hurdle (or its own setting, <i>Required return</i>); no Treasury
-link</td><td>Values no longer swing with interest rates</td></tr>
+and 10-year EPS growth) and a 7% long-run rate, capped at <b>12%</b>; years 1–10, fading to 3% over years 11–20 (until 0.17.8:
+years 1–5, fading over 6–10)</td><td>Past growth barely predicts future growth, so it is blended toward 7%; checked against the
+next five years, the blend was about right on average (sales grew a little slower, operating profit a little faster)</td></tr>
+<tr><td><b>Discount rate</b></td><td>9%, the stock market's long-run return (Profiles → Valuation → <i>Discount rate</i> to
+change it); no Treasury link. <b>Your hurdle is the bar for buying, not the discount rate</b>: see Buy below</td><td>Until 0.17.8 the value was discounted at the hurdle.
+At a 15% hurdle that is the price that earns 15% a year, which nearly every stock is above, so nearly every stock showed as
+overvalued (the median price was 2.9× the "value")</td></tr>
 <tr><td><b>Claims ahead of shareholders</b></td><td>+ cash and short-term investments; − debt, operating lease liabilities, an
 underfunded pension (after tax), preferred stock and minority interests; ÷ diluted shares</td><td>The fuller debt picture</td></tr>
 <tr><td><b>R&amp;D as an investment</b></td><td>When R&amp;D is 3%+ of sales: each year's R&amp;D is written off over 5 years
 instead of at once; the unwritten-off research joins invested capital</td><td>Heavy researchers' profits and returns are
 otherwise understated</td></tr>
 <tr><td><b>Latest 12 months</b></td><td>When a 10-Q is newer than the annual report, its trailing-twelve-month sales and margin
-replace the oldest year, and its balance sheet and share count are used</td><td>The value doesn't wait up to a year</td></tr>
+replace the latest year, and its balance sheet and share count are used (a share count given in thousands is corrected)</td>
+<td>The value doesn't wait up to a year</td></tr>
+<tr><td><b>Sanity check</b></td><td>A value 10 times the price or more, or a tenth or less, isn't shown ("the inputs look wrong or
+one-off")</td><td>In the check below such values were almost always bad inputs (a share count in thousands, an unconverted
+currency) or a one-off year, not real bargains or bubbles</td></tr>
 <tr><td><b>Analysts, years 1–2 only</b></td><td>With 3+ analysts, years 1–2 use half the analysts' EPS growth for this and next
 fiscal year, half the blended growth</td><td>Near-term estimates help; long-term ones are too optimistic</td></tr>
 </table>
 <table>
 <tr><th>Output</th><th>How</th></tr>
-<tr><td><b>Likely value</b> and <b>range</b></td><td>Low = growth 3 points lower and required return 1 point higher; high = the
-reverse. On the app's history a range this wide held the business's hindsight value about half the time.</td></tr>
-<tr><td><b>Expected return</b></td><td>The return at which the model's value equals today's price (an implied return).</td></tr>
-<tr><td><b>What the price assumes</b></td><td>The growth (years 1–5, then fading) at which the value equals today's price at
-your required return (a reverse DCF), compared with the growth the record supports and analysts' estimates.</td></tr>
-<tr><td><b>Buy below</b></td><td>Likely value × (1 − margin of safety); strong buy below with the extra margin.</td></tr>
+<tr><td><b>Likely value</b> and <b>range</b></td><td>Low = growth 3 points lower and the discount rate 1 point higher; high = the
+reverse. It shows how much the assumptions matter; what a company turns out to be worth varies far more (below).</td></tr>
+<tr><td><b>Expected return</b></td><td>The return at which the model's value equals today's price (an implied return); green
+when it reaches your hurdle.</td></tr>
+<tr><td><b>What the price assumes</b></td><td>The growth (years 1–10, then fading) at which the value equals today's price at
+the discount rate (a reverse DCF), compared with the growth the record supports and analysts' estimates.</td></tr>
+<tr><td><b>Buy below</b></td><td>Deliberately strict, and the same price the profile's buy signals use: what the business is worth
+under <b>cautious</b> assumptions (growth for 5 years fading over the next 5, new capital earning half the company's return, the
+7-year median margin × 3-year average sales: the pre-0.17.8 model) <b>discounted at your hurdle</b>, less the margin of safety;
+strong buy below with the extra margin. In backtests this strict rule beat buy rules built on the fair value (Buffettology 15%
+from 2015: +9.1% a year against +4.8–7.0%), so the fair value is for judging what you pay, and the strict price is for
+buying.</td></tr>
 <tr><td><b>P/E cross-check</b></td><td>P/E on last year's EPS against the company's own 10-year median.</td></tr>
 </table>
 <p><b>The research behind it</b> (standard US companies with prices, annual reports 2013–2021, each valued with only what was known
@@ -722,17 +741,51 @@ worst drop):</p>
 <table>
 <tr><th>Profile and model</th><th>From 2015</th><th>From 2019</th><th>Worst drop (from 2015)</th></tr>
 <tr><td>Buffettology 15%, classic</td><td>−2.2%</td><td>+2.1%</td><td>−61%</td></tr>
-<tr><td>Buffettology 15%, <b>value-driver</b></td><td><b>+13.2%</b></td><td><b>+15.0%</b></td><td>−41%</td></tr>
-<tr><td>Buffettology, value-driver at a 10% required return</td><td>+8.3%</td><td></td><td>−42%</td></tr>
+<tr><td>Buffettology 15%, <b>value-driver</b> (0.17.8, share counts fixed)</td><td><b>+9.1%</b></td><td><b>+5.9%</b></td><td>−43%</td></tr>
+<tr><td><i>Same, as first reported (0.16)</i></td><td><i>+13.2%</i></td><td><i>+15.0%</i></td><td><i>−41%</i></td></tr>
+<tr><td>Buffettology, value-driver at a 10% required return*</td><td>+8.3%</td><td></td><td>−42%</td></tr>
 <tr><td>Quality Core, P/E price test</td><td>+10.1%</td><td>+13.0%</td><td>−35%</td></tr>
-<tr><td>Quality Core, value-driver</td><td>+6.1%</td><td>+7.0%</td><td>−18%</td></tr>
+<tr><td>Quality Core, value-driver*</td><td>+6.1%</td><td>+7.0%</td><td>−18%</td></tr>
 <tr><td>S&amp;P 500</td><td>+12.6%</td><td>+15.4%</td><td>−34%</td></tr>
 </table>
-<p>In a concentrated profile the value-driver model was far better than the classic one in both periods. With a 15% required
+<p><b>Correction (0.17.8).</b> Some 10-Qs give the share count in thousands (or millions), and until 0.17.8 the value-driver
+model used it as given, so a few companies (Garmin in 2015, Church &amp; Dwight in 2022, Omega Flex) looked a thousand times
+cheaper than they were and were bought as "strong buys". They happened to do well, which flattered the first results. With the
+share counts corrected the same backtests return +9.1% a year from 2015 and +5.9% from 2019, behind the S&amp;P 500. Rows marked *
+were measured before the fix and are likely overstated too; re-run them under Backtest.</p>
+<p>In a concentrated profile the value-driver model was still well ahead of the classic one in both periods. With a 15% required
 return and a 25% margin of safety it is strict (about 1% of checklist-passing company-years qualified), so a 25-holding profile
 like Quality Core held only about 4 stocks and trailed; there the P/E price test remains the better choice. The portfolios hold
 few stocks over a single market period, so treat these as encouraging, not proof; compare them on your own data under Backtest
 before switching your live profile.</p>
+
+<h3 id="valueaccuracy">How accurate is the value (version 0.17.8)</h3>
+<p>The check: every company's annual report filed 2013–2019 is valued as it could have been then (only that report's figures,
+the price on the filing day), and the value is compared with what the company <b>turned out to be worth</b>: what an owner
+actually got from that day to today (total return, dividends reinvested) discounted back at the same 9%. A stock that went on
+to return exactly 9% a year was worth exactly its price. Run it on your own data under Data → Maintenance → <i>Check the value's
+accuracy</i> (best after downloading every company's prices; the result shows there).</p>
+<p>On the research copy of the data (3,500 valuations of 560 companies that have prices):</p>
+<table>
+<tr><th></th><th>Before 0.17.8 (at your 15% hurdle)</th><th>Before, at 9%</th><th><b>0.17.8</b></th><th>The price itself</th></tr>
+<tr><td>Median price ÷ value then</td><td>3.05×</td><td>1.52×</td><td><b>1.08×</b></td><td></td></tr>
+<tr><td>On average, value vs what it turned out to be worth</td><td>47% low</td><td>37% low</td><td><b>9% low</b></td><td>2% high</td></tr>
+<tr><td>Stock by stock, typical miss</td><td>±181%</td><td>±153%</td><td><b>±123%</b></td><td>±85%</td></tr>
+<tr><td>Within 30%</td><td>13%</td><td>15%</td><td><b>17%</b></td><td>24%</td></tr>
+<tr><td>Today: median price ÷ value; share 25%+ over value</td><td>2.9×; 84%</td><td></td><td><b>1.06×; 39%</b></td><td></td></tr>
+</table>
+<ul>
+<li><b>The level is now right.</b> Even fed the growth that actually happened over the next five years, the old model put values
+about 35% below what companies turned out to be worth; the short growth period, terminal value and lagging profit base were
+too cautious, and the 15% discount rate halved values again. The recalibrated model is about 10% cautious on average.</li>
+<li><b>Stock by stock it is a wide estimate.</b> What one company turns out to be worth over a decade is so uncertain that even
+the market price, the best single estimate there is, misses by about ±85% typically; the model misses by more. Half the time
+the outcome was between 0.5× and 2.3× the likely value, and it fell inside the low–high range about 30% of the time.</li>
+<li><b>Cheap didn't beat dear in this period.</b> Stocks the model called cheap (value a third or more above the price) returned
+about 7.5% a year afterwards, those about right or dear about 9.7%. 2013–2026 was a poor stretch for every cheapness measure (and
+this sample leans toward today's tracked companies); that is why the Screener puts value next to quality and Wonderfulness
+rather than ranking by value alone.</li>
+</ul>
 
 <h3 id="outlook">Forecasts: the Outlook tab</h3>
 <p>Every stock page has an <b>Outlook</b> tab that puts analysts' forecasts next to the app's own view:</p>
@@ -1531,7 +1584,7 @@ their old results until you recalculate them.</p>
 <tr><td><b>XBRL</b></td><td>The tagged data format companies use to file financial statements with the SEC</td></tr>
 </table>
 
-<footer>Oracle Edge v0.17.7 · research tool, not financial advice · MIT license. The full design plan, with research sources,
+<footer>Oracle Edge v0.17.8 · research tool, not financial advice · MIT license. The full design plan, with research sources,
 is in <code>docs/Value-Picker-Plan.html</code> with the source code.</footer>
 </main>
 </div>

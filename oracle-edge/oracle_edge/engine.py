@@ -499,6 +499,22 @@ def _foreign_scale(vi: dict, info: dict, d: str, macro, pb_fy_dates) -> tuple[di
     return out, ""
 
 
+def sane_shares(sh: float | None, ref: float | None) -> float | None:
+    """A share count checked against another source (the annual report's): filings sometimes give it in thousands
+    or millions. Rescaled when it's off by about 1,000x or 1,000,000x; None when it's off by anything else over 3x."""
+    if not sh or not ref or sh <= 0 or ref <= 0:
+        return sh
+    k = ref / sh
+    if 1 / 3 <= k <= 3:
+        return sh
+    for f in (1e3, 1e6):
+        if 1 / 3 <= k / f <= 3:
+            return sh * f
+        if 1 / 3 <= k * f <= 3:
+            return sh / f
+    return None
+
+
 def ttm_inputs(qs, vi: dict, split_factor: float = 1.0) -> dict | None:
     """The latest 10-Q's trailing-twelve-month sales and operating profit (adjusted like the annual figures: R&D
     as an investment, the interest part of leases) and balance sheet, for the value-driver model."""
@@ -521,7 +537,9 @@ def ttm_inputs(qs, vi: dict, split_factor: float = 1.0) -> dict | None:
     if m.get("cash") is not None:
         cash = m["cash"] + (m.get("st_investments") or 0.0)
     return {"sales": m["ttm_revenue"], "oi": oi, "cash": cash, "debt": m.get("debt"), "leases": lease,
-            "shares": (m["shares"] * split_factor) if m.get("shares") else None, "period_end": m.get("period_end")}
+            "shares": sane_shares((m["shares"] * split_factor) if m.get("shares") else None,
+                                  vi.get("vd_shares") or vi.get("shares")),
+            "period_end": m.get("period_end")}
 
 
 def evaluate(date: str, profile: Profile, snaps: SnapshotBook, pb: PriceBook, regime: Regime,
@@ -589,7 +607,7 @@ def evaluate(date: str, profile: Profile, snaps: SnapshotBook, pb: PriceBook, re
             from . import estimates
 
             est = estimates.asof(t, date) if not foreign else None
-            v = value_driver(price, vi, st, mos_gate, fyp, ttm, est)
+            v = value_driver(price, vi, st, mos_gate, fyp, ttm, est, signal=True)  # the strict buy rule
         elif st.get("valuation_model") == "enhanced":
             gate_c = predictability_mos(mos_gate, vi, st)
             v = value_enhanced(price, vi, st, regime.t30, gate_c, fyp)
