@@ -343,6 +343,18 @@ def settings_page():
                      "holdings' finds the best size on your own history.").classes("text-sm")
             ui.button("Open Strategies", on_click=lambda: ui.navigate.to("/strategies")).props("flat")
         with ui.card().classes("oe-card w-full"):
+            ui.label("Database").classes("oe-h2")
+            from .. import pipeline as _pl
+
+            sz = _pl.db_size()
+            ui.label(f"The database file is {sz['bytes'] / 1e9:.2f} GB. Backtests, holdings tests and experiments used to "
+                     f"keep every day's evaluations; {sz['removable_rows']:,} of those daily rows can go (each test keeps "
+                     "its results, trades and charts, and its last day). New tests clean up after themselves. Cleaning "
+                     "then compacts the file, which needs free disk space about the size of the database and can take "
+                     "several minutes.").classes("text-sm")
+            ui.button("Clean up and compact", icon="cleaning_services",
+                      on_click=lambda: _launch("db_cleanup")).props("flat")
+        with ui.card().classes("oe-card w-full"):
             ui.label("Backups").classes("oe-h2")
             bdir = ui.input("Backup folder", value=str(backup.backup_dir())).props("outlined dense").classes("w-[560px]")
             r = backup.retention()
@@ -646,9 +658,9 @@ def live_preview(base: rules.Profile, body: dict) -> dict:
             if q is not None and q >= st["quality_min"]:
                 wonderful += 1
                 wonderful_ciks.append(row["cik"])
-    buy = 0
+    buy = 0 if (st.get("buy_price_rule") or "strict") == "strict" else None  # the new rules need a backtest
     rid = db.scalar("SELECT id FROM runs WHERE kind='live' AND profile_id=?", (base.id,))
-    if rid and wonderful_ciks:
+    if rid and wonderful_ciks and buy is not None:
         d = db.scalar("SELECT MAX(date) FROM evaluations WHERE run_id=?", (rid,))
         ev = {r["cik"]: r for r in db.rows("SELECT cik, mos, exp_return FROM evaluations WHERE run_id=? AND date=?",
                                            (rid, d))}
