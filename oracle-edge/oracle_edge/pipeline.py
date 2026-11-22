@@ -846,6 +846,77 @@ def run_backtest(job, profile_id: int, start: str, end: str, cadence: str = "wee
     return f"Backtest #{rid} finished ({label}): {n_sig} signals."
 
 
+_EVAL_NOW: dict = {}
+
+
+def evaluate_now(p: rules.Profile) -> dict:
+    """Today's evaluation of every company under a strategy that has no live paper portfolio (for the Screener's
+    strategy switch): {"date", "evals": {cik: {list, price, buy_below}}, "outside": {ciks outside its universe}}.
+    Cached until the strategy changes or new prices arrive (the first call takes about 15 seconds)."""
+    from .engine import universe_ok
+
+    last = db.scalar("SELECT MAX(date) FROM prices WHERE ticker=?", (BENCH,))
+    key = (p.id, p.version, last)
+    if key in _EVAL_NOW:
+        return _EVAL_NOW[key]
+    snaps = SnapshotBook(p)
+    tk = tickers_by_cik()
+    pb = PriceBook(price_tickers(candidate_ciks([p.id])))
+    macro = Macro()
+    st = p.settings
+    regime = macro.regime(last, st["mos_gate"], st.get("regime_modifier", False), lambda x: pb.close("VTI", x))
+    evs = evaluate(last, p, snaps, pb, regime, tk, owned=set(), macro=macro)
+    out = {"date": last, "evals": {e.cik: {"list": e.list, "price": e.price, "buy_below": e.buy_below,
+                                           "note": e.note} for e in evs},
+           "outside": {c for c in snaps.ciks() if not universe_ok(st, snaps, c, last)[0]}}
+    _EVAL_NOW.clear()  # one strategy at a time is plenty
+    _EVAL_NOW[key] = out
+    return out
+
+
+def evaluate_now_cached(p: rules.Profile) -> bool:
+    last = db.scalar("SELECT MAX(date) FROM prices WHERE ticker=?", (BENCH,))
+    return (p.id, p.version, last) in _EVAL_NOW
+
+
+def latest_backtest(p: rules.Profile, start: str | None = None) -> dict | None:
+    """The strategy's most recent finished backtest (optionally from a given start), and whether it is out of date
+    (the strategy was edited after it ran)."""
+    q = "SELECT * FROM runs WHERE kind='backtest' AND profile_id=? AND status='done'"
+    args: list = [p.id]
+    if start:
+        q += " AND start_date=?"
+        args.append(start)
+    r = db.one(q + " ORDER BY id DESC LIMIT 1", args)
+    if not r:
+        return None
+    sj = json.loads(r["settings_json"] or "{}")
+    return {**dict(r), "stale": sj.get("profile_version") not in (None, p.version)}
+
+
+def backtest_all(job, start: str, end: str, profile_ids: list[int] | None = None, cadence: str = "weekly",
+                 redo: bool = False) -> str:
+    """Backtest every visible strategy over the same dates, for the Strategies page's side-by-side table. Skips a
+    strategy that already has an up-to-date backtest from that start unless `redo`."""
+    profs = [rules.get_profile(i) for i in profile_ids] if profile_ids else rules.list_profiles(include_hidden=False)
+    todo = []
+    for p in profs:
+        lb = latest_backtest(p, start)
+        if redo or not lb or lb["stale"]:
+            todo.append(p)
+    done = []
+    for i, p in enumerate(todo):
+        class _Sub:  # progress for this strategy inside the whole job
+            def update(self, frac=None, message=None, **k):
+                job.update((i + (frac or 0)) / max(len(todo), 1), message=f"{p.name}: {message or ''}")
+
+        run_backtest(_Sub(), p.id, start, end, cadence, name=f"{p.name} · {start}→{end}")
+        done.append(p.name)
+    if not todo:
+        return "Every strategy already has an up-to-date backtest from " + start + "."
+    return f"Backtested {len(done)} strateg{'y' if len(done) == 1 else 'ies'} from {start}: " + ", ".join(done)
+
+
 def recalc_backtest(job, run_id: int) -> str:
     """Re-run a backtest with its profile's CURRENT rules and portfolio settings (holdings, sizing, add limits),
     over the same dates, and replace the old results."""

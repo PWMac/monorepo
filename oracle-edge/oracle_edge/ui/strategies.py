@@ -75,11 +75,17 @@ def _old_profiles(pid: int | None = None):
 
 
 @ui.page("/strategies")
-def strategies_page(pid: int | None = None):
+def strategies_page(pid: int | None = None, tab: str = "rules", hidden: int = 0):
     with frame("Strategies"):
-        profs = rules.list_profiles()
+        allp = rules.list_profiles()
+        profs = [p for p in allp if hidden or not rules.is_hidden(p.id)]
+        n_hidden = len(allp) - len([p for p in allp if not rules.is_hidden(p.id)])
         prim = rules.primary_id()
-        cur = rules.get_profile(pid) if pid else rules.default_profile()
+        try:
+            cur = rules.get_profile(pid) if pid else rules.default_profile()
+        except KeyError:
+            cur = rules.default_profile()
+        tab = tab if tab in ("rules", "results", "tests") else "rules"
         ui.label("Strategies").classes("oe-h1")
         ui.label("A strategy is a portfolio plan: which companies it considers, what price it pays, how many it holds "
                  "and how it buys, adds, trims and sells. Every company is scored the same way for all of them (the "
@@ -94,84 +100,229 @@ def strategies_page(pid: int | None = None):
             ui.button("Open the house view", icon="open_in_new", on_click=lambda: ui.navigate.to("/house")).props(
                 "flat dense no-caps")
 
-        # ---- side by side
-        recs = {p.id: record(p) for p in profs}
-        rows = []
+        # ---- side by side: live paper record where there is one, otherwise the latest backtest
+        from .. import pipeline
+
         def ranked(st):
             return st.get("buy_rule") == "top_ranked" and st.get("portfolio_mode", "focused") == "focused"
 
         def size_txt(st):
             if ranked(st):
-                return f"top {int(st.get('ranked_buy_count') or 4)} weekly, sells below #{int(st.get('ranked_sell_outside') or 8)}"
+                return f"top {int(st.get('ranked_buy_count') or 4)} weekly"
             if st.get("portfolio_mode", "focused") != "focused":
                 return "variable"
-            return "no limit" if st.get("max_holdings") == 0 else st.get("max_holdings")
+            if st.get("max_holdings") == 0:
+                return "no limit" + (f", {int(st['max_buys_per_week'])}/wk" if st.get("max_buys_per_week") else "")
+            return str(st.get("max_holdings"))
 
         def price_txt(st):
-            return "any price" if ranked(st) else f"{pct(st.get('hurdle'), 0)} · {pct(st.get('mos_gate'), 0)}"
+            if ranked(st):
+                return "any price"
+            rule = st.get("buy_price_rule") or "strict"
+            if rule == "growth_gap":
+                return f"growth gap {pct(st.get('buy_growth_gap') or 0.10, 0)}"
+            if rule == "fair":
+                return f"≤ {float(st.get('buy_fair_mult') or 1):g}× fair value"
+            return f"strict {pct(st.get('hurdle'), 0)} · {pct(st.get('mos_gate'), 0)}"
 
+        def cell(v, digits=1):
+            return pct(v, digits) if v is not None else "—"
+
+        rows = []
         for p in profs:
-            r = recs[p.id]
-            st = p.settings
+            rec = record(p)
+            lb = pipeline.latest_backtest(p)
+            bs = data.stats(data.equity(lb["id"])) if lb else {}
+            beat = lambda a, b: "" if a is None or b is None else ("color:#1f6f4a" if a >= b else "color:#a33a2b")
+            sel_css = "background:#fbf6e6;" if p.id == cur.id else ""
             rows.append(
-                f"<tr style='{'font-weight:600' if p.id == prim else ''}'><td style='text-align:left'>"
-                f"{'★ ' if p.id == prim else ''}<a href='/strategies?pid={p.id}' style='color:inherit'>{p.name}</a>"
-                f"{' 🔒' if p.locked else ''}</td>"
-                f"<td>{'yes' if p.active else '—'}</td>"
-                f"<td>{size_txt(st)}</td>"
-                f"<td>{price_txt(st)}</td>"
-                f"<td>{r.get('holdings', '—')}</td>"
-                f"<td>{pct(r.get('cagr'), 1) if r.get('cagr') is not None else '—'}</td>"
-                f"<td>{pct(r.get('bench_cagr'), 1) if r.get('bench_cagr') is not None else '—'}</td>"
-                f"<td>{pct(r.get('max_dd'), 0) if r.get('max_dd') is not None else '—'}</td>"
-                f"<td>{r.get('signals_90d', '—')}</td>"
-                f"<td>{(r.get('start') or '—')[:4]}</td></tr>")
+                f"<tr style='{sel_css}{'font-weight:600;' if p.id == prim else ''}cursor:pointer' "
+                f"onclick=\"location.href='/strategies?pid={p.id}&tab={tab}&hidden={hidden}'\">"
+                f"<td style='text-align:left'>{'★ ' if p.id == prim else ''}{p.name}{' 🔒' if p.locked else ''}"
+                f"{' <span style=color:#9ca3af>(hidden)</span>' if rules.is_hidden(p.id) else ''}</td>"
+                f"<td>{size_txt(p.settings)}</td><td>{price_txt(p.settings)}</td>"
+                f"<td style='{beat(rec.get('cagr'), rec.get('bench_cagr'))}'>{cell(rec.get('cagr'))}</td>"
+                f"<td>{cell(rec.get('bench_cagr'))}</td><td>{(rec.get('start') or '')[:4] or ('—' if not p.active else 'building')}</td>"
+                f"<td style='{beat(bs.get('cagr'), bs.get('bench_cagr'))}'>{cell(bs.get('cagr'))}</td>"
+                f"<td>{cell(bs.get('bench_cagr'))}</td><td>{cell(bs.get('max_dd'), 0)}</td>"
+                f"<td>{(lb['start_date'][:4] if lb else '—')}{' ⚠' if lb and lb['stale'] else ''}</td></tr>")
         with ui.card().classes("oe-card w-full"):
-            ui.label("Side by side").classes("oe-h2")
-            ui.html("<table class='oe-cmp' style='width:100%;border-collapse:collapse;font-size:13px'><thead><tr>"
-                    "<th style='text-align:left'>Strategy</th><th>Runs daily</th><th>Holdings (N)</th>"
-                    "<th>Hurdle · margin</th><th>Holds now</th><th>Return a year</th><th>S&amp;P 500</th>"
-                    "<th>Worst drop</th><th>Signals, 90 days</th><th>Since</th></tr></thead><tbody>"
+            with ui.row().classes("w-full items-center justify-between"):
+                ui.label("Side by side").classes("oe-h2")
+                with ui.row().classes("items-end gap-2"):
+                    bst = ui.input("Backtest all from", value=db.cfg("backfill_start", "2019-01-01")).props(
+                        "outlined dense").classes("w-36")
+                    ui.button("Backtest all", icon="play_arrow", on_click=lambda: _launch("backtest_all", {
+                        "start": bst.value, "end": __import__("datetime").date.today().isoformat(),
+                        "profile_ids": [p.id for p in profs]})).props("unelevated").tooltip(
+                        "Backtests every strategy shown here over the same dates; strategies with an up-to-date "
+                        "backtest from that date are skipped")
+                    if n_hidden:
+                        ui.switch(f"Show hidden ({n_hidden})", value=bool(hidden), on_change=lambda e: ui.navigate.to(
+                            f"/strategies?pid={cur.id}&tab={tab}&hidden={int(e.value)}"))
+            ui.html("<table class='oe-cmp' style='width:100%;border-collapse:collapse;font-size:13px'><thead>"
+                    "<tr><th></th><th></th><th></th><th colspan='3' style='text-align:center'>Live paper portfolio</th>"
+                    "<th colspan='4' style='text-align:center'>Latest backtest</th></tr>"
+                    "<tr><th style='text-align:left'>Strategy</th><th>Holdings</th><th>Buys at</th>"
+                    "<th>Return a year</th><th>S&amp;P 500</th><th>Since</th>"
+                    "<th>Return a year</th><th>S&amp;P 500</th><th>Worst drop</th><th>From</th></tr></thead><tbody>"
                     + "".join(rows) + "</tbody></table><style>.oe-cmp td,.oe-cmp th{padding:5px 10px;text-align:right;"
                     "border-bottom:1px solid #eef0ee}.oe-cmp th{color:#6b7280;font-size:12px}</style>",
                     sanitize=False).classes("w-full")
-            ui.label("Each strategy's live paper portfolio since its history starts (the same days for all), with "
-                     "the S&P 500 over the same days. Backtests of other periods are on the Backtest page.").classes(
-                "oe-small")
+            ui.label("Click a strategy to open it below. Live paper portfolio: strategies that run daily, since their "
+                     "history starts. Latest backtest: the "
+                     "most recent one of each strategy (⚠ = the strategy was edited since; run it again). Backtests "
+                     "starting on different dates aren't comparable: use 'Backtest all' to put every strategy on the "
+                     "same dates.").classes("oe-small")
 
-        # ---- cards
-        with ui.element("div").classes("w-full grid gap-3").style(
-                "grid-template-columns: repeat(auto-fill, minmax(320px, 1fr))"):
-            for p in profs:
-                par = rules.parent_of(p.id)
-                diffs = rules.differences(p.body, par.body) if par else []
-                sel = p.id == cur.id
-                with ui.card().classes("oe-card cursor-pointer gap-1").style(
-                        "outline: 2px solid #C9A227" if sel else "").on(
-                        "click", lambda p=p: ui.navigate.to(f"/strategies?pid={p.id}")):
-                    with ui.row().classes("items-center gap-2 no-wrap"):
-                        if p.id == prim:
-                            ui.icon("star").classes("text-amber-600").tooltip("Primary strategy")
-                        ui.label(p.name).classes("font-semibold")
-                        if p.locked:
-                            ui.icon("lock", size="xs").classes("text-gray-500").tooltip("Built-in, locked")
-                    if p.notes:
-                        ui.label(p.notes).classes("text-sm")
-                    if par:
-                        ui.label(f"Copied from {par.name}: " + ("; ".join(diffs) if diffs else "no changes yet")
-                                 + ".").classes("text-sm" + ("" if not p.notes else " oe-small"))
-                    ui.label("Considers: " + universe_text(p.settings) + ".").classes("oe-small")
-                    ui.label(rules.describe(p.body)).classes("oe-small")
-                    with ui.row().classes("items-center gap-2").on("click.stop", lambda: None):
-                        sw = ui.switch("Runs daily", value=p.active)
-                        if p.id == prim:
-                            sw.disable()
-                            sw.tooltip("The primary strategy always runs daily")
-                        sw.on_value_change(lambda e, p=p: _toggle_active(p, e.value))
-                        if p.id != prim and rules.scoring_standard(p.settings) == "standard":
-                            ui.button("Make primary", icon="star_outline",
-                                      on_click=lambda p=p: _make_primary(p)).props("flat dense no-caps size=sm")
-        _editor(cur)
+        # ---- the selected strategy: its rules, its results, its tests
+        from .pages_admin import backtest_cards, backtest_form, experiments_section, holdings_test_section
+
+        par = rules.parent_of(cur.id)
+        hid = rules.is_hidden(cur.id)
+        with ui.card().classes("oe-card w-full gap-1").style("border-left:4px solid #C9A227"):
+            with ui.row().classes("w-full items-center justify-between"):
+                with ui.row().classes("items-center gap-2"):
+                    if cur.id == prim:
+                        ui.icon("star").classes("text-amber-600").tooltip("Primary strategy")
+                    ui.label(cur.name).classes("oe-h1")
+                    if cur.locked:
+                        ui.icon("lock").classes("text-gray-500").tooltip("Built-in, locked: edit a copy with Save as")
+                    if hid:
+                        ui.label("hidden").classes("oe-small")
+                with ui.row().classes("items-center gap-1"):
+                    sw = ui.switch("Runs daily", value=cur.active)
+                    if cur.id == prim:
+                        sw.disable()
+                        sw.tooltip("The primary strategy always runs daily")
+                    sw.on_value_change(lambda e: _toggle_active(cur, e.value))
+                    if cur.id != prim and rules.scoring_standard(cur.settings) == "standard":
+                        ui.button("Make primary", icon="star_outline", on_click=lambda: _make_primary(cur)).props(
+                            "flat dense no-caps")
+                    if cur.id != prim:
+                        if cur.locked:
+                            ui.button("Show" if hid else "Hide", icon="visibility" if hid else "visibility_off",
+                                      on_click=lambda: (rules.set_hidden(cur.id, not hid), ui.navigate.to(
+                                          f"/strategies?pid={cur.id}&tab={tab}&hidden=1"))).props(
+                                "flat dense no-caps").tooltip("Built-in strategies can't be deleted; hiding takes it "
+                                                              "off this page and the Screener")
+                        else:
+                            ui.button("Delete", icon="delete", on_click=lambda: _delete_strategy(cur)).props(
+                                "flat dense no-caps color=negative").tooltip(
+                                "Delete this strategy with its backtests and paper portfolio")
+            if cur.notes:
+                ui.label(cur.notes).classes("text-sm")
+            if par:
+                diffs = rules.differences(cur.body, par.body)
+                ui.label(f"Copied from {par.name}: " + ("; ".join(diffs) if diffs else "no changes yet") + ".").classes(
+                    "oe-small")
+            ui.label("Considers: " + universe_text(cur.settings) + ".").classes("oe-small")
+            with ui.expansion("What it does, in full").classes("w-full").props("dense"):
+                ui.label(rules.describe(cur.body)).classes("oe-small")
+        with ui.tabs(value=tab).classes("w-full") as tabs:
+            ui.tab("rules", label="Rules", icon="tune")
+            ui.tab("results", label="Results & backtests", icon="query_stats")
+            ui.tab("tests", label="Holdings test & experiments", icon="science")
+        with ui.tab_panels(tabs, value=tab).classes("w-full").style("background:transparent"):
+            with ui.tab_panel("rules").classes("p-0"):
+                _editor(cur)
+            with ui.tab_panel("results").classes("p-0 gap-3"):
+                rec = record(cur)
+                with ui.card().classes("oe-card w-full"):
+                    ui.label("Live paper portfolio").classes("oe-h2")
+                    if rec:
+                        ui.label(f"Since {rec.get('start')}: {pct(rec.get('cagr'), 1)} a year vs S&P 500 "
+                                 f"{pct(rec.get('bench_cagr'), 1)} · worst drop {pct(rec.get('max_dd'), 0)} · holds "
+                                 f"{rec.get('holdings')} · {rec.get('signals_90d')} signals in 90 days").classes("text-sm")
+                        ui.button("Open", icon="open_in_new", on_click=lambda: ui.navigate.to(
+                            f"/performance?run={rec['run_id']}")).props("flat dense")
+                    else:
+                        ui.label("It doesn't run daily, so it has no live paper portfolio. Switch on 'Runs daily' on "
+                                 "its card to keep one.").classes("text-sm")
+                backtest_form(cur.id)
+                runs = [r for r in data.all_runs() if r["kind"] == "backtest" and r["profile_id"] == cur.id]
+                if runs:
+                    ui.label(f"{cur.name}'s backtests").classes("oe-h2")
+                    backtest_cards(runs)
+                else:
+                    ui.label("No backtests of this strategy yet.").classes("oe-muted")
+            with ui.tab_panel("tests").classes("p-0 gap-3"):
+                holdings_test_section(cur.id)
+                experiments_section(cur.id)
+
+        # ---- every backtest, for tidying up
+        allruns = [r for r in data.all_runs() if r["kind"] == "backtest"]
+        if allruns:
+            with ui.expansion(f"All backtests ({len(allruns)}): tidy up", icon="cleaning_services").classes(
+                    "w-full oe-card"):
+                vers = {p.id: p.version for p in allp}
+                trows = []
+                for r in allruns:
+                    stt = data.stats(data.equity(r["id"]))
+                    sj = json.loads(r["settings_json"] or "{}")
+                    trows.append({"id": r["id"], "name": r["name"], "strategy": r["pname"],
+                                  "period": f"{r['start_date']} → {r['end_date']}",
+                                  "ret": pct(stt.get("cagr"), 1) if stt.get("cagr") is not None else "—",
+                                  "spx": pct(stt.get("bench_cagr"), 1) if stt.get("bench_cagr") is not None else "—",
+                                  "state": ("out of date" if sj.get("profile_version") not in
+                                            (None, vers.get(r["profile_id"])) else r["status"])})
+                tbl = ui.table(columns=[
+                    {"name": "name", "label": "Backtest", "field": "name", "align": "left", "sortable": True},
+                    {"name": "strategy", "label": "Strategy", "field": "strategy", "align": "left", "sortable": True},
+                    {"name": "period", "label": "Dates", "field": "period", "sortable": True},
+                    {"name": "ret", "label": "Return a year", "field": "ret"},
+                    {"name": "spx", "label": "S&P 500", "field": "spx"},
+                    {"name": "state", "label": "State", "field": "state", "sortable": True}],
+                    rows=trows, row_key="id", selection="multiple", pagination=15).classes("w-full").props("dense flat")
+                with ui.row().classes("gap-2"):
+                    ui.button("Delete selected", icon="delete", on_click=lambda: _confirm_delete(
+                        [r["id"] for r in tbl.selected])).props("outline color=negative")
+                    ui.button("Select out-of-date ones", on_click=lambda: setattr(
+                        tbl, "selected", [r for r in trows if r["state"] == "out of date"]) or tbl.update()).props("flat")
+                    ui.button("Select all but each strategy's latest", on_click=lambda: _select_old(tbl, trows,
+                                                                                                    allruns)).props(
+                        "flat")
+
+
+def _confirm_delete(ids):
+    from .pages_admin import _confirm_delete_runs
+
+    if ids:
+        _confirm_delete_runs(ids)
+    else:
+        ui.notify("Select backtests to delete first")
+
+
+def _select_old(tbl, trows, allruns):
+    newest = {}
+    for r in allruns:  # newest first
+        newest.setdefault(r["profile_id"], r["id"])
+    keep = set(newest.values())
+    tbl.selected = [r for r in trows if r["id"] not in keep]
+    tbl.update()
+
+
+def _delete_strategy(p):
+    n = db.scalar("SELECT COUNT(*) FROM runs WHERE profile_id=?", (p.id,), 0)
+    with ui.dialog() as dlg, ui.card():
+        ui.label(f"Delete {p.name}?").classes("oe-h2")
+        ui.label(f"Removes the strategy and everything run with it: {n} backtest, holdings-test and paper-portfolio "
+                 "run(s). Company scores are kept. This can't be undone (a backup can restore it).").classes("text-sm")
+
+        def go():
+            try:
+                res = rules.delete_profile(p.id)
+            except ValueError as e:
+                ui.notify(str(e), type="warning")
+                return
+            dlg.close()
+            ui.notify(f"Deleted {p.name} and {res['runs']} run(s)")
+            ui.navigate.to("/strategies")
+
+        with ui.row():
+            ui.button("Delete", icon="delete", on_click=go).props("unelevated color=negative")
+            ui.button("Cancel", on_click=dlg.close).props("flat")
+    dlg.open()
 
 
 def _toggle_active(p, value):
@@ -745,6 +896,30 @@ def house_page():
                     ui.button("Cancel", on_click=dlg.close).props("flat")
             dlg.open()
 
+        def restore():
+            d = rules.house_defaults()
+            if not rules.house_changed(d):
+                ui.notify("The house view already is the shipped checklist.", type="info")
+                return
+            with ui.dialog() as dlg, ui.card():
+                ui.label("Restore the shipped checklist?").classes("oe-h2")
+                ui.label("Every rule, weight, the bank and insurer rules and the near-miss margin go back to the "
+                         "defaults the app ships with (rules/oracle_classic.yaml). Every company is re-scored once and "
+                         "every strategy that runs daily is replayed. Your strategies' own settings don't change.").classes(
+                    "text-sm")
+
+                def ok():
+                    v = rules.set_house_view(d)
+                    dlg.close()
+                    _launch("rebuild_all")
+                    ui.notify(f"House view v{v}: defaults restored; rebuilding.", type="positive")
+                    ui.navigate.reload()
+                with ui.row():
+                    ui.button("Restore defaults and rebuild", on_click=ok).props("unelevated")
+                    ui.button("Cancel", on_click=dlg.close).props("flat")
+            dlg.open()
+
         with ui.row().classes("pt-2"):
             ui.button("Save", on_click=save).props("unelevated")
+            ui.button("Restore defaults", icon="restart_alt", on_click=restore).props("outline")
             ui.button("Back to strategies", on_click=lambda: ui.navigate.to("/strategies")).props("flat")

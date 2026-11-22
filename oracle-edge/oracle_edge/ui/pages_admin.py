@@ -12,7 +12,7 @@ from .. import backup, db, emailer, jobs, paths, rules, scheduler, secrets
 from ..sources import prices
 from ..tradecal import local_run_time
 from . import data
-from .layout import empty, frame, kpi
+from .layout import frame, kpi
 from .theme import pct
 
 
@@ -678,126 +678,147 @@ def live_preview(base: rules.Profile, body: dict) -> dict:
 # ===================================================================== BACKTEST
 @ui.page("/backtest")
 def backtest_page():
+    """0.19: backtests live with their strategy (Strategies → Results / Tests)."""
+    ui.navigate.to("/strategies?tab=results")
+
+
+def holdings_test_section(pid: int) -> None:
     from .. import pipeline
 
-    with frame("Backtest"):
-        ui.label("Backtests").classes("oe-h1")
-        ui.label("Replays a strategy over past dates using only data that was public on each day (point-in-time). "
-                 "Results go into their own run and never mix with your live history.").classes("oe-muted")
-        profs = {p.id: p for p in rules.list_profiles()}
+    profs = {p.id: p for p in rules.list_profiles()}
+    with ui.card().classes("oe-card w-full").style("border-left:4px solid #1f6f4a"):
+        ui.label("Find the best number of holdings, and where new money should go").classes("oe-h2")
+        ui.label("Runs focused portfolios of the best 5, 6, 8, 10 and 12 stocks under each new-money rule (best "
+                 "value, best Rank, spread evenly, patient, sliding reserve, and spread or reserve with weaker "
+                 "holdings sold to fund strong buys), starting with the strategy's starting money and adding "
+                 "its weekly amount, all in one pass, plus the old 'variable' style for comparison. The winner beat "
+                 "the S&P 500 most reliably in each third of the period, not just once. Dollar results are compared "
+                 "with putting the same money into the S&P 500 on the same days.").classes("oe-small")
+        with ui.row().classes("items-end gap-3"):
+            sstart = ui.input("Start", value=db.cfg("backfill_start", "2019-01-01")).props(
+                "outlined dense").classes("w-36")
+            send = ui.input("End", value=date.today().isoformat()).props("outlined dense").classes("w-36")
+            ssizes = ui.input("Holdings to test", value=", ".join(str(x) for x in pipeline.SWEEP_SIZES)).props(
+                "outlined dense").classes("w-56")
+            ui.button("Run holdings test", icon="tune", on_click=lambda: _launch("sweep", {
+                "profile_id": pid, "start": sstart.value, "end": send.value,
+                "sizes": [int(x) for x in re.findall(r"\d+", ssizes.value or "")] or None})).props("unelevated")
+        for sw in db.rows("SELECT * FROM sweeps WHERE COALESCE(kind,'holdings')='holdings' AND profile_id=? "
+                          "ORDER BY id DESC LIMIT 3", (pid,)):
+            _sweep_card(dict(sw), profs)
 
-        # ---------------------------------------------------------- holdings test
-        with ui.card().classes("oe-card w-full").style("border-left:4px solid #1f6f4a"):
-            ui.label("Find the best number of holdings, and where new money should go").classes("oe-h2")
-            ui.label("Runs focused portfolios of the best 5, 6, 8, 10 and 12 stocks under each new-money rule (best "
-                     "value, best Rank, spread evenly, patient, sliding reserve, and spread or reserve with weaker "
-                     "holdings sold to fund strong buys), starting with the strategy's starting money and adding "
-                     "its weekly amount, all in one pass, plus the old 'variable' style for comparison. The winner beat "
-                     "the S&P 500 most reliably in each third of the period, not just once. Dollar results are compared "
-                     "with putting the same money into the S&P 500 on the same days.").classes("oe-small")
-            with ui.row().classes("items-end gap-3"):
-                sprof = ui.select({k: v.name for k, v in profs.items()}, value=rules.default_profile().id,
-                                  label="Strategy").props("outlined dense").classes("w-64")
-                sstart = ui.input("Start", value=db.cfg("backfill_start", "2019-01-01")).props(
-                    "outlined dense").classes("w-36")
-                send = ui.input("End", value=date.today().isoformat()).props("outlined dense").classes("w-36")
-                ssizes = ui.input("Holdings to test", value=", ".join(str(x) for x in pipeline.SWEEP_SIZES)).props(
-                    "outlined dense").classes("w-56")
-                ui.button("Run holdings test", icon="tune", on_click=lambda: _launch("sweep", {
-                    "profile_id": sprof.value, "start": sstart.value, "end": send.value,
-                    "sizes": [int(x) for x in re.findall(r"\d+", ssizes.value or "")] or None})).props("unelevated")
-            for sw in db.rows("SELECT * FROM sweeps WHERE COALESCE(kind,'holdings')='holdings' ORDER BY id DESC LIMIT 3"):
-                _sweep_card(dict(sw), profs)
 
-        # ---------------------------------------------------------- experiments
-        with ui.card().classes("oe-card w-full").style("border-left:4px solid #3d405b"):
-            ui.label("Experiments: find the best risk-adjusted setup").classes("oe-h2")
-            ui.label("Runs your live setup, the Risk Optimized defaults and experiments A–F (holdings, 20% cap, sector and "
-                     "correlation limits, market overlay) in one replay, then G: the most robust of A–F with the enhanced "
-                     "valuation (and G+ with a bigger margin of safety for less predictable earnings). Ranked by a "
-                     "robustness score: 30% median CAGR across three independent periods, 25% maximum drawdown, 20% "
-                     "worst 12 months, 15% consistency, 10% turnover. Trading costs come from the strategy "
-                     "(Risk Optimized: 0.10% per trade).").classes("oe-small")
-            with ui.row().classes("items-end gap-3"):
-                risk_id = db.scalar("SELECT id FROM profiles WHERE name=?", (rules.RISK_NAME,))
-                eprof = ui.select({k: v.name for k, v in profs.items()}, value=risk_id or rules.default_profile().id,
-                                  label="Strategy").props("outlined dense").classes("w-72")
-                estart = ui.input("Start", value=db.cfg("backfill_start", "2019-01-01")).props(
-                    "outlined dense").classes("w-36")
-                eend = ui.input("End", value=date.today().isoformat()).props("outlined dense").classes("w-36")
-                ui.button("Run experiments A–G", icon="science", on_click=lambda: _launch("experiments", {
-                    "profile_id": eprof.value, "start": estart.value, "end": eend.value})).props("unelevated")
-            for sw in db.rows("SELECT * FROM sweeps WHERE kind='experiments' ORDER BY id DESC LIMIT 2"):
-                _experiment_card(dict(sw), profs)
+def experiments_section(pid: int) -> None:
+    profs = {p.id: p for p in rules.list_profiles()}
+    with ui.card().classes("oe-card w-full").style("border-left:4px solid #3d405b"):
+        ui.label("Experiments: find the best risk-adjusted setup").classes("oe-h2")
+        ui.label("Runs this setup, the Risk Optimized defaults and experiments A–F (holdings, 20% cap, sector and "
+                 "correlation limits, market overlay) in one replay, then G: the most robust of A–F with the enhanced "
+                 "valuation (and G+ with a bigger margin of safety for less predictable earnings). Ranked by a "
+                 "robustness score: 30% median CAGR across three independent periods, 25% maximum drawdown, 20% "
+                 "worst 12 months, 15% consistency, 10% turnover. Trading costs come from the strategy.").classes(
+            "oe-small")
+        with ui.row().classes("items-end gap-3"):
+            estart = ui.input("Start", value=db.cfg("backfill_start", "2019-01-01")).props(
+                "outlined dense").classes("w-36")
+            eend = ui.input("End", value=date.today().isoformat()).props("outlined dense").classes("w-36")
+            ui.button("Run experiments A–G", icon="science", on_click=lambda: _launch("experiments", {
+                "profile_id": pid, "start": estart.value, "end": eend.value})).props("unelevated")
+        for sw in db.rows("SELECT * FROM sweeps WHERE kind='experiments' AND profile_id=? ORDER BY id DESC LIMIT 2",
+                          (pid,)):
+            _experiment_card(dict(sw), profs)
 
-        # ---------------------------------------------------------- single backtest
+
+def backtest_form(pid: int) -> None:
+    """Run one backtest of a strategy."""
+    from .. import pipeline
+
+    p = rules.get_profile(pid)
+    st = p.settings
+    with ui.card().classes("oe-card w-full"):
+        ui.label("Run a backtest").classes("oe-h2")
+        ui.label("Replays the strategy over past dates using only data that was public on each day (point-in-time). "
+                 "Results go into their own run and never mix with the live history.").classes("oe-small")
+        with ui.row().classes("items-end gap-3"):
+            start = ui.input("Start", value=db.cfg("backfill_start", "2019-01-01")).props("outlined dense").classes(
+                "w-36")
+            end = ui.input("End", value=date.today().isoformat()).props("outlined dense").classes("w-36")
+            cad = ui.select({"weekly": "Weekly signals (fast)", "daily": "Daily signals"}, value="weekly",
+                            label="Cadence").props("outlined dense").classes("w-48")
+            hold = ui.number("Holdings (blank = strategy's)", format="%.0f", min=0).props(
+                "outlined dense clearable").classes("w-52")
+            ui.button("Run backtest", icon="play_arrow", on_click=lambda: _launch(
+                "backtest", {"profile_id": pid, "start": start.value, "end": end.value, "cadence": cad.value,
+                             **({"max_holdings": int(hold.value), "mode": "focused"} if hold.value else {})})
+                      ).props("unelevated")
+        if st.get("buy_rule") == "top_ranked" and st.get("portfolio_mode") == "focused":
+            ui.label(f"Money: ${float(st.get('initial_capital') or 0):,.0f} to start + "
+                     f"${float(st.get('weekly_contribution') or 0):,.0f} a week · top-ranked "
+                     f"{int(st.get('ranked_buy_count') or 4)} every week").classes("oe-small")
+        elif st.get("portfolio_mode") == "focused":
+            ui.label(f"Money: ${float(st.get('initial_capital') or 0):,.0f} to start + "
+                     f"${float(st.get('weekly_contribution') or 0):,.0f} a week · "
+                     f"{pipeline._portfolio_label('focused', 0 if st.get('max_holdings') == 0 else st.get('max_holdings'), st.get('sizing', 'equal'), st.get('new_money', 'best_value'))}").classes(
+                "oe-small")
+        src = db.cfg("price_sources", prices.DEFAULT_ORDER)
+        if all(prices.REGISTRY[s].free for s in src if s in prices.REGISTRY):
+            ui.label("⚠ Free price sources don't include delisted stocks, so results are survivorship-biased "
+                     "(likely optimistic). A paid source + 'Re-sync' removes this.").classes("oe-small")
+
+
+def backtest_cards(runs: list[dict], show_strategy: bool = False) -> None:
+    """One card per backtest: its result against the S&P 500, open, recalculate, delete."""
+    from .. import pipeline
+
+    vers = {p.id: p.version for p in rules.list_profiles()}
+    for r in runs:
+        curve = data.equity(r["id"])
+        stt = data.stats(curve)
+        sj = json.loads(r["settings_json"] or "{}")
+        stale = sj.get("profile_version") not in (None, vers.get(r["profile_id"]))
         with ui.card().classes("oe-card w-full"):
-            ui.label("Run one backtest").classes("oe-h2")
-            with ui.row().classes("items-end gap-3"):
-                prof = ui.select({k: v.name for k, v in profs.items()}, value=rules.default_profile().id,
-                                 label="Strategy").props("outlined dense").classes("w-64")
-                start = ui.input("Start", value=db.cfg("backfill_start", "2019-01-01")).props("outlined dense").classes(
-                    "w-36")
-                end = ui.input("End", value=date.today().isoformat()).props("outlined dense").classes("w-36")
-                cad = ui.select({"weekly": "Weekly signals (fast)", "daily": "Daily signals"}, value="weekly",
-                                label="Cadence").props("outlined dense").classes("w-48")
-                hold = ui.number("Holdings (blank = strategy's)", format="%.0f", min=0).props(
-                    "outlined dense clearable").classes("w-52")
-                hint = ui.label("").classes("oe-small")
+            with ui.row().classes("w-full items-center justify-between"):
+                with ui.column().classes("gap-0"):
+                    ui.label(r["name"]).classes("font-semibold")
+                    ui.label((f"{r['pname']} · " if show_strategy else "") + f"{r['start_date']} → {r['end_date']} · "
+                             f"{pipeline._portfolio_label(sj.get('mode', 'variable'), sj.get('max_holdings'), sj.get('sizing', 'equal'))}"
+                             f" · {r['status']}" + (" · ⚠ strategy edited since: recalculate" if stale else "")).classes(
+                        "oe-small")
+                with ui.row().classes("gap-6 items-center"):
+                    beat = (stt.get("cagr") or 0) >= (stt.get("bench_cagr") or 0)
+                    ui.label(f"{pct(stt.get('cagr'), 1)} a year vs S&P {pct(stt.get('bench_cagr'), 1)}").classes(
+                        "text-sm font-semibold").style(f"color:{'#1f6f4a' if beat else '#a33a2b'}")
+                    ui.label(f"Worst drop {pct(stt.get('max_dd'), 0)} (S&P {pct(stt.get('bench_max_dd'), 0)})").classes(
+                        "text-sm").style("color:#a33a2b" if (stt.get("max_dd") or 0) < (stt.get("bench_max_dd") or 0)
+                                         else "")
+                    ui.label(f"avg {sum(c.get('holdings') or 0 for c in curve) / max(len(curve), 1):.0f} "
+                             f"holdings").classes("text-sm")
+                    ui.button("Open", on_click=lambda r=r: ui.navigate.to(f"/performance?run={r['id']}")).props(
+                        "outline dense")
+                    ui.button("Recalculate", icon="refresh", on_click=lambda r=r: _launch(
+                        "recalc", {"run_id": r["id"]})).props("flat dense").tooltip(
+                        "Re-run with the strategy's current settings")
+                    ui.button(icon="delete", on_click=lambda r=r: _confirm_delete_runs([r["id"]])).props(
+                        "flat round dense").tooltip("Delete this backtest")
 
-                def show_hint():
-                    st = profs[prof.value].settings
-                    hint.text = (f"Strategy: best {st.get('max_holdings')} · "
-                                 f"{pipeline.policy_label(st.get('new_money', 'best_value') + ('+fund' if st.get('fund_strong') else ''))} · "
-                                 f"${st.get('initial_capital', 0):,.0f} + ${st.get('weekly_contribution', 0):,.0f}/week"
-                                 if st.get("portfolio_mode") == "focused" else "Strategy: variable holdings")
-                prof.on_value_change(lambda e: show_hint())
-                show_hint()
-                ui.button("Run backtest", icon="play_arrow", on_click=lambda: _launch(
-                    "backtest", {"profile_id": prof.value, "start": start.value, "end": end.value,
-                                 "cadence": cad.value,
-                                 **({"max_holdings": int(hold.value), "mode": "focused"} if hold.value else {})})
-                          ).props("unelevated")
-            src = db.cfg("price_sources", prices.DEFAULT_ORDER)
-            if all(prices.REGISTRY[s].free for s in src if s in prices.REGISTRY):
-                ui.label("⚠ Free price sources don't include delisted stocks, so results are survivorship-biased "
-                         "(likely optimistic). A paid source + 'Re-sync' removes this.").classes("oe-small")
-            ui.label("Note: SEC data starts in 2009, so strict 10-year rules can only judge larger companies before "
-                     "~2021. Use the 'Relaxed backfill (5y)' strategy (short record) for earlier tests.").classes("oe-small")
-        runs = [r for r in data.all_runs() if r["kind"] == "backtest"]
-        if not runs:
-            empty("No backtests yet.")
-            return
-        with ui.row().classes("w-full items-center justify-between"):
-            ui.label("Your backtests").classes("oe-h2")
-            ui.button("Recalculate all with current strategy settings", icon="refresh",
-                      on_click=lambda: _launch("recalc_all")).props("flat")
-        for r in runs:
-            curve = data.equity(r["id"])
-            stt = data.stats(curve)
-            sj = json.loads(r["settings_json"] or "{}")
-            with ui.card().classes("oe-card w-full"):
-                with ui.row().classes("w-full items-center justify-between"):
-                    with ui.column().classes("gap-0"):
-                        ui.label(r["name"]).classes("font-semibold")
-                        ui.label(f"{r['pname']} · {r['start_date']} → {r['end_date']} · "
-                                 f"{pipeline._portfolio_label(sj.get('mode', 'variable'), sj.get('max_holdings'), sj.get('sizing', 'equal'))}"
-                                 f" · {r['status']}").classes("oe-small")
-                    with ui.row().classes("gap-6 items-center"):
-                        beat = (stt.get("cagr") or 0) >= (stt.get("bench_cagr") or 0)
-                        ui.label(f"CAGR {pct(stt.get('cagr'), 1)} vs S&P {pct(stt.get('bench_cagr'), 1)}").classes(
-                            "text-sm font-semibold").style(f"color:{'#1f6f4a' if beat else '#a33a2b'}")
-                        ui.label(f"Worst drop {pct(stt.get('max_dd'), 0)} (S&P {pct(stt.get('bench_max_dd'), 0)})").classes(
-                            "text-sm").style("color:#a33a2b" if (stt.get("max_dd") or 0) < (stt.get("bench_max_dd") or 0)
-                                             else "")
-                        ui.label(f"avg {sum(c.get('holdings') or 0 for c in curve) / max(len(curve), 1):.0f} "
-                                 f"holdings").classes("text-sm")
-                        ui.button("Open", on_click=lambda r=r: ui.navigate.to(f"/performance?run={r['id']}")).props(
-                            "outline dense")
-                        ui.button("Recalculate", icon="refresh", on_click=lambda r=r: _launch(
-                            "recalc", {"run_id": r["id"]})).props("flat dense").tooltip(
-                            "Re-run with the strategy's current settings (holdings, sizing, add limits)")
-                        ui.button(icon="delete", on_click=lambda r=r: _delete_run(r["id"])).props("flat round dense")
+
+def _confirm_delete_runs(ids: list[int]) -> None:
+    from ..pipeline import clear_run
+
+    with ui.dialog() as dlg, ui.card():
+        ui.label(f"Delete {len(ids)} backtest{'s' if len(ids) != 1 else ''}?").classes("oe-h2")
+        ui.label("Their results, trades and charts are removed. The strategies stay.").classes("text-sm")
+
+        def go():
+            for i in ids:
+                clear_run(i)
+            dlg.close()
+            ui.navigate.reload()
+
+        with ui.row():
+            ui.button("Delete", icon="delete", on_click=go).props("unelevated color=negative")
+            ui.button("Cancel", on_click=dlg.close).props("flat")
+    dlg.open()
 
 
 def _sweep_card(sw: dict, profs: dict):

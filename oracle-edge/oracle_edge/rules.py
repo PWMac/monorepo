@@ -630,6 +630,13 @@ def set_house_view(body: dict) -> int:
     return new["version"]
 
 
+def house_defaults() -> dict:
+    """The checklist as shipped (rules/oracle_classic.yaml): rules, bank and insurer rules, weights, near-miss margin."""
+    base = load_yaml_profile()
+    return {**{k: copy.deepcopy(base[k]) for k in HOUSE_KEYS if k in base},
+            "settings": {k: base["settings"][k] for k in HOUSE_SETTINGS if k in base["settings"]}}
+
+
 def house_changed(body: dict) -> bool:
     hv = house_view() or {}
     a = {k: body.get(k) for k in HOUSE_KEYS}
@@ -677,8 +684,52 @@ def get_profile(pid: int) -> Profile:
                    _with_defaults(json.loads(r["body_json"])), r["notes"] or "")
 
 
-def list_profiles() -> list[Profile]:
-    return [get_profile(r["id"]) for r in db.rows("SELECT id FROM profiles ORDER BY id")]
+def list_profiles(include_hidden: bool = True) -> list[Profile]:
+    q = "SELECT id FROM profiles" + ("" if include_hidden else " WHERE COALESCE(hidden, 0)=0") + " ORDER BY id"
+    return [get_profile(r["id"]) for r in db.rows(q)]
+
+
+def is_hidden(pid: int) -> bool:
+    return bool(db.scalar("SELECT COALESCE(hidden, 0) FROM profiles WHERE id=?", (pid,), 0))
+
+
+def set_hidden(pid: int, hidden: bool) -> None:
+    """Hide a strategy from the Strategies page (built-ins can't be deleted: the app would add them back)."""
+    if hidden and pid == primary_id():
+        raise ValueError("The primary strategy can't be hidden.")
+    db.get().execute("UPDATE profiles SET hidden=?, active=CASE WHEN ? THEN 0 ELSE active END WHERE id=?",
+                     (int(hidden), int(hidden), pid))
+
+
+def delete_profile(pid: int) -> dict:
+    """Delete a strategy with its paper portfolio, backtests, holdings tests and experiments. Company scores it
+    shares with other strategies are handed over to one of them, so nothing is re-scored. Returns what was removed."""
+    p = get_profile(pid)
+    if pid == primary_id():
+        raise ValueError("The primary strategy can't be deleted: make another one primary first.")
+    if p.locked:
+        raise ValueError("Built-in strategies can't be deleted (the app adds them back); hide it instead.")
+    from .pipeline import clear_run
+
+    runs = [r["id"] for r in db.rows("SELECT id FROM runs WHERE profile_id=?", (pid,))]
+    for rid in runs:
+        clear_run(rid)
+    con = db.get()
+    sweeps = con.execute("DELETE FROM sweeps WHERE profile_id=?", (pid,)).rowcount
+    # scores stored under this strategy's id: hand them to another strategy scored the same way, else drop them
+    if db.scalar("SELECT COUNT(*) FROM snapshots WHERE profile_id=?", (pid,), 0):
+        h = scoring_hash(p.body)
+        heir = next((q for q in list_profiles() if q.id != pid and scoring_hash(q.body) == h), None)
+        if heir:
+            con.execute("UPDATE snapshots SET profile_id=?, profile_version=? WHERE profile_id=? AND profile_version=?",
+                        (heir.id, heir.version, pid, p.version))
+            con.execute("UPDATE wonder SET profile_id=? WHERE profile_id=? AND cik NOT IN "
+                        "(SELECT cik FROM wonder WHERE profile_id=?)", (heir.id, pid, heir.id))
+        con.execute("DELETE FROM snapshots WHERE profile_id=?", (pid,))
+        con.execute("DELETE FROM wonder WHERE profile_id=?", (pid,))
+    con.execute("UPDATE profiles SET parent_id=NULL WHERE parent_id=?", (pid,))
+    con.execute("DELETE FROM profiles WHERE id=?", (pid,))
+    return {"runs": len(runs), "sweeps": sweeps}
 
 
 def active_profiles() -> list[Profile]:

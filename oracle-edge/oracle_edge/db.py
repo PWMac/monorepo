@@ -270,6 +270,10 @@ MIGRATIONS: list[str] = [
     """
     ALTER TABLE signal_state ADD COLUMN streaks_json TEXT;
     """,
+    # ---- v21: built-in strategies can be hidden from the Strategies page ----
+    """
+    ALTER TABLE profiles ADD COLUMN hidden INTEGER DEFAULT 0;
+    """,
 ]
 
 
