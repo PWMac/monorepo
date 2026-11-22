@@ -1159,6 +1159,16 @@ def rebuild_profile(job, profile_id: int) -> str:
     return f"{p.name} rebuilt."
 
 
+def rebuild_all(job) -> str:
+    """After the house view changed: re-score every company once and replay every strategy that runs daily (the
+    primary first). Strategies on the same scoring standard share the new scores."""
+    profs = rules.active_profiles()
+    for k, p in enumerate(profs):
+        job.update(k / len(profs), f"Rebuilding {p.name} ({k + 1} of {len(profs)})")
+        rebuild_profile(job, p.id)
+    return f"Rebuilt {len(profs)} strateg{'y' if len(profs) == 1 else 'ies'} on the new house view."
+
+
 def clear_sweep(sweep_id: int) -> None:
     sw = db.one("SELECT run_ids FROM sweeps WHERE id=?", (sweep_id,))
     for rid in json.loads((sw["run_ids"] if sw else None) or "[]"):

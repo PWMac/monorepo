@@ -439,7 +439,7 @@ def columns(bar: float) -> tuple[list[dict], dict[str, list[str]]]:
         c["columnGroupShow"] = "open"
     value = [
         {**_c("v_mos", "Margin of safety", None, 104, "1 − price ÷ likely value (value-driver model, at a 9% "
-                                                     "discount rate). Green = at least the profile's margin of safety."),
+                                                     "discount rate). Green = at least the primary strategy's margin of safety."),
          ":cellRenderer": _MOS, "type": "rightAligned", "filter": "agNumberColumnFilter"},
         {**_c("v_er", "Expected return", None, 100, "The yearly return at which the value equals today's price. Green "
                                                     "= at least your hurdle."),
@@ -460,8 +460,8 @@ def columns(bar: float) -> tuple[list[dict], dict[str, list[str]]]:
                                                     "cautious assumptions at your hurdle, less the margin of safety (the "
                                                     "buy signals' rule)", columnGroupShow="open"),
          ":cellRenderer": _BUY},
-        _c("price_status", "Live profile", None, 150, "Buy Zone, or how far the price is above the buy-below price, "
-                                                      "for the live profile's own valuation model.",
+        _c("price_status", "Primary strategy", None, 150, "Buy Zone, or how far the price is above the buy-below price, "
+                                                      "for the primary strategy's own valuation model.",
            columnGroupShow="open"),
     ]
     info = [
@@ -586,6 +586,27 @@ FILTER_GROUPS = [("Company", ["industry", "tier", "checklist", "mcap"]),
                  ("Key measures", ["roic_med", "gm_med", "om_med", "nm_med", "ocfm_med", "rev_g5", "debt_payback",
                                    "dollar_test"]),
                  ("Value", ["v_mos", "v_er", "v_buy", "v_implied", "v_gap", "v_pe_rel"])]
+def strategy_from_filters(filters: dict, size_min: float = 0.0) -> tuple[dict, list[str]]:
+    """The Screener's filters as a strategy's universe (0.18). Only what is known on past dates carries over
+    (Wonderfulness, Quality, market value, industry), so backtests stay honest; the rest is listed back."""
+    upd: dict = {}
+    ignored = []
+    for k, v in (filters or {}).items():
+        if k == "score" and (v or {}).get("min") is not None:
+            upd["universe_wonder_min"] = float(v["min"])
+        elif k == "quality" and (v or {}).get("min") is not None:
+            upd["quality_min"] = float(v["min"])
+        elif k == "mcap" and (v or {}).get("min") is not None:
+            upd["min_market_cap"] = float(v["min"]) * 1e9
+        elif k == "industry" and v:
+            upd["universe_industries"] = list(v)
+        elif v not in (None, [], {}):
+            ignored.append(FILTERS[k][0] if k in FILTERS else k)
+    if size_min:
+        upd["min_market_cap"] = max(upd.get("min_market_cap", 0.0), float(size_min))
+    return upd, ignored
+
+
 SCALE = {"num": 1.0, "pct": 0.01, "yrs": 1.0, "x": 1.0, "bil": 1e9}
 SUFFIX = {"num": "", "pct": "%", "yrs": " yrs", "x": "×", "bil": " $B"}
 TREND_OPTS = {"up": "Rising ▲", "flat": "Steady ▬", "down": "Falling ▼", "new": "New"}
@@ -718,6 +739,9 @@ def screener_page(compare: str = "", view: str = "both"):
                              label="Market value").props("dense outlined").classes("w-36")
             healthy = ui.switch("Hide companies slipping now", value=False)
             buyable = ui.switch("Only in the Buy Zone today", value=False)
+            ui.button("Save as strategy", icon="playlist_add",
+                      on_click=lambda: save_strategy()).props("flat no-caps").tooltip(
+                "A new strategy (a copy of the primary one) that considers only the companies these filters allow")
             add_btn = ui.button("Add filter", icon="filter_alt").props("outline no-caps")
             with add_btn:
                 with ui.menu().props("auto-close"):
@@ -725,6 +749,47 @@ def screener_page(compare: str = "", view: str = "both"):
                         ui.item_label(gname).props("header").classes("text-xs uppercase text-gray-500")
                         for k in keys:
                             ui.menu_item(FILTERS[k][0], on_click=lambda k=k: add_filter(k)).classes("pl-6")
+        def save_strategy():
+            upd, ignored = strategy_from_filters(st["filters"], size.value or 0)
+            with ui.dialog() as dlg, ui.card().style("max-width:560px"):
+                ui.label("Save these filters as a strategy").classes("oe-h2")
+                ui.label("A copy of the primary strategy that considers only these companies; its price rule and "
+                         "portfolio settings are the primary's, and you can change them on the Strategies page.").classes(
+                    "text-sm")
+                carried = []
+                if "universe_wonder_min" in upd:
+                    carried.append(f"Wonderfulness {upd['universe_wonder_min']:.0f}+")
+                if "quality_min" in upd:
+                    carried.append(f"Quality {upd['quality_min']:.0f}+")
+                if "min_market_cap" in upd:
+                    carried.append(f"market value ${upd['min_market_cap'] / 1e9:g}B+")
+                if "universe_industries" in upd:
+                    carried.append(f"{len(upd['universe_industries'])} industries")
+                ui.label("Carried over: " + (", ".join(carried) if carried else "nothing (no filter the strategy can "
+                                             "use)")).classes("text-sm font-semibold")
+                if ignored:
+                    ui.label("Not carried over (not known for past dates, so a backtest couldn't use them fairly): "
+                             + ", ".join(ignored) + ".").classes("oe-small")
+                nm = ui.input("Strategy name").props("outlined dense").classes("w-full")
+
+                def ok():
+                    if not (nm.value or "").strip():
+                        return
+                    base_p = rules.default_profile()
+                    b = json.loads(json.dumps(base_p.body))
+                    b["settings"].update(upd)
+                    try:
+                        new = rules.save_as(base_p.id, nm.value.strip(), b)
+                    except Exception as e:
+                        ui.notify(str(e), type="warning")
+                        return
+                    dlg.close()
+                    ui.navigate.to(f"/strategies?pid={new}")
+                with ui.row():
+                    ui.button("Create", on_click=ok).props("unelevated")
+                    ui.button("Cancel", on_click=dlg.close).props("flat")
+            dlg.open()
+
         chips = ui.row().classes("items-center gap-2 w-full")
         editor = ui.column().classes("w-full gap-1")
 

@@ -336,6 +336,63 @@ class SnapshotBook:
     def ciks(self):
         return list(self.by_cik.keys())
 
+    # ---- a strategy's universe (0.18): Wonderfulness as known on a date, and industries
+    def wonder_asof(self, cik: int, d: str) -> float | None:
+        """Wonderfulness from the latest annual report filed on or before d (each fiscal year's score, ranked within
+        its year; today's 'now' score once it is the newest), so a backtest only sees what was known then."""
+        wb = getattr(self, "_wonder", None)
+        if wb is None:
+            wb = self._wonder = wonder_book()
+        a = wb.get(cik)
+        if not a:
+            return None
+        i = bisect_right(a[0], d) - 1
+        return a[1][i] if i >= 0 else None
+
+    def industry(self, cik: int) -> str:
+        ind = getattr(self, "_ind", None)
+        if ind is None:
+            ind = self._ind = {r["cik"]: r["sic_desc"] or "" for r in db.rows("SELECT cik, sic_desc FROM securities")}
+        return ind.get(cik, "")
+
+
+def wonder_book() -> dict[int, tuple[list[str], list[float]]]:
+    """cik -> (filing dates, Wonderfulness), oldest first, from the shared scores (the primary strategy's)."""
+    from .rules import default_profile
+
+    pid = default_profile().snap[0]
+    out: dict[int, tuple[list[str], list[float]]] = {}
+    rows = db.rows("SELECT cik, filed, score, cohort FROM wonder WHERE profile_id=? AND filed IS NOT NULL "
+                   "ORDER BY cik, filed, cohort", (pid,))
+    for r in rows:
+        a = out.setdefault(r["cik"], ([], []))
+        if a[0] and a[0][-1] == r["filed"]:
+            if r["cohort"] == "now":  # same report: today's ranking replaces that year's
+                a[1][-1] = r["score"]
+            continue
+        a[0].append(r["filed"])
+        a[1].append(r["score"])
+    return out
+
+
+def universe_ok(st: dict, snaps, cik: int, d: str) -> tuple[bool, str]:
+    """Whether a company is in the strategy's universe on day d (beyond Quality, size and the checklist, which the
+    evaluation checks itself): Wonderfulness at least universe_wonder_min, and its industry among
+    universe_industries (when set) and not among universe_exclude_industries."""
+    wmin = st.get("universe_wonder_min")
+    if wmin not in (None, "", 0):
+        w = snaps.wonder_asof(cik, d)
+        if w is None or w < float(wmin):
+            return False, f"Wonderfulness {'unknown' if w is None else f'{w:.0f}'} under {float(wmin):.0f}"
+    inc, exc = st.get("universe_industries") or [], st.get("universe_exclude_industries") or []
+    if inc or exc:
+        ind = snaps.industry(cik)
+        if inc and ind not in inc:
+            return False, "industry not in this strategy's list"
+        if exc and ind in exc:
+            return False, "industry excluded by this strategy"
+    return True, ""
+
 
 class _OneBook(SnapshotBook):
     """SnapshotBook for a single company (the stock page's on-the-spot evaluation)."""
@@ -566,6 +623,8 @@ def evaluate(date: str, profile: Profile, snaps: SnapshotBook, pb: PriceBook, re
         interesting = (gates and q is not None and q >= qmin) or near or cik in owned
         if not interesting:
             continue
+        if cik not in owned and not universe_ok(st, snaps, cik, date)[0]:
+            continue  # outside this strategy's universe (holdings are still followed)
         foreign = bool(info.get("is_foreign"))
         if foreign and not st.get("include_foreign", True) and cik not in owned:
             continue
