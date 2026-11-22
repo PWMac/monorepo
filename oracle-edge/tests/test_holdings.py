@@ -272,3 +272,20 @@ def test_sync_failures_are_reported_and_logged(monkeypatch):
     monkeypatch.setattr(brokers.SnapTrade, "get", boom)
     r = brokers.run_sync("snaptrade")
     assert not r["ok"] and "401" in r["messages"][0] and "401" in brokers.sync_log(1)[0]["detail"]
+
+
+def test_snaptrade_sync_brings_in_every_investment_account(clean, monkeypatch):
+    resp = {
+        "/accounts": [{"id": "acc-1", "name": "Individual", "number": "ABC123", "institution_name": "Vanguard US",
+                       "account_category": "INVESTMENT"},
+                      {"id": "acc-2", "name": "Checking", "number": "9", "institution_name": "Bank",
+                       "account_category": "banking"}],
+        "/accounts/acc-1/positions/all": {"results": [
+            {"instrument": {"kind": "stock", "symbol": "VTI"}, "units": "10", "price": "300", "cost_basis": "200"}]},
+        "/accounts/acc-1/balances": [{"currency": {"code": "USD"}, "cash": 55.5}],
+        "/accounts/acc-1/activities": {"data": [], "pagination": {"offset": 0, "limit": 1000, "total": 0}}}
+    monkeypatch.setattr(brokers.SnapTrade, "get", lambda self, path, params=None: resp.get(path))
+    r = brokers.run_sync("snaptrade")
+    assert r["ok"] and "Vanguard US …123: 1 positions" in r["messages"][0] and "Checking" in r["messages"][-1]
+    (a,) = holdings.accounts()
+    assert a["cash"] == 55.5 and [x["ticker"] for x in holdings.lots([a["id"]])] == ["VTI"]

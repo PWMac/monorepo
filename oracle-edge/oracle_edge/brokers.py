@@ -660,6 +660,9 @@ class SnapTradeError(Exception):
     pass
 
 
+NON_INVESTMENT = {"banking", "bank", "checking", "savings", "credit", "credit_card", "loan", "mortgage"}
+
+
 class SnapTrade:
     BASE = "https://api.snaptrade.com"
 
@@ -764,45 +767,91 @@ class SnapTrade:
             raise SnapTradeError("The keys work, but SnapTrade has no brokerage account connected yet. In the SnapTrade "
                                  "dashboard, connect E*TRADE, Vanguard, Webull or another brokerage, wait until it "
                                  "shows as connected, then sync again.")
-        msgs, ids = [], []
+        msgs, ids, skipped = [], [], []
+        diag = []
         for k, a in enumerate(accts):
-            if (a.get("account_category") or "investment") not in ("investment", None) or a.get("is_paper"):
+            if not isinstance(a, dict) or not a.get("id"):
+                skipped.append(f"an entry without an account id ({str(a)[:80]})")
                 continue
-            ext = str(a["id"])
-            tail = str(a.get("number") or "")[-3:]
-            ex = holdings.find_account("snaptrade", ext)
-            inst = a.get("institution_name") or "Brokerage"
-            aid = ex["id"] if ex else holdings.add_account(f"{inst} {a.get('name') or ''} …{tail}".replace("  ", " "),
-                                                           inst, "snaptrade", tail, ext)
-            js = self.get(f"/accounts/{ext}/positions/all")
-            if js is None:
-                js = self.get(f"/api/v1/accounts/{ext}/positions") or []
-            pos, lts = self.parse_positions(js)
-            r = holdings.apply_positions(aid, pos, "snaptrade", fill_missing=not lts)
-            if lts and all(x["open_date"] for x in lts):
-                holdings.replace_lots(aid, lts, "snaptrade lots")
-            bal = self.get(f"/accounts/{ext}/balances") or []
-            c = sum(num(b.get("cash")) or 0 for b in bal if isinstance(b, dict))
-            holdings.update_account(aid, cash=c)
-            new, off = 0, 0
-            start = (date.today() - timedelta(days=days)).isoformat()
-            while True:
-                js = self.get(f"/accounts/{ext}/activities", {"startDate": start, "endDate": date.today().isoformat(),
-                                                              "offset": off, "limit": 1000})
-                data = (js.get("data") if isinstance(js, dict) else js) or []
-                for x in data:
-                    p = self.parse_activity(x)
-                    if p and holdings.add_txn(aid, p["date"], p["kind"], p["ticker"], p["shares"], p["price"],
-                                              p["amount"], p["fees"], p["description"], "snaptrade", p["ext_id"]):
-                        new += 1
-                tot = (js.get("pagination") or {}).get("total") if isinstance(js, dict) else None
-                off += len(data)
-                if not data or tot is None or off >= tot:
-                    break
-            holdings.update_account(aid, synced_at=db.now())
-            ids.append(aid)
-            msgs.append(f"{inst} …{tail}: {r['positions']} positions" + (f", {len(lts)} purchases" if lts else "")
-                        + f", cash {c:,.2f}, {new} new transactions")
+            ba = a.get("brokerage_authorization")
+            inst = a.get("institution_name") or (ba.get("name") if isinstance(ba, dict) else None) or "Brokerage"
+            cat = str(a.get("account_category") or "").lower()
+            label = f"{inst} {a.get('name') or ''}".strip()
+            if a.get("is_paper") is True or cat in NON_INVESTMENT:
+                skipped.append(f"{label} ({'paper account' if a.get('is_paper') is True else cat})")
+                continue
+            try:
+                r = self._sync_account(a, inst, days, diag)
+            except Exception as e:  # one broker failing shouldn't stop the others
+                msgs.append(f"{label}: failed: {e}")
+                continue
+            ids.append(r["aid"])
+            msgs.append(r["msg"])
             if progress:
                 progress((k + 1) / max(len(accts), 1), msgs[-1])
+        if skipped:
+            msgs.append("Skipped: " + "; ".join(skipped))
+        self._save_diag(accts, diag)
+        if not ids:
+            raise SnapTradeError(f"SnapTrade listed {len(accts)} account(s) but none could be brought in. "
+                                 + " · ".join(msgs))
         return {"accounts": ids, "messages": msgs}
+
+    @staticmethod
+    def _save_diag(accts, diag) -> None:
+        """What SnapTrade sent last time (account numbers masked), for troubleshooting: data/snaptrade_last_sync.json
+        on this computer only."""
+        from . import paths
+
+        def mask(o):
+            if isinstance(o, dict):
+                return {k: (("…" + str(v)[-3:]) if k in ("number", "account_number") and v else mask(v))
+                        for k, v in o.items()}
+            if isinstance(o, list):
+                return [mask(x) for x in o]
+            return o
+        try:
+            (paths.DATA_DIR / "snaptrade_last_sync.json").write_text(
+                json.dumps({"accounts": mask(accts), "per_account": mask(diag)}, indent=1, default=str)[:5_000_000],
+                encoding="utf-8")
+        except Exception:
+            pass
+
+    def _sync_account(self, a: dict, inst: str, days: int, diag: list) -> dict:
+        ext = str(a["id"])
+        tail = str(a.get("number") or "")[-3:]
+        ex = holdings.find_account("snaptrade", ext)
+        aid = ex["id"] if ex else holdings.add_account(f"{inst} {a.get('name') or ''} …{tail}".replace("  ", " "),
+                                                       inst, "snaptrade", tail, ext)
+        js = self.get(f"/accounts/{ext}/positions/all")
+        if js is None:
+            js = self.get(f"/api/v1/accounts/{ext}/positions") or []
+        raw_pos = js
+        pos, lts = self.parse_positions(js)
+        r = holdings.apply_positions(aid, pos, "snaptrade", fill_missing=not lts)
+        if lts and all(x["open_date"] for x in lts):
+            holdings.replace_lots(aid, lts, "snaptrade lots")
+        bal = self.get(f"/accounts/{ext}/balances") or []
+        c = sum(num(b.get("cash")) or 0 for b in bal if isinstance(b, dict))
+        holdings.update_account(aid, cash=c)
+        new, off = 0, 0
+        start = (date.today() - timedelta(days=days)).isoformat()
+        while True:
+            js = self.get(f"/accounts/{ext}/activities", {"startDate": start, "endDate": date.today().isoformat(),
+                                                          "offset": off, "limit": 1000})
+            data = (js.get("data") if isinstance(js, dict) else js) or []
+            for x in data:
+                p = self.parse_activity(x)
+                if p and holdings.add_txn(aid, p["date"], p["kind"], p["ticker"], p["shares"], p["price"],
+                                          p["amount"], p["fees"], p["description"], "snaptrade", p["ext_id"]):
+                    new += 1
+            tot = (js.get("pagination") or {}).get("total") if isinstance(js, dict) else None
+            off += len(data)
+            if not data or tot is None or off >= tot:
+                break
+        holdings.update_account(aid, synced_at=db.now())
+        diag.append({"account": ext[-6:], "positions_raw": raw_pos, "balances_raw": bal})
+        n_raw = len(raw_pos.get("results", []) if isinstance(raw_pos, dict) else raw_pos or [])
+        return {"aid": aid, "msg": f"{inst} …{tail}: {r['positions']} positions"
+                + (f" (of {n_raw} sent; the rest were cash or options)" if n_raw > r["positions"] else "")
+                + (f", {len(lts)} purchases" if lts else "") + f", cash {c:,.2f}, {new} new transactions"}
