@@ -199,7 +199,11 @@ def prices_all_job(job) -> str:
 
 def price_tickers(ciks: list[int]) -> list[str]:
     tk = tickers_by_cik()
-    return [tk[c] for c in ciks if c in tk] + MARKET_TICKERS
+    from .holdings import compare_tickers, held_tickers
+
+    out = [tk[c] for c in ciks if c in tk] + MARKET_TICKERS
+    # funds and other tickers you own or compare against, so the Holdings page has their prices too
+    return out + [t for t in dict.fromkeys(held_tickers() + compare_tickers()) if t not in set(out)]
 
 
 def fetch_prices_for(tickers: list[str], progress=None) -> dict:
@@ -867,7 +871,14 @@ def evaluate_now(p: rules.Profile) -> dict:
     regime = macro.regime(last, st["mos_gate"], st.get("regime_modifier", False), lambda x: pb.close("VTI", x))
     evs = evaluate(last, p, snaps, pb, regime, tk, owned=set(), macro=macro)
     out = {"date": last, "evals": {e.cik: {"list": e.list, "price": e.price, "buy_below": e.buy_below,
-                                           "note": e.note} for e in evs},
+                                           "note": e.note, "ticker": e.ticker, "quality": e.quality,
+                                           "rank": e.rank, "rank_score": e.rank_score, "iv": e.iv, "mos": e.mos,
+                                           "er": e.er, "gates_passed": e.gates_passed,
+                                           "failed": [f.get("name") for f in (e.failed or []) if isinstance(f, dict)
+                                                      and f.get("id") != "u1"],
+                                           "strong_buy_below": e.strong_buy_below,
+                                           "expensive_above": e.expensive_above, "pe_now": e.pe_now,
+                                           "pe_median": e.pe_median} for e in evs},
            "outside": {c for c in snaps.ciks() if not universe_ok(st, snaps, c, last)[0]}}
     _EVAL_NOW.clear()  # one strategy at a time is plenty
     _EVAL_NOW[key] = out

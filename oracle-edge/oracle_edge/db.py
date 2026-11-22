@@ -274,6 +274,45 @@ MIGRATIONS: list[str] = [
     """
     ALTER TABLE profiles ADD COLUMN hidden INTEGER DEFAULT 0;
     """,
+    # ---- v22: the real portfolio: accounts, purchases (lots), sales, transactions, baskets ----
+    # real_holdings becomes a view over the open purchases, so everything that read it keeps working.
+    """
+    CREATE TABLE IF NOT EXISTS accounts (
+        id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT, broker TEXT, tail TEXT, source TEXT DEFAULT 'manual',
+        ext_id TEXT, cash REAL DEFAULT 0, cash_asof TEXT, synced_at TEXT, created_at TEXT, lot_source TEXT);
+    CREATE TABLE IF NOT EXISTS lots (
+        id INTEGER PRIMARY KEY AUTOINCREMENT, account_id INTEGER, ticker TEXT, open_date TEXT, shares REAL,
+        cost_ps REAL, date_known INTEGER DEFAULT 1, source TEXT, note TEXT, created_at TEXT);
+    CREATE INDEX IF NOT EXISTS ix_lots ON lots(account_id, ticker);
+    CREATE TABLE IF NOT EXISTS closed_lots (
+        id INTEGER PRIMARY KEY AUTOINCREMENT, account_id INTEGER, ticker TEXT, open_date TEXT, close_date TEXT,
+        shares REAL, cost_ps REAL, price REAL, source TEXT, note TEXT);
+    CREATE INDEX IF NOT EXISTS ix_closed_lots ON closed_lots(account_id, ticker);
+    CREATE TABLE IF NOT EXISTS txns (
+        id INTEGER PRIMARY KEY AUTOINCREMENT, account_id INTEGER, date TEXT, kind TEXT, ticker TEXT, shares REAL,
+        price REAL, amount REAL, fees REAL, description TEXT, source TEXT, ext_id TEXT, UNIQUE(account_id, ext_id));
+    CREATE INDEX IF NOT EXISTS ix_txns ON txns(account_id, date);
+    CREATE TABLE IF NOT EXISTS broker_positions (
+        account_id INTEGER, ticker TEXT, shares REAL, avg_cost REAL, market_value REAL, asof TEXT,
+        PRIMARY KEY (account_id, ticker));
+    CREATE TABLE IF NOT EXISTS baskets (
+        id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT, color TEXT, note TEXT, target REAL, sort INTEGER);
+    CREATE TABLE IF NOT EXISTS basket_members (basket_id INTEGER, ticker TEXT, PRIMARY KEY (basket_id, ticker));
+    CREATE TABLE IF NOT EXISTS order_plans (
+        id INTEGER PRIMARY KEY AUTOINCREMENT, created_at TEXT, name TEXT, plan_json TEXT);
+
+    INSERT INTO accounts(name, broker, source, created_at, lot_source)
+        SELECT 'My account', '', 'manual', datetime('now'), 'manual' WHERE EXISTS (SELECT 1 FROM real_holdings);
+    INSERT INTO lots(account_id, ticker, open_date, shares, cost_ps, date_known, source, created_at)
+        SELECT (SELECT MIN(id) FROM accounts), s.ticker, substr(COALESCE(h.added_on, datetime('now')), 1, 10),
+               h.shares, h.avg_cost, 0, 'manual', datetime('now')
+        FROM real_holdings h JOIN securities s ON s.cik = h.cik WHERE h.shares > 0;
+    DROP TABLE real_holdings;
+    CREATE VIEW real_holdings AS
+        SELECT s.cik AS cik, SUM(l.shares) AS shares, SUM(l.shares * l.cost_ps) / SUM(l.shares) AS avg_cost,
+               MIN(l.open_date) AS added_on
+        FROM lots l JOIN securities s ON s.ticker = l.ticker GROUP BY s.cik HAVING SUM(l.shares) > 0;
+    """,
 ]
 
 
