@@ -47,6 +47,16 @@ TRIGGERS: dict[str, dict] = {
                          "y_label": "and P/E at least × its usual (blank = ignore)",
                          "help": "The price is X times the estimated value or more (and, if Y is set, the P/E is "
                                  "Y times the company's usual P/E or more)."},
+    "fair_over": {"group": "Value", "label": "Price at least × fair value", "unit": "x", "x": 3.0,
+                  "help": "The price is X times the fair value (the value-driver estimate, not the strict buy price) or "
+                          "more. In the November 2026 tests, 3× fair value lagged the S&P 500 by about 11% the next year "
+                          "in both 2013-18 and 2019-25; 2× lagged only when sales grew under 5%."},
+    "growth_gap_above": {"group": "Value", "label": "Price implies more growth than delivered by (pts)", "unit": "pct",
+                         "x": 0.15, "help": "The growth today's price implies (reverse DCF) is at least X above the "
+                                            "growth the company has been delivering."},
+    "fair_return_below": {"group": "Value", "label": "Expected return at today's price below %", "unit": "pct",
+                          "x": 0.04, "help": "The yearly return the fair-value model expects from today's price is "
+                                             "under X (tests: under 4% lagged by 23-29% the next year)."},
     "pe_over_usual": {"group": "Value", "label": "P/E at least × its usual", "unit": "x", "x": 2.0,
                       "help": "The P/E is X times the company's own usual P/E or more."},
     "exp_return_below": {"group": "Value", "label": "Expected 10-yr return below %", "unit": "pct", "x": 0.05,
@@ -54,6 +64,10 @@ TRIGGERS: dict[str, dict] = {
     # ---- the business, from the latest 10-Q
     "q_revenue": {"group": "Business (10-Q)", "label": "Sales shrinking", "unit": None,
                   "help": "The latest 10-Q shows sales over the last 12 months below a year earlier."},
+    "sales_growth_below": {"group": "Business (10-Q)", "label": "Sales growth (last 12 months) below %",
+                           "unit": "pct", "x": -0.05,
+                           "help": "Sales over the last 12 months, from the latest 10-Q, grew less than X (a negative X "
+                                   "means shrinking by more than that)."},
     "q_profits": {"group": "Business (10-Q)", "label": "Profits falling", "unit": None,
                   "help": "The latest 10-Q shows net income over the last 12 months well below a year earlier."},
     "q_loss": {"group": "Business (10-Q)", "label": "Loss over the last 12 months", "unit": None,
@@ -83,6 +97,16 @@ TRIGGERS: dict[str, dict] = {
                             "points and Y points of expected return. Only when every slot is full."},
 }
 
+# conditions that cancel a rule ("unless …"): id -> label, unit
+GUARDS = {
+    "sales_growth_at_least": {"label": "unless sales growth (12 months) is at least %", "unit": "pct", "x": 0.05,
+                              "say": "sales are growing {x} or more"},
+    "wonder_at_least": {"label": "unless Wonderfulness is at least", "unit": "num", "x": 80,
+                        "say": "Wonderfulness is {x} or more"},
+    "quality_at_least": {"label": "unless Quality is at least", "unit": "num", "x": 85, "say": "Quality is {x} or more"},
+}
+FAIR_TRIGGERS = {"fair_over", "growth_gap_above", "fair_return_below"}
+
 ACTIONS = {"sell": "Sell all", "trim": "Trim %", "trim_to": "Trim back to % of portfolio", "switch": "Switch",
            "warn": "Warn only (REVIEW)"}
 CONFIRMS = {"now": "At once", "checks": "After N checks in a row", "filing": "When the next filing agrees"}
@@ -91,12 +115,42 @@ PRESETS = {
     "classic": "Buffett classic (sell on a broken thesis; REVIEW, then sell if the next filing confirms; trim "
                "nose-bleed prices and oversized holdings; switch for a clearly better idea)",
     "ranked": "Top-ranked, as tested (sell below rank 8 or when sales shrink)",
+    "data": "Data-tuned (November 2026 tests: sell on a broken business, a very low expected return or shrinking "
+            "sales; trim only far above fair value, or above 2× fair value when sales aren't growing)",
 }
 
 
-def rule(when, do="sell", x=None, y=None, amount=None, confirm="now", checks=1, min_days=0, on=True) -> dict:
+def rule(when, do="sell", x=None, y=None, amount=None, confirm="now", checks=1, min_days=0, on=True,
+         unless=None, ux=None) -> dict:
     return {"on": on, "when": when, "x": x, "y": y, "do": do, "amount": amount, "confirm": confirm,
-            "checks": checks, "min_days": min_days}
+            "checks": checks, "min_days": min_days, "unless": unless, "ux": ux}
+
+
+def data_rules(st: dict) -> list[dict]:
+    """Rules chosen on the November 2026 calibration (Guide, 'Buying and selling on data'); confirm with a backtest."""
+    return [
+        rule("fails_rules", "sell"),
+        rule("quality_below", "sell", x=st.get("sell_quality", 55)),
+        rule("fair_return_below", "sell", x=0.04),
+        rule("sales_growth_below", "sell", x=-0.05, confirm="filing"),
+        rule("q_hard", "warn"),
+        rule("q_soft", "warn"),
+        rule("fair_over", "trim", x=3.0, amount=0.33, confirm="checks", checks=2),
+        rule("fair_over", "trim", x=2.0, amount=0.33, confirm="checks", checks=2, unless="sales_growth_at_least",
+             ux=0.05),
+        rule("weight_above", "trim_to", x=None, amount=None),
+        rule("better_idea", "switch", x=st.get("swap_rank_gap", 15), y=st.get("swap_er_gap", 0.04),
+             min_days=int(st.get("swap_min_hold_days", 0) or 0)),
+    ]
+
+
+def needs_fair(st: dict) -> bool:
+    return any(r["on"] and r["when"] in FAIR_TRIGGERS for r in rules_of(st))
+
+
+def needs_growth(st: dict) -> bool:
+    return any(r["on"] and (r["when"] == "sales_growth_below" or r.get("unless") == "sales_growth_at_least")
+               for r in rules_of(st))
 
 
 def legacy_rules(st: dict) -> list[dict]:
@@ -123,6 +177,8 @@ def legacy_rules(st: dict) -> list[dict]:
 
 
 def preset(name: str, st: dict) -> list[dict]:
+    if name == "data":
+        return data_rules(st)
     if name == "ranked":
         return legacy_rules({**st, "buy_rule": "top_ranked", "portfolio_mode": "focused"})
     return legacy_rules({**st, "buy_rule": "buy_zone"})
@@ -143,6 +199,8 @@ def _clean(r: dict) -> dict:
         out["do"] = "warn"
     if out["confirm"] not in CONFIRMS:
         out["confirm"] = "now"
+    if out.get("unless") not in GUARDS:
+        out["unless"], out["ux"] = None, None
     return out
 
 
@@ -171,6 +229,10 @@ SAY = {
     "gain_above": "it is up {x} from average cost", "loss_below": "it is down {x} from average cost",
     "trail_stop": "it is {x} below its high since bought", "below_200d": "the price is below its 200-day average",
     "better_idea": "a stock you don't own beats it by {x} Oracle Rank points and {y} of expected return",
+    "fair_over": "the price is {x} its fair value or more",
+    "growth_gap_above": "the price implies {x} more growth a year than the company delivers",
+    "fair_return_below": "the expected return at today's price is below {x}",
+    "sales_growth_below": "sales growth over the last 12 months is below {x}",
 }
 
 
@@ -193,7 +255,11 @@ def describe_rule(r: dict) -> str:
     conf = {"now": "", "checks": f", after {int(r.get('checks') or 1)} checks in a row",
             "filing": ", once the next filing agrees (REVIEW until then)"}[r.get("confirm", "now")]
     held = f", held at least {int(r['min_days'])} days" if r.get("min_days") else ""
-    return f"{act} when {cond}{conf}{held}"
+    unless = ""
+    if r.get("unless") in GUARDS:
+        gd = GUARDS[r["unless"]]
+        unless = ", unless " + gd["say"].format(x=_num(r.get("ux") if r.get("ux") is not None else gd["x"], gd["unit"]))
+    return f"{act} when {cond}{unless}{conf}{held}"
 
 
 def copy_rules(rs: list[dict]) -> list[dict]:

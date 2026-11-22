@@ -270,6 +270,17 @@ def _exit_rules_editor(rs: list[dict], st: dict, locked: bool) -> None:
                         ui.number("Checks", value=r.get("checks") or 1, format="%.0f", min=1,
                                   on_change=lambda ev, r=r: (r.update(checks=int(ev.value or 1)), table.refresh())
                                   ).props("outlined dense").classes("w-24")
+                if r["do"] != "switch":
+                    ui.select({"": "—", **{k: v["label"] for k, v in exits.GUARDS.items()}}, value=r.get("unless") or "",
+                              label="Unless",
+                              on_change=lambda ev, r=r: (r.update(unless=ev.value or None,
+                                                                  ux=exits.GUARDS[ev.value]["x"] if ev.value else None),
+                                                         table.refresh())).props("outlined dense").classes("w-64")
+                    if r.get("unless"):
+                        gu = exits.GUARDS[r["unless"]]["unit"]
+                        ui.number("…" + ("%" if gu == "pct" else ""), value=_x_to_ui(r.get("ux"), gu), format="%.4g",
+                                  on_change=lambda ev, r=r, u=gu: (r.update(ux=_x_from_ui(ev.value, u)), table.refresh())
+                                  ).props("outlined dense").classes("w-24")
                 ui.number("Held at least (days)", value=r.get("min_days") or 0, format="%.0f", min=0,
                           on_change=lambda ev, r=r: (r.update(min_days=int(ev.value or 0)), table.refresh())
                           ).props("outlined dense").classes("w-40")
@@ -372,6 +383,33 @@ def _editor(cur: rules.Profile) -> None:
             rvr.props("clearable")
             rvg = _num("Growth cap %", 100 * float(st.get("vd_growth_cap", 0.12)), "%.0f", "w-32", min=0, max=30)
             rpm = ui.switch("Bigger margin for less predictable earnings", value=bool(st.get("predictability_mos")))
+
+        with ui.row().classes("gap-3 items-end"):
+            bpr = ui.select({"strict": "Strict: margin of safety below the cautious value at the hurdle (the old rule)",
+                             "fair": "Fair value: at most × the fair value",
+                             "growth_gap": "Growth gap: the price implies at most X more growth than delivered"},
+                            value=st.get("buy_price_rule") or "strict", label="Buy price rule").props(
+                "outlined dense").classes("w-[470px]")
+            bfm = _num("Fair value: buy at most ×", float(st.get("buy_fair_mult") or 1.0), "%.2f", "w-52", min=0.3,
+                       max=3, step=0.05)
+            bgg = _num("Growth gap: at most (pts)", _pct(st.get("buy_growth_gap") if st.get("buy_growth_gap") is not None
+                                                          else 0.10), "%.0f", "w-52", min=0, max=40)
+            bmr = _num("Expected return at least %", _pct(st.get("buy_min_return") if st.get("buy_min_return") is not None
+                                                           else 0.05), "%.1f", "w-52", min=0, max=30)
+        with ui.row().classes("gap-3 items-end"):
+            bsg = _num("Only buy when sales grow at least % (blank = any)", _pct(st.get("buy_min_sales_growth")), "%.0f",
+                       "w-[340px]", min=-50, max=100)
+            bsg.props("clearable")
+            bwm = _num("Only buy when Wonderfulness is at least (blank = any)", st.get("buy_min_wonder"), "%.0f",
+                       "w-[360px]", min=0, max=100)
+            bwm.props("clearable")
+            brk = ui.select({"oracle_rank": "Oracle Rank (Quality and cheapness)",
+                             "combined": "Combined score: (Wonderfulness + Quality) ÷ 2"},
+                            value=st.get("buy_rank_by") or "oracle_rank", label="Rank buy candidates by").props(
+                "outlined dense").classes("w-[380px]")
+        ui.label("The strict rule (hurdle, margin of safety, valuation above) asks for prices most good companies never "
+                 "reach: in the November 2026 tests stocks at or below it did worst of all. The fair-value and growth-"
+                 "gap rules use the fair value instead; see the Guide, 'Buying and selling on data'.").classes("oe-small")
 
         # ---- 3. portfolio
         ui.label("3 · How the portfolio is run").classes("oe-h2 pt-2")
@@ -491,7 +529,11 @@ def _editor(cur: rules.Profile) -> None:
                 "initial_capital": float(10000 if pcap0.value in (None, "") else pcap0.value), "weekly_contribution": float(pwk.value or 0),
                 "new_money": ppol.value, "buy_rule": brule.value,
                 "ranked_buy_count": max(1, int(rbn.value or 4)), "ranked_max_weight": _frac(rmw.value),
-                "exit_rules": exits.copy_rules(ex_rules), "rank_quality_weight": round(float(rqw.value if rqw.value is not None else
+                "exit_rules": exits.copy_rules(ex_rules),
+                "buy_price_rule": bpr.value, "buy_rank_by": brk.value, "buy_fair_mult": round(float(bfm.value or 1.0), 4),
+                "buy_growth_gap": _frac(bgg.value, 0.10), "buy_min_return": _frac(bmr.value, 0.0),
+                "buy_min_sales_growth": _frac(bsg.value), "buy_min_wonder": float(bwm.value) if bwm.value not in (None, "")
+                else None, "rank_quality_weight": round(float(rqw.value if rqw.value is not None else
                                                                             0.65), 4),
                 "min_rank_score": float(pmin.value or 0), "max_buy_weight": float(pmax.value or 25) / 100,
                 "max_adds": int(padds.value or 0), "add_requires_quality": paq.value,
@@ -528,7 +570,9 @@ def _editor(cur: rules.Profile) -> None:
             if my != pv["seq"]:
                 return
             prev.text = (f"Live preview: {res['gates']} pass the must-pass rules · {res['wonderful']} with Quality "
-                         f"{b['settings']['quality_min']:.0f}+ · ~{res['buy']} in the Buy Zone (estimate)")
+                         f"{b['settings']['quality_min']:.0f}+ · " + (f"~{res['buy']} in the Buy Zone (estimate)"
+                                                                       if res.get("buy") is not None else
+                                                                       "Buy Zone: run a backtest for this buy rule"))
 
         for el in (qmin, hur, mos):
             el.on_value_change(lambda e: preview())

@@ -7,7 +7,7 @@ import logging
 from datetime import date, datetime, timedelta
 from pathlib import Path
 
-from . import backup, db, emailer, notify, quarterly, rules, targets
+from . import backup, db, emailer, notify, paths, quarterly, rules, targets
 from .engine import PriceBook, SnapshotBook, build_snapshots, evaluate
 from .market import Macro
 from .signals import BENCH, PortfolioSim, ensure_portfolio
@@ -277,7 +277,66 @@ def replay_many(run_ids: list[int], profile: rules.Profile, end: str, cadence: s
             job.update(lo + (hi - lo) * (i + 1) / len(days), message=f"{profile.name}: {d}")
     for rid in full:
         _fill_forward_returns(rid, pb, tk)
+    for rid in run_ids:
+        trim_run_history(rid)
     return n
+
+
+def trim_run_history(run_id: int) -> int:
+    """A backtest, holdings test or experiment only ever shows its last day's evaluations and badges; the daily
+    copies before that made the database grow by gigabytes. The live history keeps every day (the value chart on
+    each stock page reads it). Returns rows removed."""
+    r = db.one("SELECT kind FROM runs WHERE id=?", (run_id,))
+    if not r or r["kind"] == "live":
+        return 0
+    con = db.get()
+    n = 0
+    for t in ("evaluations", "badges"):
+        last = db.scalar(f"SELECT MAX(date) FROM {t} WHERE run_id=?", (run_id,))
+        if last:
+            n += con.execute(f"DELETE FROM {t} WHERE run_id=? AND date<?", (run_id, last)).rowcount
+    return n
+
+
+def db_size() -> dict:
+    """The database file's size and what takes the room (for Settings → Database)."""
+    import os
+
+    path = paths.DB_PATH
+    size = os.path.getsize(path) if os.path.exists(path) else 0
+    wal = os.path.getsize(str(path) + "-wal") if os.path.exists(str(path) + "-wal") else 0
+    old = db.scalar("SELECT COUNT(*) FROM evaluations e JOIN runs r ON r.id=e.run_id WHERE r.kind!='live' AND "
+                    "e.date < (SELECT MAX(date) FROM evaluations x WHERE x.run_id=e.run_id)", default=0)
+    orphans = db.scalar("SELECT COUNT(*) FROM evaluations WHERE run_id NOT IN (SELECT id FROM runs)", default=0)
+    free = db.scalar("PRAGMA freelist_count", default=0) * (db.scalar("PRAGMA page_size", default=4096) or 4096)
+    return {"bytes": size + wal, "removable_rows": (old or 0) + (orphans or 0), "free_bytes": free}
+
+
+def db_cleanup_job(job) -> str:
+    """Remove the daily evaluation and badge copies of backtests, holdings tests and experiments (their results,
+    trades and charts stay), rows of deleted runs, then compact the file (VACUUM)."""
+    import os
+
+    before = db_size()["bytes"]
+    con = db.get()
+    runs = [r["id"] for r in db.rows("SELECT id FROM runs WHERE kind!='live'")]
+    removed = 0
+    for i, rid in enumerate(runs):
+        con.execute("BEGIN IMMEDIATE")
+        removed += trim_run_history(rid)
+        con.execute("COMMIT")
+        con.execute("PRAGMA wal_checkpoint(TRUNCATE)")
+        job.update(0.6 * (i + 1) / max(len(runs), 1), message=f"Trimming test runs ({i + 1}/{len(runs)})")
+    for t in ("evaluations", "badges", "signals", "equity_curve", "episodes", "stints", "signal_state"):
+        removed += con.execute(f"DELETE FROM {t} WHERE run_id NOT IN (SELECT id FROM runs)").rowcount
+    con.execute("DELETE FROM positions WHERE portfolio_id NOT IN (SELECT id FROM portfolios)")
+    con.execute("PRAGMA wal_checkpoint(TRUNCATE)")
+    job.update(0.65, message="Compacting the database file (VACUUM); this can take several minutes")
+    con.execute("VACUUM")
+    con.execute("PRAGMA wal_checkpoint(TRUNCATE)")
+    after = os.path.getsize(paths.DB_PATH)
+    return (f"Database cleaned: {removed:,} rows removed, {before / 1e9:.2f} GB → {after / 1e9:.2f} GB. Backtest "
+            "results, trades and charts are kept.")
 
 
 def _store_evals_tx(run_id, d, evals):

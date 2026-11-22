@@ -129,3 +129,34 @@ def test_presets():
     with pytest.raises(KeyError):
         exits.TRIGGERS["nope"]
     assert isinstance(Snaps({}).ciks(), list)
+
+
+def _evd(**detail):
+    e = _ev(1, "AAA", price=300.0, iv=100.0)
+    e.detail = detail
+    return e
+
+
+def test_fair_value_trim_unless_sales_are_growing():
+    rule = exits.rule("fair_over", "trim", x=2.0, amount=0.33, unless="sales_growth_at_least", ux=0.05)
+    sim = _held(608, _ev(1, "AAA"), exit_rules=[rule])
+    r = _step(sim, DAYS[3], [_evd(fair_iv=120.0, sales_g=0.12)])
+    assert not r.signals                                  # 2.5× fair value, but sales grow 12%: keep it
+    r = _step(sim, DAYS[4], [_evd(fair_iv=120.0, sales_g=0.01)])
+    assert [(s["type"], s["units"]) for s in r.signals] == [("TRIM", 0.33)] and "fair value" in r.signals[0]["reason"]
+    assert "unless sales are growing 5% or more" in exits.describe_rule(rule)
+
+
+def test_expected_return_and_growth_gap_triggers():
+    sim = _held(609, _ev(1, "AAA"), exit_rules=[exits.rule("growth_gap_above", "warn", x=0.15),
+                                                exits.rule("fair_return_below", "sell", x=0.04)])
+    r = _step(sim, DAYS[3], [_evd(fair_iv=150.0, fair_er=0.07, implied_g=0.30, delivered_g=0.08)])
+    assert r.badges[1][0] == "REVIEW" and "30% growth" in r.badges[1][1]
+    r = _step(sim, DAYS[4], [_evd(fair_iv=150.0, fair_er=0.02, implied_g=0.10, delivered_g=0.08)])
+    assert [s["type"] for s in r.signals] == ["SELL"]
+
+
+def test_data_preset_reads_plainly():
+    lines = [exits.describe_rule(r) for r in exits.preset("data", {})]
+    assert any("3× its fair value" in x for x in lines) and any("below 4%" in x for x in lines)
+    assert exits.needs_fair({"exit_rules": exits.preset("data", {})}) and not exits.needs_fair({})

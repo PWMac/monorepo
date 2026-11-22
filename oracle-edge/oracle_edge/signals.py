@@ -316,7 +316,7 @@ class PortfolioSim:
 
     def value_quality_factor(self, e) -> float:
         q = min(max((e.quality or 0.0) / 80.0, 0.8), 1.25)
-        v = min(max(1.0 + 2.0 * ((e.mos or 0.0) - self.mos_gate), 0.75), 1.75)
+        v = min(max(1.0 + 2.0 * (_mos(e) - self.mos_gate), 0.75), 1.75)
         return min(max(q * v, 0.5), 2.0)
 
     def _max_pos(self) -> float | None:
@@ -441,9 +441,9 @@ class PortfolioSim:
         """0 at an ordinary Buy Zone price, 1 at a strong-buy price (Quality and extra margin of safety)."""
         st = self.st
         extra = float(st.get("strong_extra_mos", 0.15)) or 0.15
-        if (e.quality or 0) >= st["strong_quality"] and (e.mos or 0) >= self.mos_gate + extra:
+        if (e.quality or 0) >= st["strong_quality"] and _mos(e) >= self.mos_gate + extra:
             return 1.0
-        return min(max(((e.mos or 0) - self.mos_gate) / extra, 0.0), 0.99)
+        return min(max((_mos(e) - self.mos_gate) / extra, 0.0), 0.99)
 
     def _allocate(self, d, V, cash_avail, ready, add_ok, leaving, n_owned, limit, pos_value, sig, res) -> float:
         """Decide where available cash goes. Options are new stocks for free slots (best first) and more of the
@@ -487,7 +487,7 @@ class PortfolioSim:
             waited = _days(self.last_deploy, d) // 7
             if waited < int(st.get("patient_max_weeks", 26)):
                 need = self.mos_gate + float(st.get("patient_extra_mos", 0.15))
-                opts = [o for o in opts if (o[1].mos or 0) >= need]
+                opts = [o for o in opts if _mos(o[1]) >= need]
             policy = "best_value"
         if not opts:
             for e, *_ in ready:
@@ -735,7 +735,7 @@ class PortfolioSim:
                 res.badges[e.cik] = ("WATCH", f"in the Buy Zone, but Rank {e.rank_score:.0f} is below the "
                                               f"profile's floor of {min_rank:.0f}")
                 continue
-            strong = (e.quality or 0) >= st["strong_quality"] and (e.mos or 0) >= self.mos_gate + st["strong_extra_mos"]
+            strong = (e.quality or 0) >= st["strong_quality"] and _mos(e) >= self.mos_gate + st["strong_extra_mos"]
             typ = "STRONG_BUY" if strong else "BUY"
             why = (f"Rank #{e.rank} · score {(e.rank_score or 0):.1f} · buy below ${e.buy_below:,.2f}"
                    + (f" · P/E {e.pe_now:.1f} vs its usual {e.pe_median:.1f}" if st.get("price_test") == "fair_pe"
@@ -909,6 +909,24 @@ class PortfolioSim:
             if e and e.er is not None and x is not None and e.er < x:
                 return f"expected 10-yr return {e.er:.1%} < {x:.0%}"
             return None
+        if when in ("fair_over", "growth_gap_above", "fair_return_below"):
+            dt = (e.detail or {}) if e else {}
+            if x is None:
+                return None
+            if when == "fair_over":
+                fv = dt.get("fair_iv")
+                return (f"price {e.price / fv:.1f}× its fair value (${fv:,.2f})"
+                        if fv and e.price and e.price >= x * fv else None)
+            if when == "growth_gap_above":
+                im, dl = dt.get("implied_g"), dt.get("delivered_g")
+                return (f"the price implies {im:.0%} growth a year vs {dl:.0%} delivered"
+                        if im is not None and dl is not None and im - dl >= x else None)
+            fer = dt.get("fair_er")
+            return f"expected return at today's price {fer:.1%} < {x:.0%}" if fer is not None and fer < x else None
+        if when == "sales_growth_below":
+            sg = self._sales_growth(cik, d, e)
+            return f"sales over the last 12 months {sg:+.0%} vs a year earlier" if sg is not None and x is not None \
+                and sg < x else None
         if when in ("q_revenue", "q_profits", "q_loss"):
             fid = {"q_revenue": "rev_decline", "q_profits": "profit_decline", "q_loss": "ttm_loss"}[when]
             f = next((f for f in self._raw_flags(cik, d, e) if f.get("id") == fid), None)
@@ -947,6 +965,35 @@ class PortfolioSim:
             return "below its 200-day average" if (px and sma and px < sma) else None
         return None
 
+    def _sales_growth(self, cik, d, e):
+        dt = (e.detail or {}) if e else {}
+        if dt.get("sales_g") is not None:
+            return dt["sales_g"]
+        snaps = getattr(self, "snaps", None)
+        q = snaps.latest_q(cik, d) if snaps is not None and hasattr(snaps, "latest_q") else None
+        return json.loads(q["metrics_json"] or "{}").get("ttm_revenue_growth") if q else None
+
+    def _guard(self, r, cik, e, d) -> bool:
+        """The rule's 'unless' condition holds (so the rule doesn't act)."""
+        g = r.get("unless")
+        if not g:
+            return False
+        ux = r.get("ux") if r.get("ux") is not None else exits.GUARDS[g]["x"]
+        if g == "sales_growth_at_least":
+            sg = self._sales_growth(cik, d, e)
+            return sg is not None and sg >= ux
+        if g == "wonder_at_least":
+            snaps = getattr(self, "snaps", None)
+            wv = ((e.detail or {}).get("wonder") if e else None) or (snaps.wonder_asof(cik, d) if snaps else None)
+            return wv is not None and wv >= ux
+        if g == "quality_at_least":
+            return e is not None and e.quality is not None and e.quality >= ux
+        return False
+
+    def _fires(self, r, cik, e, d, pos, w, n_pos):
+        why = self._trigger(r, cik, e, d, pos, w, n_pos)
+        return None if (why and self._guard(r, cik, e, d)) else why
+
     def _better(self, cand, held, rule) -> bool:
         """The switch rule: the candidate beats the weakest holding by x Oracle Rank points and y expected return."""
         if rule is None:
@@ -969,7 +1016,7 @@ class PortfolioSim:
                 continue
             if not ok(r):
                 continue
-            why = self._trigger(r, cik, e, d, pos, w, n_pos)
+            why = self._fires(r, cik, e, d, pos, w, n_pos)
             if r["confirm"] == "checks":
                 n = self._streak(stt, f"{i}:{r['when']}", why is not None)
                 if why and n < int(r.get("checks") or 1):
@@ -985,11 +1032,11 @@ class PortfolioSim:
             if not ok(r) or r["when"] == "better_idea":
                 continue
             if r["do"] == "warn":
-                why = self._trigger(r, cik, e, d, pos, w, n_pos)
+                why = self._fires(r, cik, e, d, pos, w, n_pos)
                 if why:
                     soft.append(why)
             elif r["confirm"] == "filing":
-                why = self._trigger(r, cik, e, d, pos, w, n_pos)
+                why = self._fires(r, cik, e, d, pos, w, n_pos)
                 if why:
                     hard.append(why)
                     hard_rule = hard_rule or r
@@ -1024,7 +1071,7 @@ class PortfolioSim:
                 continue
             if not ok(r):
                 continue
-            why = self._trigger(r, cik, e, d, pos, w, n_pos)
+            why = self._fires(r, cik, e, d, pos, w, n_pos)
             if r["confirm"] == "checks":
                 n = self._streak(stt, f"{i}:{r['when']}", why is not None)
                 if why and n < int(r.get("checks") or 1):
@@ -1127,8 +1174,9 @@ class PortfolioSim:
             res.badges[cik] = ("HOLD", (f"#{r + 1} by combined score ({comb[cik]:.1f})" if r is not None
                                         else "not ranked today") + " · no exit rule applies")
         # never buy what an immediate sell rule would sell at once (e.g. sales shrinking)
-        block = [r for r in rules_ if r["on"] and r["do"] in ("sell", "switch") and r["confirm"] == "now"
-                 and not r.get("min_days") and r["when"] != "better_idea"]
+        block = [r for r in rules_ if r["on"] and r["when"] != "better_idea" and not r.get("min_days") and (
+            (r["do"] in ("sell", "switch") and r["confirm"] == "now")
+            or (r["do"] in ("trim", "trim_to") and r["confirm"] in ("now", "checks") and r["when"] != "weight_above"))]
         total = sum(pos_value(c) for c in self.positions if c not in leaving)  # invested, without cash
         picks = []
         for x, w, q, cik in ranked:
@@ -1136,7 +1184,7 @@ class PortfolioSim:
                 break
             if cik in leaving:
                 continue
-            stop = next((y for r in block if (y := self._trigger(r, cik, by.get(cik), d, self.positions.get(cik),
+            stop = next((y for r in block if (y := self._fires(r, cik, by.get(cik), d, self.positions.get(cik),
                                                                  0.0, n_pos))), None)
             if stop:
                 if pos_of[cik] < n_buy:
@@ -1232,6 +1280,14 @@ class PortfolioSim:
             "bench_units=?, last_deploy=?, reserve=?, traded=?, costs=? WHERE id=?",
             (self.last_value, self.last_nav, self.last_bench, d, self.cash, self.contributed, self.bench_units,
              self.last_deploy, self.reserve, self.traded, self.costs, self.pid))
+
+
+def _mos(e) -> float:
+    """How far below its buy price a stock is, on the margin-of-safety scale the strong-buy, reserve and sizing
+    rules use: the strict rule's margin of safety, or (fair-value and growth-gap buy rules) the gate plus the
+    discount to the strategy's own buy price."""
+    m = (e.detail or {}).get("buy_mos") if getattr(e, "detail", None) else None
+    return float(m if m is not None else (e.mos or 0.0))
 
 
 def _money(v: float) -> str:

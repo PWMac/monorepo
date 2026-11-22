@@ -336,6 +336,14 @@ class SnapshotBook:
     def ciks(self):
         return list(self.by_cik.keys())
 
+    def latest_q(self, cik: int, d: str):
+        """The newest 10-Q check filed on or before d, whether or not an annual report came after it."""
+        a = self.q.get(cik)
+        if not a:
+            return None
+        i = bisect_right(a[0], d) - 1
+        return a[1][i] if i >= 0 else None
+
     # ---- a strategy's universe (0.18): Wonderfulness as known on a date, and industries
     def wonder_asof(self, cik: int, d: str) -> float | None:
         """Wonderfulness from the latest annual report filed on or before d (each fiscal year's score, ranked within
@@ -607,6 +615,11 @@ def evaluate(date: str, profile: Profile, snaps: SnapshotBook, pb: PriceBook, re
     mos_gate = regime.mos_gate
     hurdle = st["hurdle"]
     out: list[Eval] = []
+    from . import exits
+
+    bpr = st.get("buy_price_rule") or "strict"
+    need_fair = bpr != "strict" or exits.needs_fair(st)
+    floors = st.get("buy_min_sales_growth") is not None or st.get("buy_min_wonder") is not None
     for cik in snaps.ciks():
         s = snaps.asof(cik, date)
         if s is None:
@@ -657,6 +670,7 @@ def evaluate(date: str, profile: Profile, snaps: SnapshotBook, pb: PriceBook, re
                                           f"ratio ({info.get('adr_ratio')}) on the stock page", category))
                 continue
         fyp = pb.fy_prices(t, list(vi.get("eps_by_fy", {}).keys()))
+        fairx: dict = {}
         gate_c = mos_gate
         if category in ("bank", "insurer"):
             v = value_financial(price, vi, st, regime.t30, mos_gate, fyp)
@@ -667,11 +681,18 @@ def evaluate(date: str, profile: Profile, snaps: SnapshotBook, pb: PriceBook, re
 
             est = estimates.asof(t, date) if not foreign else None
             v = value_driver(price, vi, st, mos_gate, fyp, ttm, est, signal=True)  # the strict buy rule
+            if need_fair:
+                fv = value_driver(price, vi, st, mos_gate, fyp, ttm, est, signal=False)
+                fx = fv.extra or {}
+                fairx = {"fair_iv": fv.iv, "fair_er": fv.er, "implied_g": fx.get("implied_growth"),
+                         "delivered_g": fv.growth if fv.iv else None, "gap_price": fx.get("gap_price")}
         elif st.get("valuation_model") == "enhanced":
             gate_c = predictability_mos(mos_gate, vi, st)
             v = value_enhanced(price, vi, st, regime.t30, gate_c, fyp)
         else:
             v = value(price, vi, st, regime.t30, mos_gate, fyp)
+        if need_fair and not fairx:
+            fairx = {"fair_iv": v.iv, "fair_er": v.er}  # other models: their value is the fair estimate
         vs = value_score(v.er, {"target": hurdle})
         if category == "standard" and v.earnings_yield is not None and v.earnings_yield < regime.t30:
             vs = max(0.0, vs - 10)  # rule 26: earnings yield below the 30-yr Treasury
@@ -691,6 +712,31 @@ def evaluate(date: str, profile: Profile, snaps: SnapshotBook, pb: PriceBook, re
             val_ok = price <= buy_below
         else:
             val_ok = v.mos is not None and v.er is not None and v.buy_below is not None and price <= v.buy_below
+        strong_below = v.strong_buy_below
+        buy_mos = None
+        if bpr != "strict" and fairx.get("fair_iv"):
+            bb = (fairx.get("gap_price") if bpr == "growth_gap" else None) or (
+                fairx["fair_iv"] * float(st.get("buy_fair_mult") or 1.0))
+            if bb and bb > 0:
+                buy_below = bb
+                strong_below = bb * (1 - float(st.get("strong_extra_mos", 0.15)))
+                fer = fairx.get("fair_er")
+                val_ok = price <= bb and (fer is None or fer >= float(st.get("buy_min_return") or 0.0))
+                buy_mos = mos_gate + (1 - price / bb)  # at the buy price = the gate, at the strong price = gate + extra
+        extra_d = {}
+        if need_fair or floors or exits.needs_growth(st) or st.get("buy_rank_by") == "combined":
+            lq = snaps.latest_q(cik, date) if hasattr(snaps, "latest_q") else None
+            extra_d["sales_g"] = json.loads(lq["metrics_json"] or "{}").get("ttm_revenue_growth") if lq else None
+            extra_d["wonder"] = snaps.wonder_asof(cik, date) if hasattr(snaps, "wonder_asof") else None
+        why_not = ""
+        if val_ok and st.get("buy_min_sales_growth") is not None:
+            sg = extra_d.get("sales_g")
+            if sg is None or sg < float(st["buy_min_sales_growth"]):
+                val_ok, why_not = False, "sales growth below the strategy's floor"
+        if val_ok and st.get("buy_min_wonder") is not None:
+            wv = extra_d.get("wonder")
+            if wv is None or wv < float(st["buy_min_wonder"]):
+                val_ok, why_not = False, "Wonderfulness below the strategy's floor"
         if gates and q is not None and q >= qmin and size_ok and val_ok:
             lst = "buy"
         elif gates and q is not None and q >= qmin and size_ok:
@@ -700,10 +746,12 @@ def evaluate(date: str, profile: Profile, snaps: SnapshotBook, pb: PriceBook, re
         else:
             lst = "out"
         note = "" if size_ok else "below size/liquidity floor"
+        if why_not and size_ok:
+            note = why_not
         if foreign:
             note = (note + " · " if note else "") + f"{info.get('currency')} → US$ at ADR ratio {info.get('adr_ratio'):g}"
         out.append(Eval(list=lst, value=vs, rank_score=rs, iv=v.iv, mos=v.mos, er=v.er, buy_below=buy_below,
-                        strong_buy_below=v.strong_buy_below, expensive_above=v.expensive_above, pe_now=v.pe_now,
+                        strong_buy_below=strong_below, expensive_above=v.expensive_above, pe_now=v.pe_now,
                         pe_median=v.pe_median, note=note, category=category,
                         detail={"iv_a": v.iv_a, "iv_b": v.iv_b, "er_a": v.er_a, "er_b": v.er_b, "r": v.discount_rate,
                                 "g": v.growth, "exit_pe": v.exit_pe, "ey": v.earnings_yield, "pepg": v.pepg,
@@ -713,9 +761,16 @@ def evaluate(date: str, profile: Profile, snaps: SnapshotBook, pb: PriceBook, re
                                     else "Owner-earnings DCF"),
                                 "qflags": qflags, "qfiled": base["qfiled"], "category": category,
                                 "gate_margin": s["gate_margin"], "gate_margin_rule": base["gate_margin_rule"],
-                                **({"valuation": v.extra, "mos_gate": gate_c} if v.extra else {})},
+                                **({"valuation": v.extra, "mos_gate": gate_c} if v.extra else {}),
+                                **fairx, **extra_d, **({"buy_mos": buy_mos} if buy_mos is not None else {})},
                         **base))
-    buys = sorted([e for e in out if e.list == "buy"], key=lambda e: (-(e.rank_score or 0), -(e.mos or 0)))
+    if st.get("buy_rank_by") == "combined":  # (Wonderfulness + Quality) / 2, the tested ranking (0.19)
+        def _comb(e):
+            w = (e.detail or {}).get("wonder")
+            return ((w + e.quality) / 2) if (w is not None and e.quality is not None) else (e.quality or 0) / 2
+        buys = sorted([e for e in out if e.list == "buy"], key=lambda e: (-_comb(e), -(e.rank_score or 0)))
+    else:
+        buys = sorted([e for e in out if e.list == "buy"], key=lambda e: (-(e.rank_score or 0), -(e.mos or 0)))
     for i, e in enumerate(buys, 1):
         e.rank = i
     return out

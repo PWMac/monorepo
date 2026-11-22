@@ -66,6 +66,16 @@ settings:
   # exit rules (0.19): when to trim, sell, switch or warn. null = the rules implied by the settings above
   # (see oracle_edge/exits.py); Strategies -> section 4 edits them as a list
   exit_rules: null
+  # buy price (0.19): strict = margin of safety below the cautious value at the hurdle (the old rule) |
+  # fair = price <= buy_fair_mult x fair value | growth_gap = the price implies at most buy_growth_gap more growth than
+  # delivered; both also need the expected return >= buy_min_return. Optional floors for any rule.
+  buy_price_rule: strict
+  buy_fair_mult: 1.0
+  buy_growth_gap: 0.10
+  buy_min_return: 0.05
+  buy_min_sales_growth: null
+  buy_min_wonder: null
+  buy_rank_by: oracle_rank      # oracle_rank (Quality and cheapness) | combined ((Wonderfulness + Quality) / 2)
   max_buy_weight: 0.25         # new money never pushes one holding above this share of the portfolio
   patient_extra_mos: 0.15      # patient: wait for a margin of safety this much above the buy gate...
   patient_max_weeks: 26        # ...but never hold the cash longer than this

@@ -111,6 +111,7 @@ footer { color:var(--muted); font-size:12.5px; margin-top:50px; border-top:1px s
   <a href="#strength" style="padding-left:22px">How strong is a signal?</a>
   <a href="#selling">16. When it sells</a>
   <a href="#exitrules" style="padding-left:22px">Your own exit rules</a>
+  <a href="#ondata" style="padding-left:22px">Buying and selling on data</a>
   <a href="#targets">17. Price targets and alerts</a>
   <a href="#portfolio">18. Model portfolio: how many, new money</a>
   <a href="#newmoney" style="padding-left:22px">Where new money goes</a>
@@ -1099,10 +1100,11 @@ added; <i>Start from</i> loads the standard set (<b>Buffett classic</b>) or the 
 <tr><td>Scores</td><td>Quality below X · Quality down X points since bought · Wonderfulness below X · Wonderfulness down X points
 since bought · combined score ((Wonderfulness + Quality) ÷ 2) below X · ranks below #X by combined score among every scored company ·
 fails a must-pass rule · a must-pass rule within X points of failing</td></tr>
-<tr><td>Value</td><td>Price at least X × the estimated value (optionally also P/E at least Y × its usual) · P/E at least X × its
-usual · expected 10-year return below X%</td></tr>
-<tr><td>Business (10-Q)</td><td>Sales shrinking · profits falling · a loss over the last 12 months · any hard 10-Q warning · any
-other 10-Q warning</td></tr>
+<tr><td>Value</td><td>Price at least X × the strict value (optionally also P/E at least Y × its usual) · <b>price at least X ×
+the fair value</b> · <b>the price implies X more growth a year than the company delivers</b> · <b>expected return at today's price
+below X%</b> · P/E at least X × its usual · expected 10-year return (strict model) below X%</td></tr>
+<tr><td>Business (10-Q)</td><td><b>Sales growth over the last 12 months below X%</b> · sales shrinking · profits falling · a loss
+over the last 12 months · any hard 10-Q warning · any other 10-Q warning</td></tr>
 <tr><td>Price and portfolio</td><td>More than X% of the portfolio (blank = the automatic limit above) · up X% from average cost ·
 down X% from average cost · X% below its high since bought · below its 200-day average</td></tr>
 <tr><td>Switch</td><td>A Buy Zone stock you don't own beats the weakest holding by X Oracle Rank points and Y points of expected
@@ -1117,6 +1119,8 @@ return, when every slot is full</td></tr>
 <tr><td>Warn only</td><td>A REVIEW badge; no trade. ADDs stop while it's open.</td></tr>
 </table>
 <ul>
+<li><b>Unless:</b> any rule can carry an exception, <i>unless sales are growing X% or more</i>, <i>unless Wonderfulness is X or
+more</i> or <i>unless Quality is X or more</i>, so a growing business isn't trimmed just because its price reached a level.</li>
 <li><b>Order each signal day:</b> sell and switch rules first (the first that fires sells); then warnings and rules waiting for
 the next filing (REVIEW); then trims, one at a time. A holding that was sold, trimmed or put under REVIEW isn't checked further
 that day.</li>
@@ -1129,6 +1133,52 @@ gaps; or the top-ranked rank and sales rules) become the equivalent rule list. B
 gave identical trades before and after.</li>
 <li>Rules are a strategy setting, so changing them never re-scores a company: run a backtest to see what they do. The tested
 evidence so far is in <a href="#ranked">Top-ranked buying, and when to sell</a>: trims on the way up cost return there.</li>
+</ul>
+
+<h3 id="ondata">Buying and selling on data (November 2026 calibration)</h3>
+<p>Every buy, trim and sell level above was checked against history: every week from 2013 to 2026, for every company that passes
+the must-pass rules with Quality 70+ (110,614 company-weeks), what the stock did against the S&amp;P 500 over the next year,
+looked at separately for 2013–2018 and 2019–2025. What held in <b>both</b> periods:</p>
+<table>
+<tr><th>Signal</th><th>Next year vs the S&amp;P 500 (2013–18 · 2019–25)</th><th>What it means</th></tr>
+<tr><td>At or below the strict buy price (the Buy Zone)</td><td>−4.4% · −5.0% (half of them lagged by 8–14% or more)</td><td>The old
+buy price mostly catches value traps; and good companies sat there only 8% of the time</td></tr>
+<tr><td>Price 0.6–3× fair value</td><td>about the average</td><td>Cheapness alone doesn't predict returns among good companies</td></tr>
+<tr><td>Price 3× fair value or more</td><td>−11% · −11%</td><td>Trim</td></tr>
+<tr><td>2× fair value or more <i>and</i> sales growing under 5%</td><td>−8% · −8%</td><td>Trim</td></tr>
+<tr><td>2× fair value or more and sales growing 5–15%</td><td>about the average</td><td>Keep it: the growth justifies the price</td></tr>
+<tr><td>Price implies 15+ points more growth than delivered</td><td>−4% · −13%</td><td>Avoid / trim</td></tr>
+<tr><td>Expected return at today's price under 4%</td><td>−23% · −29%</td><td>Sell</td></tr>
+<tr><td>Sales shrinking more than 5% (12 months)</td><td>−1% · −8% (2 years: −3% · −11%)</td><td>Sell once confirmed</td></tr>
+<tr><td>Higher Wonderfulness; sales growing 10–35%</td><td>better in both</td><td>Rank and buy by these</td></tr>
+<tr><td>P/E against its usual (the old nose-bleed test)</td><td>no pattern</td><td>Not used for trims any more</td></tr>
+<tr><td>A loss over the last 12 months</td><td>+11% · +3%</td><td>Don't sell on it alone (turnarounds)</td></tr>
+</table>
+<p><b>New buy price rules</b> (Strategies → <i>What price it pays</i> → <i>Buy price rule</i>): <b>strict</b> (the old rule),
+<b>fair value</b> (at most × the fair value) and <b>growth gap</b> (the price implies at most X more growth a year than the
+company delivers; the buy price shown is that price). Both new rules also need an expected return of at least
+<i>buy_min_return</i>. Any rule can require <b>sales growth</b> and <b>Wonderfulness</b> floors, and candidates can be ranked by the
+<b>combined score</b> instead of the Oracle Rank (which favours cheapness).</p>
+<p><b>Backtests</b> of the live strategy (Buffettology 15% · best 7: $10,000 then $250 a week), app engine, research copy:</p>
+<table>
+<tr><th>Version</th><th>From 2015</th><th>From 2019</th></tr>
+<tr><td>As it was (strict buy price, standard exit rules)</td><td>8.3%</td><td>1.0%</td></tr>
+<tr><td>Growth-gap buy price only</td><td>5.3%</td><td>−3.2%</td></tr>
+<tr><td>Strict buy price + data-tuned exits</td><td>—</td><td>−6.4%</td></tr>
+<tr><td>Growth gap + floors (sales 5%+, Wonderfulness 75+), still ranked by Oracle Rank</td><td>—</td><td>9.9%</td></tr>
+<tr><td>Growth gap + floors + ranked by combined score, standard exits</td><td>11.4%</td><td>13.2%</td></tr>
+<tr><td><b>…plus the data-tuned exits</b> (the <i>Data-tuned quality · best 7</i> strategy)</td><td><b>11.9%</b></td><td><b>13.4%</b></td></tr>
+<tr><td>S&amp;P 500, same money</td><td>13.3%</td><td>13.9%</td></tr>
+</table>
+<ul>
+<li><b>What made the difference</b> was <i>which</i> companies get the money: growing, high-Wonderfulness businesses first. A
+looser buy price on its own made things worse, because the Oracle Rank and the reserve still bought the cheapest names first.</li>
+<li><b>Trims rarely fire</b> for the best-ranked companies; the data-tuned trims added little but never cut a growing winner.
+On the top-ranked strategy they changed the result by 0.1 points or less.</li>
+<li>Even rebuilt, the strategy trails the S&amp;P 500 by about 0.5–1.4 points a year with a similar worst drop (38%). The new
+strategy is <b>off</b> and your primary strategy is unchanged: compare them on the Backtest page before switching.</li>
+<li>Caveats: Wonderfulness for each year is ranked against every company that reported that year, a little after the fact;
+prices exist only for companies that were ever shortlisted; the fair value is the model's own estimate.</li>
 </ul>
 
 <!-- ================================================================ 17 -->
@@ -1516,7 +1566,8 @@ filters allow. Wonderfulness, Quality, market value and industry carry over; fil
 grade, the value columns, trends) don't, so a backtest can't use information nobody had.</li>
 <li>Built-in strategies (🔒) are kept as references: <i>Oracle Classic</i> (the baseline), <i>Buffettology 15%</i>, <i>Relaxed
 backfill (5y)</i> (the short record), <i>Oracle Classic + timing</i>, and the editable <i>Oracle Edge 15% · Risk Optimized</i>
-<i>Buffettology Quality Core</i> and <i>Top-ranked 4 · $200 a week</i> (<a href="#ranked">below</a>). Use <b>Save as</b> for an editable copy. Each card says what the strategy is for, what
+<i>Buffettology Quality Core</i>, <i>Top-ranked 4 · $200 a week</i> (<a href="#ranked">below</a>) and <i>Data-tuned quality ·
+best 7</i> (<a href="#ondata">Buying and selling on data</a>). Use <b>Save as</b> for an editable copy. Each card says what the strategy is for, what
 differs from the one it was copied from, which companies it considers and what it does, written from its settings.</li>
 <li><b>Moving to 0.18 changes no scores or signals:</b> the house view starts as the live strategy's rules (the built-in strategies
 all had the same rules), the live strategy becomes the primary strategy, and every strategy keeps its settings and history.</li>

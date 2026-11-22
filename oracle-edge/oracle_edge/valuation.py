@@ -411,7 +411,11 @@ def value_driver(price: float, vi: dict, st: dict, mos_gate: float, fy_prices: d
         cv = value_driver(price, vi, st, mos_gate, fy_prices, ttm, est, signal=True)
         hurdle_price = cv.iv or 0.0
         buy_below, strong = cv.buy_below or 0.0, cv.strong_buy_below or 0.0
+    # the price at which the price implies `buy_growth_gap` more growth than the company delivers (0.19 buy rule)
+    gap = float(st.get("buy_growth_gap") if st.get("buy_growth_gap") is not None else 0.10)
+    gap_price = max(iv_at(g + gap, r, None), 0.0) if not signal else None
     extra = {"model": "value_driver", "low": low, "high": high, "required_return": r, "hurdle": hurdle,
+             "gap_price": gap_price,
              "hurdle_price": hurdle_price, "growth": gb, "g12": g12,
              "estimates_used": g12 is not None, "implied_growth": implied, "nopat": b["nopat"], "margin": b["margin"],
              "sales": b["sales"], "tax": b["tax"], "roic": b["roic"], "net_cash": b["net_cash"], "cash": b["cash"],
