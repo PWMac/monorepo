@@ -12,6 +12,7 @@ from .. import btcsignal, db, rules, strength, targets
 from . import data, outlook, quote, valuecard, wonder, wonder_page  # noqa: F401 (registers /screener)
 from . import growth as growth_tab
 from . import strategies  # noqa: F401 (registers /strategies and /house)
+from . import holdings_page  # noqa: F401 (registers /holdings)
 from .charts import zoom_chart
 from .layout import empty, frame, kpi
 from .theme import BADGES, BRAND, BTC_COL, badge_html, fmt_value, ladder_html, money, num, pct, sparkline
@@ -1494,56 +1495,7 @@ def _btc_section(reg):
 
 
 # ===================================================================== MY HOLDINGS (real)
-@ui.page("/holdings")
-def holdings_page():
-    with frame("My holdings"):
-        run_id = app.storage.user.get("run_id") or data.default_run_id()
-        ui.label("My holdings").classes("oe-h1")
-        ui.label("Optional: enter what you really own to get badges for your own account next to the model "
-                 "portfolio. Stored only in your local database.").classes("oe-muted")
-        holder = ui.column().classes("w-full")
-
-        def render():
-            holder.clear()
-            d = data.latest_date(run_id) if run_id else None
-            evs = {e["cik"]: e for e in (data.evaluations(run_id, d) if d else [])}
-            rows = db.rows("SELECT h.*, s.ticker, s.name FROM real_holdings h JOIN securities s ON s.cik=h.cik ORDER BY s.ticker")
-            prof = rules.get_profile(data.run(run_id)["profile_id"]) if run_id else rules.default_profile()
-            with holder:
-                if not rows:
-                    ui.label("No holdings entered.").classes("oe-muted")
-                for h in rows:
-                    badge, why = real_badge(h["cik"], evs.get(h["cik"]), prof)
-                    with ui.row().classes("oe-action w-full items-center justify-between"):
-                        with ui.row().classes("items-center gap-3"):
-                            ui.html(badge_html(badge), sanitize=False)
-                            ui.link(h["ticker"], f"/stock/{h['ticker']}").classes("font-bold text-base")
-                            ui.label(h["name"][:40]).classes("oe-muted")
-                        ui.label(why).classes("text-sm")
-                        ui.label(f"{h['shares']:g} sh @ {money(h['avg_cost'])}").classes("oe-small")
-                        ui.button(icon="delete", on_click=lambda h=h: (db.get().execute(
-                            "DELETE FROM real_holdings WHERE cik=?", (h["cik"],)), render())).props("flat round dense")
-
-        with ui.card().classes("oe-card w-full"):
-            with ui.row().classes("items-end gap-3"):
-                t = ui.input("Ticker").props("dense outlined").classes("w-32")
-                sh = ui.number("Shares", value=0).props("dense outlined").classes("w-32")
-                ac = ui.number("Average cost", value=0).props("dense outlined prefix=$").classes("w-40")
-
-                def add():
-                    s = data.stock(t.value or "")
-                    if not s:
-                        ui.notify("Unknown ticker", type="warning")
-                        return
-                    db.get().execute("INSERT OR REPLACE INTO real_holdings(cik,shares,avg_cost,added_on) VALUES(?,?,?,?)",
-                                     (s["cik"], sh.value or 0, ac.value or 0, db.now()))
-                    t.value = ""
-                    render()
-
-                ui.button("Add", icon="add", on_click=add).props("unelevated")
-        render()
-
-
+# The page is in holdings_page.py; real_badge (the primary strategy's signal for a stock you own) stays here.
 def real_badge(cik, ev, prof) -> tuple[str, str]:
     st = prof.settings
     if ev is None:

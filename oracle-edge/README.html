@@ -78,7 +78,7 @@ footer { color:var(--muted); font-size:12.5px; margin-top:50px; border-top:1px s
   <h1><img src="brand/logo/oracle-edge-header-tagline.png" srcset="brand/logo/oracle-edge-header-tagline@2x.png 2x"
      alt="Oracle Edge: Screen, Rank, Signal"></h1>
   <p>A local stock screener that thinks like the Oracle. This guide explains <b>what</b> the app does,
-  <b>how</b> it decides, and <b>why</b> it was built this way. Version 0.21.0.</p>
+  <b>how</b> it decides, and <b>why</b> it was built this way. Version 0.22.0.</p>
   <p style="font-size:14px">Two documents: this <b>guide</b> is the user manual, kept current with every release and opened from
   "Guide" in the app. The <b>plan</b> (<code>docs/Value-Picker-Plan.html</code> with the source code) is the design record: the research, architecture,
   database layout and the decision log behind the app.</p>
@@ -122,13 +122,16 @@ footer { color:var(--muted); font-size:12.5px; margin-top:50px; border-top:1px s
   <a href="#backtest">20. Strategies, Oracle checklists, backtests</a>
   <a href="#checklists" style="padding-left:22px">Oracle checklists</a>
   <a href="#ranked" style="padding-left:22px">Top-ranked buying and when to sell</a>
-  <a href="#ops">21. Email, schedule, backups, security</a>
+  <a href="#myholdings">21. My holdings</a>
+  <a href="#holdingsin" style="padding-left:22px">Bringing holdings in</a>
+  <a href="#investcash" style="padding-left:22px">Invest my cash</a>
+  <a href="#ops">22. Email, schedule, backups, security</a>
   <a href="#trouble" style="padding-left:22px">Troubleshooting</a>
-  <a href="#folders">22. Where things live</a>
-  <a href="#whys">23. Why it works this way</a>
-  <a href="#limits">24. Known limits</a>
-  <a href="#audit">25. Accuracy audit</a>
-  <a href="#glossary">26. Glossary</a>
+  <a href="#folders">23. Where things live</a>
+  <a href="#whys">24. Why it works this way</a>
+  <a href="#limits">25. Known limits</a>
+  <a href="#audit">26. Accuracy audit</a>
+  <a href="#glossary">27. Glossary</a>
 </nav>
 
 <main>
@@ -262,7 +265,7 @@ rebuilt from the differences (Q4 = full year minus nine months).</li>
 </ul>
 Prices are end-of-day; there are no live quotes, analyst estimates or news. Foreign filers' statements are in their reporting
 currency, and their P/E uses the valuation's US-dollar conversion.</td></tr>
-<tr><td><b>My holdings</b></td><td>Your real positions with badges</td></tr>
+<tr><td><b>My holdings</b></td><td>Your real portfolio across accounts and baskets: performance against the S&amp;P 500 and any tickers you choose, every purchase (lot), dividends, gains and tax, and a plan for investing your cash (<a href="#myholdings">section 21</a>)</td></tr>
 <tr><td><b>Signals</b></td><td>The full signal journal with strength ratings, scores, filters and CSV export</td></tr>
 <tr><td><b>Performance</b></td><td>Your money vs the same money in the S&amp;P 500, growth of $1, drawdowns, episodes, rank-bucket results
 against the S&amp;P over the same days, Buy Zone stints</td></tr>
@@ -1357,7 +1360,7 @@ which particular stocks happened to fill the slots, so treat the recommendation 
 also means bumpier results.</div>
 <h3 id="rebuild">Rebuilding the strategy (November 2026)</h3>
 <div class="note"><b>The earlier choice of "best 7" no longer stands.</b> It was picked from tests that returned about 27% a year, on
-data with the stock-split error fixed in version 0.12.0 (<a href="#audit">section 25</a>). On corrected data the same setup returned <b>5.4% a year
+data with the stock-split error fixed in version 0.12.0 (<a href="#audit">section 26</a>). On corrected data the same setup returned <b>5.4% a year
 against 15.4% for the S&amp;P 500</b> (2019–2026), with a worst drop of −49% (S&amp;P −34%). The live strategy hasn't been changed;
 that is your decision.</div>
 
@@ -1423,7 +1426,7 @@ trailed by 4 points. Results that flip with the method are within luck for this 
 <p><b>What this means.</b> On this history, the app finds wonderful businesses reliably but can't show that buying them by a price rule
 beats simply owning the index, which is also Buffett's advice for anyone who isn't analyzing each business personally. The most
 useful way to use it is as a <b>shortlist of wonderful, healthy companies at fair prices</b> for your own judgment, next to an index
-core. These are backtests of one period with survivorship bias (<a href="#limits">section 24</a>); they are not a forecast.</p>
+core. These are backtests of one period with survivorship bias (<a href="#limits">section 25</a>); they are not a forecast.</p>
 
 <h4>What was built</h4>
 <ul>
@@ -1659,7 +1662,102 @@ how each rank bucket performed afterwards.</li>
 </ul>
 
 <!-- ================================================================ 21 -->
-<h2 id="ops"><span class="n">21</span>Email, schedule, backups, security</h2>
+<h2 id="myholdings"><span class="n">21</span>My holdings</h2>
+<p>My holdings is your <b>real</b> portfolio (the model portfolio is the strategy's paper one). It answers four questions: what do
+I own and what is it worth, how has it done against the market, what does it pay me, and what should I do with my cash.</p>
+<figure class="shot"><img src="docs/guide/holdings-overview.jpg" alt="My holdings, Overview: the account and basket bar, the summary tiles, growth of $10,000 against SPY and QQQ, what it's made of, today's movers, the strategy check and sectors (demo data)." loading="lazy"><figcaption>Overview (demo data): basket chips, the summary tiles, growth against the S&amp;P 500 and QQQ, what it's made of, today's movers, the strategy check and sectors.</figcaption></figure>
+<h3>How it's organized</h3>
+<ul>
+<li><b>Accounts</b> hold cash and purchases. Pick accounts at the top (none picked = all).</li>
+<li><b>Purchases (lots)</b>: each buy is kept with its date, shares and price paid. A holding is every open purchase of one
+ticker. Selling closes purchases: oldest first by default, or highest cost first (smallest taxable gain), newest first, or lowest
+cost first. Sold purchases are kept, so realized gains are exact.</li>
+<li><b>Baskets</b> are your own groups of tickers (Core, Income, Speculative…), across accounts. A ticker can be in several.
+The chips under the title switch the whole page to one basket; <i>Not in a basket</i> shows the rest. Add one with
+<b>+ Basket</b>; the pencil renames it, picks its holdings or deletes it. A holding's page has a checkbox per basket.</li>
+</ul>
+<h3>The tabs</h3>
+<table>
+<tr><th>Tab</th><th>What it shows</th></tr>
+<tr><td><b>Overview</b></td><td>Growth of $10,000 against your comparison tickers, what the portfolio is made of (top holding,
+top 5, and how many equal holdings it acts like), today's movers, the primary strategy's verdict on what you own (SELL, TRIM,
+REVIEW, still in the Buy Zone) and sectors.</td></tr>
+<tr><td><b>Holdings</b></td><td>One row per holding: shares, average cost, price, value, weight, today, gain in $ and %, total
+return with dividends, the yearly return of your purchases, dividend yield, yield on cost, income a year, Quality,
+Wonderfulness, the value estimate and how far the price is from it, the buy-below price, the number of purchases, accounts and
+baskets. Sort, filter, export to CSV. <b>Click a row</b> for the holding's page: its price since your first purchase with each
+purchase marked and the average-cost line, every purchase with its gain, dividends, total return, yearly return and whether it is
+long- or short-term, earlier sales, its baskets, and buttons to add a purchase or record a sale. Click a purchase to edit it.</td></tr>
+<tr><td><b>Performance</b></td><td>Growth of $10,000 for 1M, 3M, YTD, 1Y, 3Y, 5Y or All, against the S&amp;P 500 and any other
+stocks or ETFs you type in (saved for next time). Then the statistics side by side: total return, return a year, volatility,
+worst drop, how far below its high it is now, Sharpe and Sortino ratios, beta, correlation and alpha against the S&amp;P 500,
+up- and down-market capture, months up, best and worst month. <b>Your money vs the same purchases elsewhere</b> puts every
+purchase's cost into each comparison on the same day (and takes it out when you sold), so you see what the same money would be
+worth. <b>Biggest contributors</b> lists each holding's dollar gain in the period.</td></tr>
+<tr><td><b>Income</b></td><td>Dividends a year at today's share counts, a month on average, yield and yield on cost, dividends
+received since purchase; dividends by month for the last two years; the payouts expected over the next 12 months (last year's,
+a year later) and income by holding.</td></tr>
+<tr><td><b>Gains &amp; tax</b></td><td>Unrealized gains split long-term and short-term, gains realized this year, purchases
+showing a loss (tax-loss candidates; mind the 30-day wash-sale rule), purchases that turn long-term within 60 days, every open
+purchase and every sale. Not tax advice: the broker's 1099-B is the record.</td></tr>
+<tr><td><b>Activity</b></td><td>Imported or synced transactions: buys, sells, dividends, interest, deposits, fees, splits.</td></tr>
+<tr><td><b>Invest cash</b></td><td>A plan of orders for one account (<a href="#investcash">below</a>).</td></tr>
+<tr><td><b>Accounts &amp; imports</b></td><td>Accounts and their cash, file imports, the Schwab and SnapTrade connections, and
+share counts to check.</td></tr>
+</table>
+<figure class="shot"><img src="docs/guide/holdings-holding.jpg" alt="A holding's page: value, gain, total return with dividends, income; the price since the first purchase with the average cost; each purchase; baskets (demo data)." loading="lazy"><figcaption>A holding's page (demo data): every purchase with its gain, dividends and term, and its baskets.</figcaption></figure>
+<h3>How the numbers are worked out</h3>
+<ul>
+<li><b>Return of the portfolio or a basket</b> is <i>time-weighted</i>: each day's return of what was held, chained. Adding or
+taking out money doesn't move it, so it is the fair number to compare with an index. It includes dividends and leaves cash out.</li>
+<li><b>"A year" on a holding or purchase</b> is <i>money-weighted</i> (the yearly rate your actual purchases earned, on their
+dates, dividends included). It is only shown after a year: annualizing a few months' move gives meaningless numbers.</li>
+<li><b>Dividends</b> come from each stock's price history: the ex-dividend drop between the plain and the dividend-adjusted close,
+times the shares you held on that day. That works for every stock and ETF without another data source. Your broker's own records
+appear on the Activity tab.</li>
+<li><b>Purchases with an unknown date</b> (from a positions-only import or sync) count from the day they were entered and get no
+dividends or yearly return until you import the lot details.</li>
+</ul>
+<h3 id="holdingsin">Bringing holdings in</h3>
+<table>
+<tr><th>Way</th><th>What it brings</th><th>Notes</th></tr>
+<tr><td><b>By hand</b></td><td>Each purchase (date, shares, price paid) and each sale</td><td>Add purchase / Record sale at the top.
+Cash per account under Accounts &amp; imports → Edit.</td></tr>
+<tr><td><b>Files</b></td><td>Positions (shares, average cost, cash), purchases with lot details, transactions</td><td>Schwab:
+Accounts › Positions › Export; the lot details export (or StreetSmart's <i>Export Positions with Lots</i>); Accounts › History ›
+Export (CSV or JSON). Fidelity's and most brokers' positions CSV work too, or the templates on the page. The type is detected;
+importing the same history twice adds nothing twice. A lots file replaces that account's purchases. <i>Rebuild purchases from
+history</i> (on the account) recreates them from buys and sells, oldest first, when the history goes back far enough.</td></tr>
+<tr><td><b>Schwab</b> (Trader API)</td><td>Accounts, positions with average cost, cash, and transactions (a year per request; you
+choose how far back)</td><td>Once: create an app at <a href="https://developer.schwab.com">developer.schwab.com</a> (Accounts and
+Trading Production, callback <code>https://127.0.0.1:8182</code>), wait for <i>Ready For Use</i>, then paste its key and secret.
+To sign in, open Schwab's sign-in, approve, and paste the address the browser lands on (an error page at 127.0.0.1 is expected).
+Schwab ends the connection after 7 days; then sign in again. The API has no purchase dates: import the lots file once.</td></tr>
+<tr><td><b>Other brokerages</b> (SnapTrade)</td><td>Positions with purchase lots where the broker shares them, cash, 5 years of
+activity</td><td>Free for personal use at <a href="https://snaptrade.com/personal">snaptrade.com/personal</a>: connect Fidelity,
+Vanguard, Robinhood, E*TRADE and others there, then paste the Personal client ID and consumer key.</td></tr>
+</table>
+<p>Keys, secrets and sign-ins are stored in Windows Credential Manager, never in the app folder. Nothing is ever traded: the
+connections only read. After a sync or positions import, <b>share counts to check</b> lists any holding where the broker's share
+count and your purchases differ; <i>Match the broker</i> adds an undated purchase or scales the ones on file.</p>
+<h3 id="investcash">Invest my cash</h3>
+<figure class="shot"><img src="docs/guide/holdings-invest.jpg" alt="Invest my cash: today's market and the suggested cash to keep, the totals, and the order list with sells, trims and buys, each with shares and a limit price (demo data)." loading="lazy"><figcaption>Invest my cash (demo data): the market's state and the suggested reserve, then editable orders.</figcaption></figure>
+<ol>
+<li><b>Cash to keep.</b> Suggested as a share of the account: 5% when the S&amp;P 500 is above its 200-day average, 25% below
+it, 45% below it with the VIX high; plus 5–15% more when the Buffett Indicator says the whole market is overvalued. A strategy
+with its market overlay switched on uses its own setting instead. Type your own percentage to override.</li>
+<li><b>Sells and trims</b> under the chosen strategy: a holding that fails its checklist or whose Quality fell below its sell
+level is sold; a nose-bleed price (far above value with a P/E far above its usual) or an oversized holding is trimmed. Their
+proceeds can go toward the buys.</li>
+<li><b>Buys:</b> the strategy's Buy Zone stocks, best-ranked first, across at most the number you set (the strategy's weekly
+spread by default), never pushing one holding above the most a new purchase may weigh (25%). Each is a <b>limit order</b> at the
+lower of today's close and the strategy's buy price, in whole shares.</li>
+</ol>
+<p>Untick, change shares or limit prices, then <b>Copy as text</b>, <b>Download CSV</b> or <b>Save plan</b>, and place the orders
+at your broker yourself.</p>
+
+<!-- ================================================================ 22 -->
+<h2 id="ops"><span class="n">22</span>Email, schedule, backups, security</h2>
 <table>
 <tr><th>Feature</th><th>How it works</th></tr>
 <tr><td><b>Email</b></td><td>Sent from your own account over SMTP. There are presets for Google (Gmail/Workspace), Outlook and iCloud,
@@ -1675,7 +1773,7 @@ The task is named <b>Oracle Edge Daily</b> and sits at the top level of <b>Task 
 <tr><td><b>Backups</b></td><td>After each daily run, a consistent snapshot of the database is zipped to the backup folder set in Settings (a new install
 defaults to <code>Documents\Oracle Edge backups</code>; a cloud-synced folder is best).
 It's written as <code>.part</code> and renamed when complete, so a cloud drive never syncs half a file. Each day is stored once, and older backups are thinned out with the standard rotation: the last <b>7 days</b>, one per week for the last <b>4 weeks</b>, one per month for the last <b>12 months</b>, and one per year <b>for good</b> (all adjustable in Settings). Everything else is deleted automatically. Expect roughly 25 files (each about the size of the zipped database) after a few years. Restore one from <b>Settings → Restore a backup</b>.</td></tr>
-<tr><td><b>Secrets</b></td><td>Email passwords and API keys are stored in <b>Windows Credential Manager</b>, never in the app folder. Copying
+<tr><td><b>Secrets</b></td><td>Email passwords, API keys and the Schwab and SnapTrade keys and sign-ins are stored in <b>Windows Credential Manager</b>, never in the app folder. Copying
 the folder to someone else or pushing it to GitHub doesn't leak them; the new person enters their own.</td></tr>
 <tr><td><b>Privacy</b></td><td>The app listens only on <code>127.0.0.1</code> (your own PC). It contacts the SEC, the price sources, FRED and your
 mail server, and nothing else.</td></tr>
@@ -1715,8 +1813,8 @@ If a <b>first-time load</b> stopped after the SEC statements were read in, <b>Da
 It picks up at the market data, scoring, prices and history replay and skips the long download and read.</td></tr>
 </table>
 
-<!-- ================================================================ 22 -->
-<h2 id="folders"><span class="n">22</span>Where things live</h2>
+<!-- ================================================================ 23 -->
+<h2 id="folders"><span class="n">23</span>Where things live</h2>
 <div class="formula" style="white-space:pre">C:\OracleEdge\
   Start.bat              start the app (one click)
   Run-Daily.bat          what the scheduled task runs
@@ -1746,8 +1844,8 @@ installed, it says so, changes nothing, and points you to the desktop shortcut o
 <b>FRESH</b> and then <b>YES</b> does it delete <code>C:\OracleEdge</code> (database, settings and history) and install from scratch;
 your backups are kept, so one can be restored afterwards. Run-Daily.bat likewise only runs from the installed copy.</p>
 
-<!-- ================================================================ 23 -->
-<h2 id="whys"><span class="n">23</span>Why it works this way</h2>
+<!-- ================================================================ 24 -->
+<h2 id="whys"><span class="n">24</span>Why it works this way</h2>
 <div class="card"><b>Why rules of thumb instead of machine learning?</b><br>Every decision can be traced to a number and a rule
 you can read and change. A model that "likes" a stock for unexplainable reasons would be the opposite of the Oracle's "invest
 in what you understand".</div>
@@ -1776,8 +1874,8 @@ up, copy and inspect. SQLite handles this volume easily.</div>
 <div class="card"><b>Why all Python with NiceGUI?</b><br>One language for data, rules and screens makes it easier to maintain and share.
 NiceGUI provides polished tables and charts without a separate web front end.</div>
 
-<!-- ================================================================ 24 -->
-<h2 id="limits"><span class="n">24</span>Known limits</h2>
+<!-- ================================================================ 25 -->
+<h2 id="limits"><span class="n">25</span>Known limits</h2>
 <ul>
 <li><b>End of day only.</b> Prices and alerts use daily closes; intraday alerts need a real-time feed (planned with Schwab).</li>
 <li><b>Free price data can have gaps.</b> The Data page lists missing tickers; adding a Tiingo or EODHD key fixes most.</li>
@@ -1811,8 +1909,8 @@ Indicators are estimates (market value moved by an ETF's price, GDP grown at its
 until the official figures arrive.</li>
 </ul>
 
-<!-- ================================================================ 25 -->
-<h2 id="audit"><span class="n">25</span>Accuracy audit (versions 0.12.0 and 0.13.0)</h2>
+<!-- ================================================================ 26 -->
+<h2 id="audit"><span class="n">26</span>Accuracy audit (versions 0.12.0 and 0.13.0)</h2>
 <p>Every calculation in the app was reviewed line by line and checked against independently worked answers: the financial
 metrics, quality scoring, both valuation models and the bank/insurer model, the rank, the signal ladder, portfolio accounting
 (fills, cash, time-weighted returns, CAGR, drawdowns, Sharpe), the Buy Zone records, the quarterly checks, price targets and
@@ -1853,8 +1951,8 @@ that "price ≤ buy-below" gives exactly the same answer as "margin of safety �
 updating, the app rebuilds its results once (a notice with a <b>Rebuild now</b> button appears until it has). Backtests keep
 their old results until you recalculate them.</p>
 
-<!-- ================================================================ 26 -->
-<h2 id="glossary"><span class="n">26</span>Glossary</h2>
+<!-- ================================================================ 27 -->
+<h2 id="glossary"><span class="n">27</span>Glossary</h2>
 <table>
 <tr><td><b>ADR ratio</b></td><td>How many foreign ordinary shares one U.S.-traded share represents</td></tr>
 <tr><td><b>ATR-14</b></td><td>Average true range: the average size of a day's price move over 14 days</td></tr>
