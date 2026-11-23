@@ -119,7 +119,7 @@ def test_matching_look_through_and_score(world):
     assert m["coverage"] == pytest.approx(a["w"] + next(r["w"] for r in lt["rows"] if r["name"].startswith("Beta")))
     assert m["wonderful"] == pytest.approx(a["w"]) and m["quality"] == pytest.approx(a["w"])
     bw = next(r["w"] for r in lt["rows"] if r["name"].startswith("Beta"))
-    # Business Score: Combined ((Q + W) / 2) averaged by weight over what's scored: Alpha 83.5, Beta 50
+    # Oracle Score: Combined ((Q + W) / 2) averaged by weight over what's scored: Alpha 83.5, Beta 50
     assert m["business"] == pytest.approx((a["w"] * 83.5 + bw * 50) / (a["w"] + bw))
     assert m["business_cov"] == pytest.approx(a["w"] + bw) and a["flag"] == "oracle"
     assert m["fails"] > 0 and m["price_vs_value"] is not None
@@ -156,4 +156,19 @@ def test_xray_and_etf_buy_candidates(world):
                      "WHERE etf='ZQE'")
     c = orderplan.etf_candidates()
     assert [x["ticker"] for x in c] == ["ZQE"] and c[0]["etf"] and "Fund Score 75" in c[0]["why"]
-    assert "Business Score" in c[0]["why"]
+    assert "Oracle Score" in c[0]["why"]
+
+
+def test_trend_of_what_it_holds(world):
+    etfs.store_holdings("ZQE", etfs.parse_nport(NPORT.format(asof=world)), "acc-1", "SEC N-PORT")
+    book = etfscore.Book()
+    book.co[991001].update(w_chg=8.0, q_chg=4.0)  # Alpha improving: Combined +6
+    book.co[991002].update(w_chg=-12.0, q_chg=None)  # Beta weakening: -12
+    lt = etfscore.look_through("ZQE", book)
+    m = lt["m"]
+    a = next(r for r in lt["rows"] if r["name"] == "Alpha Corp")
+    b = next(r for r in lt["rows"] if r["name"].startswith("Beta"))
+    assert a["trend"] == 6 and a["trend_dir"] == "up" and b["trend_dir"] == "down"
+    assert m["trend"] == pytest.approx((a["w"] * 6 - b["w"] * 12) / (a["w"] + b["w"]))
+    assert m["rising"] == pytest.approx(a["w"]) and m["falling"] == pytest.approx(b["w"])
+    assert m["trend_dir"] in ("up", "down", "flat")

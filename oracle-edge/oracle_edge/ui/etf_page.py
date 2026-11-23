@@ -1,30 +1,37 @@
 """ETFs: the ETF screener (/etfs) and each fund's page (/etf/{ticker}).
 
 Funds are judged the way the app judges companies, through what they own: each holding carries its Quality,
-Wonderfulness and value, so a fund gets a Business Score (the weighted average Combined score of what it holds), a
+Wonderfulness and value, so a fund gets a Oracle Score (the weighted average Combined score of what it holds), a
 look-through value, and a Fund Score that adds its track record and how it is run.
 """
 
 from __future__ import annotations
 
+import asyncio
 import html
+import json
 from datetime import date
 
 from nicegui import app, run, ui
 
-from .. import db, etfs, etfscore
+from .. import db, etfs, etfscore, rules
 from .growth import PALETTE
 from .layout import frame
+from .wonder_page import BAND_COL, BAND_NAME, SHAPE
 from .theme import BRAND, NEGATIVE, badge_html, money, pct
 
 GREY = "#6b7280"
 PRESETS = {
-    "business": ("Best businesses", "The highest Business Score: the weighted average Combined (Quality + "
+    "business": ("Best businesses", "The highest Oracle Score: the weighted average Combined (Quality + "
                  "Wonderfulness) of what it holds, with at least half the fund scored", "business", True,
                  lambda r: (r.get("business_cov") or 0) >= 0.5),
     "wonderful": ("Most wonderful", "The largest share in wonderful businesses (Wonderfulness 70+)", "wonderful", True,
                   None),
     "quality": ("Highest quality", "The highest weighted Quality of what they hold", "avg_q", True, None),
+    "rising": ("Improving businesses", "The biggest 3-year rise in the Oracle Score of what they hold (each holding's "
+               "Combined score then and now, weighted)", "trend", True, lambda r: (r.get("business_cov") or 0) >= 0.5),
+    "falling": ("Weakening businesses", "The biggest 3-year fall in the Oracle Score of what they hold", "trend", False,
+                lambda r: (r.get("business_cov") or 0) >= 0.5 and r.get("trend") is not None),
     "discount": ("Quality at a discount", "At least a third in wonderful, quality businesses; cheapest holdings first",
                  "pvv", False, lambda r: (r.get("both_scored") or 0) >= 0.33),
     "score": ("Best Fund Score", "The best all-round funds", "score", True, None),
@@ -77,6 +84,8 @@ def rows() -> list[dict]:
             "expense": f["expense"], "aum": f["aum"] or f["net_assets"], "r1": m.get("t_r1"), "r5": r5,
             "ex5": (r5 - b5) if (r5 is not None and b5 is not None) else None, "sharpe": m.get("t_sharpe"),
             "max_dd": m.get("t_max_dd"), "beat": m.get("t_beat_share"), "bench": m.get("t_bench") or f["benchmark"],
+            "trend": m.get("trend"), "trend_dir": m.get("trend_dir") or "new", "rising": m.get("rising"),
+            "falling": m.get("falling"), "price": m.get("price"), "fair": m.get("fair_value"),
             "asof": f["holdings_asof"] or "", "n": f["n_holdings"], "source": f["holdings_source"] or ""})
     return out
 
@@ -121,7 +130,7 @@ def etfs_page(preset: str | None = None):
             ui.label("ETFs: what's inside, and how well they're run").classes("oe-h1")
             universe_switch("etfs")
         ui.label("Every fund opened up: each holding carries the app's Quality, Wonderfulness and value, so you can see "
-                 "how good the businesses in a fund are on average (its Business Score: the weighted average Combined "
+                 "how good the businesses in a fund are on average (its Oracle Score: the weighted average Combined "
                  "score of what it holds), what its holdings are worth against their prices, and a Fund Score that "
                  "adds its track record and how it is run. Click a fund for everything it holds.").classes("oe-muted")
         rs = rows()
@@ -184,11 +193,24 @@ def etfs_page(preset: str | None = None):
             for w in (csel, mx, ma, so):
                 w.on_value_change(lambda e: filt_change())
         note = ui.label("").classes("text-sm").style("color:#2c5d8f")
+        bar_q = float(rules.default_profile().settings.get("quality_min", 70))
         with ui.card().classes("oe-card w-full"):
-            ui.label("The map: how good the businesses are (Business Score, across) and how cheap they are (up). Bigger = "
-                     "more assets; colour = Fund Score. Click a fund to open it.").classes("oe-small")
-            ch = ui.echart({}, on_point_click=lambda e: ui.navigate.to(f"/etf/{e.name}")).classes("w-full").style(
-                "height:430px")
+            ui.label("Quality vs Wonderfulness of what they hold").classes("oe-h2")
+            ui.label("The Screener's map for funds: each dot is a fund, placed at the weighted Quality (across) and "
+                     "Wonderfulness (up) of what it holds, so it sits where its average business would. Their average is "
+                     "the Oracle Score. Dashed lines: the checklist bar and Wonderfulness 70, as on the Screener. Colour = "
+                     "how its holdings are priced against their value, in the Screener's colours. Shape = which way the "
+                     "businesses it holds have moved over 3 years. Zoom with the sliders, the box tool (top right; ⟲ "
+                     "resets) or Shift + mouse wheel: the table then lists only the funds in view. Click a legend entry "
+                     "to hide a group (from the table too). Click a dot to open the fund in a new tab.").classes("oe-small")
+            ch = ui.echart({}, on_point_click=lambda e: ui.navigate.to(f"/etf/{e.name}", new_tab=True)
+                           if e.name else None).classes("w-full").style("height:480px")
+            ui.html(MAP_KEY, sanitize=False).classes("w-full")
+        with ui.row().classes("items-center gap-2") as zrow:
+            znote = ui.label("").classes("text-sm").style("color:#2c5d8f")
+            ui.button("Show the whole map", icon="zoom_out_map", on_click=lambda: reset_map()).props(
+                "flat dense no-caps size=sm")
+        zrow.set_visibility(False)
         g = ui.aggrid({"columnDefs": _cols(), "rowData": [], "rowHeight": 34,
                        "defaultColDef": {"sortable": True, "resizable": True, "wrapHeaderText": True,
                                          "autoHeaderHeight": True, "suppressHeaderMenuButton": True},
@@ -196,11 +218,37 @@ def etfs_page(preset: str | None = None):
                       auto_size_columns=False).classes("w-full")
         g.on("cellClicked", lambda e: ui.navigate.to(f"/etf/{e.args['data']['ticker']}"))
         ui.add_css(_BADGE_CSS)
-        ui.label("Business Score: the holdings' Combined scores ((Quality + Wonderfulness) / 2) averaged by their weight, "
-                 "over the part the app scores (Coverage). Wonderful, Quality and Buy Zone are shares of the whole "
-                 "fund. Holdings vs value: the "
-                 "fund's holdings' prices against their values, weighted (−20% = they trade 20% below what they're "
-                 "worth). Returns are yearly, dividends included.").classes("oe-small")
+        ui.label("Oracle Score: the holdings' Combined scores ((Quality + Wonderfulness) / 2) averaged by their weight, "
+                 "over the part the app scores (Coverage). Trend: its 3-year change, and the shares of the fund in "
+                 "companies rising or falling 5+ points. Wonderful, Quality and Buy Zone are shares of the whole fund. "
+                 "Holdings vs value: the fund's holdings' prices against their values, weighted (−20% = they trade 20% "
+                 "below what they're worth). Returns are yearly, dividends included.").classes("oe-small")
+        allx = [r for r in rs if r["avg_q"] is not None and r["avg_w"] is not None]
+        rng = _ranges(allx)
+        mv = {"zoom": None, "hidden": set(), "xs": []}
+
+        def shown(xs):
+            z, hid = mv["zoom"], mv["hidden"]
+            if not z and not hid:
+                return xs
+            return [r for r in xs if r["avg_q"] is not None and fund_band(r) not in hid and _in_zoom(r, z)]
+
+        def show_rows():
+            xs = mv["xs"]
+            sh = shown(xs)
+            g.options["rowData"] = sh
+            g.style(f"height:{min(110 + 35 * len(sh), 700)}px")
+            g.update()
+            why = (["the zoomed area of the map"] if mv["zoom"] else []) + (
+                ["hiding " + ", ".join(BAND_NAME[k] for k in BAND_COL if k in mv["hidden"])] if mv["hidden"] else [])
+            znote.text = f"Showing {len(sh)} of {len(xs)} funds: " + " · ".join(why) if why else ""
+            zrow.set_visibility(bool(why))
+
+        def draw_map():
+            ch.options.clear()
+            ch.options.update(fund_map(allx, {r["ticker"] for r in mv["xs"]}, bar_q, rng, mv["zoom"], mv["hidden"],
+                                       mv["xs"]))
+            ch.update()
 
         def draw():
             for k, b in chips.items():
@@ -219,12 +267,44 @@ def etfs_page(preset: str | None = None):
                 xs = [r for r in xs if f(r)]
             xs.sort(key=lambda r: (r[key] is None, -(r[key] or 0) if desc else (r[key] or 0)))
             note.text = f"{tip} · {len(xs)} funds"
-            g.options["rowData"] = xs
-            g.style(f"height:{min(110 + 35 * len(xs), 700)}px")
-            g.update()
-            ch.options.clear()
-            ch.options.update(_map(xs))
-            ch.update()
+            mv["xs"] = xs
+            show_rows()
+            draw_map()
+
+        async def on_zoom(_e=None):
+            mv["seq"] = mv.get("seq", 0) + 1
+            me = mv["seq"]
+            await asyncio.sleep(0.35)
+            if me != mv["seq"]:
+                return
+            try:
+                ext = await ui.run_javascript(
+                    f"const c = getElement({ch.id}).chart, m = c.getModel();"
+                    " return [m.getComponent('xAxis', 0).axis.scale.getExtent(),"
+                    " m.getComponent('yAxis', 0).axis.scale.getExtent()];", timeout=3)
+            except Exception:
+                return
+            z = _norm_zoom(*(ext or [None, None]), rng)
+            if z == mv["zoom"]:
+                return
+            mv["zoom"] = z
+            show_rows()
+            draw_map()
+
+        def on_legend(e):
+            sel = (e.args or {}).get("selected") or {}
+            mv["hidden"] = {k for k in BAND_COL if sel.get(BAND_NAME[k]) is False}
+            show_rows()
+            draw_map()
+
+        def reset_map():
+            mv["zoom"], mv["hidden"] = None, set()
+            show_rows()
+            draw_map()
+
+        ch.on("chart:datazoom", on_zoom, [])
+        ch.on("chart:restore", lambda e: reset_map(), [])
+        ch.on("chart:legendselectchanged", on_legend, ["selected"])
         draw()
 
 
@@ -253,9 +333,19 @@ def _cols() -> list[dict]:
          ":cellStyle": sc, "headerTooltip": "0-100: what it owns, price, track record, cost & structure"},
         {"headerName": "Price", "field": "sig", "width": 92, "tooltipField": "why",
          ":cellRenderer": "p => p.value ? `<span class='oe-badge-mini oe-b-${p.value}'>${p.value}</span>` : ''"},
-        {"headerName": "Business Score", "field": "business", "width": 96, "type": "rightAligned",
+        {"headerName": "Oracle Score", "field": "business", "width": 96, "type": "rightAligned",
          ":valueFormatter": n0, ":cellStyle": sc,
          "headerTooltip": "Weighted average Combined score ((Quality + Wonderfulness) / 2) of what it holds"},
+        {"headerName": "Trend (3 yrs)", "field": "trend", "width": 92, "type": "rightAligned",
+         ":cellRenderer": "p => p.value == null ? '—' : `<span style='color:${p.value >= 2 ? '#1f6f4a' : p.value <= -2 ? "
+                          "'#A8322D' : '#6b7280'}'>${p.value >= 2 ? '▲' : p.value <= -2 ? '▼' : '●'} ${p.value >= 0 ? "
+                          "'+' : ''}${p.value.toFixed(1)}</span>`",
+         "headerTooltip": "3-year change of the Oracle Score of what it holds (each holding's Combined score then and "
+                          "now, weighted)"},
+        {"headerName": "Rising", "field": "rising", "width": 74, "type": "rightAligned", ":valueFormatter": pc,
+         "headerTooltip": "Share of the fund in companies whose Combined score rose 5+ points in 3 years"},
+        {"headerName": "Falling", "field": "falling", "width": 74, "type": "rightAligned", ":valueFormatter": pc,
+         "headerTooltip": "Share of the fund in companies whose Combined score fell 5+ points in 3 years"},
         {"headerName": "Wonderful", "field": "wonderful", "width": 88, "type": "rightAligned", ":valueFormatter": pc,
          "headerTooltip": "Share of the fund in businesses with Wonderfulness 70+"},
         {"headerName": "Quality", "field": "quality", "width": 80, "type": "rightAligned", ":valueFormatter": pc,
@@ -291,29 +381,130 @@ def _cols() -> list[dict]:
     ]
 
 
-def _map(xs: list[dict]) -> dict:
-    pts = []
-    for r in xs:
-        if r["business"] is None or r["pvv"] is None:
-            continue
-        pts.append({"name": r["ticker"], "value": [round(r["business"], 1), round(-r["pvv"] * 100, 1),
-                                                   r["score"] or 0, r["aum"] or 0],
-                    "symbolSize": max(8, min(40, 6 + 4 * ((r["aum"] or 1e7) / 1e9) ** 0.35)),
-                    "itemStyle": {"borderColor": "#c9a227", "borderWidth": 2} if r["held"] else {}})
-    return {
-        "tooltip": {":formatter": "p => `<b>${p.name}</b><br>Business Score ${Math.round(p.value[0])}<br>Holdings "
-                                  "${p.value[1] >= 0 ? p.value[1] + '% below' : -p.value[1] + '% above'} value<br>"
-                                  "Fund Score ${Math.round(p.value[2])}`"},
-        "grid": {"left": 60, "right": 90, "top": 20, "bottom": 50},
-        "xAxis": {"type": "value", "name": "Business Score (weighted Quality + Wonderfulness of its holdings)",
-                  "nameLocation": "middle", "nameGap": 30, "scale": True},
-        "yAxis": {"type": "value", "name": "Holdings below their value (%)", "nameLocation": "middle", "nameGap": 42},
-        "visualMap": {"dimension": 2, "min": 30, "max": 85, "right": 0, "top": "middle", "text": ["Fund Score", ""],
-                      "inRange": {"color": ["#A8322D", "#c9a227", "#1f6f4a"]}, "calculable": False},
-        "series": [{"type": "scatter", "data": pts, "label": {"show": True, "formatter": "{b}", "position": "right",
-                                                              "fontSize": 10, "color": "#4b524f"},
-                    "markLine": {"silent": True, "symbol": "none", "lineStyle": {"color": "#c9c6bb", "type": "dashed"},
-                                 "data": [{"yAxis": 0}]}}]}
+def fund_band(r: dict) -> str:
+    """The Screener's colour groups for a fund, from what its holdings trade at against their value: Buy zone (the
+    fund's BUY badge: 10%+ below value), below value, up to 25% over, more than that, or not valued."""
+    pv = r.get("pvv")
+    if pv is None:
+        return "none"
+    if r.get("sig") == "BUY":
+        return "buy"
+    return "below" if pv < 0 else "near" if pv <= 0.25 else "over"
+
+
+def fund_size(aum: float | None) -> int:
+    """Dot size: assets, in the Screener's sizes."""
+    a = aum or 0
+    return 6 if a < 1e8 else 9 if a < 1e9 else 11 if a < 1e10 else 14 if a < 1e11 else 17
+
+
+def _ranges(xs: list[dict]) -> tuple[list[float], list[float]]:
+    """The map's axes: the Screener's scale, trimmed to where the funds are (they average many companies, so they
+    sit closer together than single companies)."""
+    if not xs:
+        return [20.0, 100.0], [0.0, 100.0]
+    qs = [r["avg_q"] for r in xs]
+    ws = [r["avg_w"] for r in xs]
+    return ([max(0.0, 5 * (min(qs) // 5) - 5), min(100.0, 5 * (max(qs) // 5) + 10)],
+            [max(0.0, 5 * (min(ws) // 5) - 5), min(100.0, 5 * (max(ws) // 5) + 10)])
+
+
+def _norm_zoom(x, y, rng) -> dict | None:
+    if not x or not y:
+        return None
+    (X0, X1), (Y0, Y1) = rng
+    x = [max(X0, float(x[0])), min(X1, float(x[1]))]
+    y = [max(Y0, float(y[0])), min(Y1, float(y[1]))]
+    if x[0] <= X0 + 0.3 and x[1] >= X1 - 0.3 and y[0] <= Y0 + 0.3 and y[1] >= Y1 - 0.3:
+        return None
+    return {"x": x, "y": y}
+
+
+def _in_zoom(r: dict, z: dict | None) -> bool:
+    if not z:
+        return True
+    (x0, x1), (y0, y1) = z["x"], z["y"]
+    return x0 - 0.05 <= r["avg_q"] <= x1 + 0.05 and y0 - 0.05 <= r["avg_w"] <= y1 + 0.05
+
+
+TREND_WORD = {"up": "▲ businesses improving", "down": "▼ businesses weakening", "flat": "● steady", "new": "◆ no trend yet"}
+
+
+def fund_map(allx: list[dict], inview: set[str], bar: float, rng, zoom: dict | None, hidden: set[str],
+             xs: list[dict]) -> dict:
+    """The Screener's map, for funds: same axes, lines, colours, shapes, zoom and legend; no labels (hover a dot)."""
+    groups: dict[str, list] = {k: [] for k in reversed(BAND_COL)}
+    for r in allx:
+        groups[fund_band(r)].append(r)
+    series = []
+    for gk, rs in groups.items():
+        data = []
+        for r in rs:
+            sym, rot = SHAPE.get(r.get("trend_dir") or "new", SHAPE["new"])
+            data.append({"name": r["ticker"], "symbol": sym, "symbolRotate": rot, "symbolSize": fund_size(r["aum"]),
+                         "value": [round(r["avg_q"], 1), round(r["avg_w"], 1), r["name"], r.get("trend_dir") or "new",
+                                   None if r.get("trend") is None else round(r["trend"], 1),
+                                   round((r.get("rising") or 0) * 100), round((r.get("falling") or 0) * 100),
+                                   None if r.get("pvv") is None else round(r["pvv"] * 100),
+                                   None if r.get("business") is None else round(r["business"]),
+                                   None if r.get("score") is None else round(r["score"]), BAND_NAME[gk],
+                                   r["held"]],
+                         "itemStyle": {"opacity": 0.92 if r["ticker"] in inview else 0.15,
+                                       **({"borderColor": "#1C2420", "borderWidth": 1.5} if r["held"] else {})}})
+        series.append({"type": "scatter", "name": BAND_NAME[gk], "itemStyle": {"color": BAND_COL[gk]}, "data": data,
+                       "emphasis": {"focus": "none", "scale": 1.6}})
+    series.append({"type": "scatter", "name": "lines", "data": [], "silent": True,
+                   "markLine": {"silent": True, "symbol": "none", "lineStyle": {"type": "dashed", "color": "#6b7280"},
+                                "label": {"show": False}, "data": [{"xAxis": bar}, {"yAxis": 70}]}})
+    fmt = ("p => { const v = p.value, d = " + json.dumps(TREND_WORD) + "[v[3]];"
+           " const c = v[4] == null ? '' : ` (${v[4] >= 0 ? '+' : ''}${v[4]} in 3 yrs)`;"
+           " return `<b>${p.name}</b> ${v[2]}${v[11] ? ' · <i>you own it</i>' : ''}<br>Oracle Score <b>${v[8]}</b>"
+           " (Quality <b>${v[0]}</b> · Wonderfulness <b>${v[1]}</b>)<br>${d}${c}<br>${v[5]}% in companies rising, "
+           "${v[6]}% falling${v[7] == null ? '<br>Holdings not valued' : `<br><b>${v[10]}</b>: holdings ${Math.abs(v[7])}%"
+           " ${v[7] < 0 ? 'below' : 'above'} their value`}<br>Fund Score ${v[9] == null ? '—' : v[9]}"
+           "<br><i>click to open in a new tab</i>`; }")
+    counts = {}
+    for k in BAND_COL:
+        tot = sum(1 for r in allx if fund_band(r) == k)
+        n = sum(1 for r in xs if r["avg_q"] is not None and fund_band(r) == k and _in_zoom(r, zoom))
+        counts[BAND_NAME[k]] = f"{BAND_NAME[k]} ({n})" if n == tot else f"{BAND_NAME[k]} ({n} of {tot})"
+    (X0, X1), (Y0, Y1) = rng
+    zx, zy = (zoom["x"], zoom["y"]) if zoom else ([X0, X1], [Y0, Y1])
+    win_x = {"startValue": zx[0], "endValue": zx[1]}
+    win_y = {"startValue": zy[0], "endValue": zy[1]}
+    return {"tooltip": {":formatter": fmt},
+            "legend": {"top": 0, "icon": "circle", "data": list(BAND_NAME.values()),
+                       "selected": {BAND_NAME[k]: k not in hidden for k in BAND_COL},
+                       ":formatter": f"n => ({json.dumps(counts)})[n] || n"},
+            "grid": {"left": 50, "right": 56, "top": 40, "bottom": 70},
+            "toolbox": {"right": 8, "top": 0, "feature": {"dataZoom": {"title": {"zoom": "Drag a box to zoom",
+                                                                                 "back": "Undo zoom"}},
+                                                          "restore": {"title": "Reset"}}},
+            "dataZoom": [{"type": "slider", "xAxisIndex": 0, "bottom": 8, "height": 16, "filterMode": "none",
+                          "showDataShadow": False, **win_x},
+                         {"type": "slider", "yAxisIndex": 0, "right": 8, "width": 16, "filterMode": "none",
+                          "showDataShadow": False, **win_y},
+                         {"type": "inside", "xAxisIndex": 0, "filterMode": "none", "zoomOnMouseWheel": "shift",
+                          "moveOnMouseMove": False, **win_x},
+                         {"type": "inside", "yAxisIndex": 0, "filterMode": "none", "zoomOnMouseWheel": "shift",
+                          "moveOnMouseMove": False, **win_y}],
+            "xAxis": {"name": "Quality of what it holds (weighted)", "nameLocation": "middle", "nameGap": 26,
+                      "min": X0, "max": X1},
+            "yAxis": {"name": "Wonderfulness of what it holds", "nameLocation": "middle", "nameGap": 34, "min": Y0,
+                      "max": Y1},
+            "series": series}
+
+
+MAP_KEY = ("<div style='display:flex;gap:22px;flex-wrap:wrap;font-size:12px;color:#4b5563;align-items:center'>"
+           "<span><b>Shape</b>: what it holds over 3 years</span>"
+           "<span><span style='color:#374151'>▲</span> improving</span><span><span style='color:#374151'>▼</span> "
+           "weakening</span><span>● steady</span><span>◆ no history</span>"
+           "<span style='margin-left:10px'><b>Size</b>: assets</span>"
+           + "".join(f"<span style='display:inline-flex;align-items:center;gap:4px'><span style='display:inline-block;"
+                     f"width:{s}px;height:{s}px;border-radius:50%;background:#6b7280'></span>{lab}</span>"
+                     for s, lab in ((6, "<$100M"), (9, "$100M+"), (11, "$1B+"), (14, "$10B+"), (17, "$100B+")))
+           + "<span style='margin-left:10px'><b>Colour</b>: holdings' price against their value (the Screener's "
+             "colours; legend above: click one to hide it)</span><span><b>Dark outline</b>: you own it</span></div>")
 
 
 # ===================================================================== one fund
@@ -398,9 +589,12 @@ def etf_page(ticker: str):
         # ---- tiles
         with ui.row().classes("w-full gap-3 mt-2"):
             b = m.get("business")
-            _tile("—" if b is None else f"{b:.0f}", "Business Score",
-                  f"Quality {m.get('avg_q') or 0:.0f} · Wonderfulness {m.get('avg_w') or 0:.0f} · "
-                  f"{_p(m.get('business_cov'))} scored", _score_col(b),
+            tr = m.get("trend")
+            arrow = "" if tr is None else " ▲" if tr >= 2 else " ▼" if tr <= -2 else " ●"
+            _tile("—" if b is None else f"{b:.0f}{arrow}", "Oracle Score",
+                  f"Quality {m.get('avg_q') or 0:.0f} · Wonderfulness {m.get('avg_w') or 0:.0f}"
+                  + ("" if tr is None else f" · {tr:+.1f} in 3 yrs") + f" · {_p(m.get('business_cov'))} scored",
+                  _score_col(b),
                   "The holdings' Combined scores ((Quality + Wonderfulness) / 2) averaged by their share of the fund, "
                   "over the part the app scores on both")
             _tile(_p(m.get("wonderful")), "Wonderful", f"of the fund · {_p(m.get('wonderful_scored'))} of what's scored")
@@ -480,9 +674,16 @@ def _owns_card(m: dict, lt: dict, book):
                         "</span>", sanitize=False)
                 ui.label(f"{lab}").classes("text-sm").style("flex:1")
                 ui.label(f"{v * 100:.0f}%").classes("text-sm font-semibold")
-    ui.label(f"Business Score {m.get('business') or 0:.0f} (weighted Quality {m.get('avg_q') or 0:.0f} · "
+    ui.label(f"Oracle Score {m.get('business') or 0:.0f} (weighted Quality {m.get('avg_q') or 0:.0f} · "
              f"Wonderfulness {m.get('avg_w') or 0:.0f}, over the {_p(m.get('coverage'))} the app scores) · top 10 = "
              f"{_p(m.get('top10'))} · acts like {m.get('eff_n') or 0:.0f} equal holdings").classes("oe-small mt-1")
+    if m.get("trend") is not None:
+        tr = m["trend"]
+        ui.html(f"<div class='text-sm mt-1'>Over 3 years the businesses it holds moved <b style='color:"
+                f"{BRAND if tr >= 2 else NEGATIVE if tr <= -2 else GREY}'>{tr:+.1f}</b> points: "
+                f"<span style='color:{BRAND}'>▲ {_p(m.get('rising'))} of the fund rising</span> · "
+                f"<span style='color:{NEGATIVE}'>▼ {_p(m.get('falling'))} falling</span> (Combined score, 5+ points)</div>",
+                sanitize=False)
     secs = etfscore.sectors(lt["rows"], book)[:7]
     if secs:
         ui.label("Sectors (look-through)").classes("font-semibold text-sm mt-2")
@@ -590,12 +791,77 @@ def _overlap_card(t: str, lt: dict):
             ui.label(f"you hold {money(e['total'], 0)}" + (f" (via {via})" if via else "")).classes("oe-small")
 
 
+def holding_band(h: dict) -> str:
+    """A holding's colour on the map, as on the Screener: Buy zone, below value, up to 25% over, more, not valued."""
+    if not h.get("ratio"):
+        return "none"
+    if h.get("buy"):
+        return "buy"
+    over = 1 / h["ratio"] - 1
+    return "below" if over < 0 else "near" if over <= 0.25 else "over"
+
+
+def holdings_map(rows: list[dict], bar: float, zoom: dict | None, hidden: set[str], fund: dict | None = None) -> dict:
+    """The fund's holdings on the Screener's map: Quality across, Wonderfulness up, colour = price against value,
+    shape = 3-year trend, size = weight in the fund."""
+    groups: dict[str, list] = {k: [] for k in reversed(BAND_COL)}
+    for h in rows:
+        if h.get("q") is not None and h.get("wscore") is not None:
+            groups[holding_band(h)].append(h)
+    wmax = max((h["w"] for h in rows), default=0.01) or 0.01
+    series = []
+    for gk, hs in groups.items():
+        data = []
+        for h in hs:
+            sym, rot = SHAPE.get(h.get("trend_dir") or "new", SHAPE["new"])
+            data.append({"name": h.get("ticker_m") or "", "symbol": sym, "symbolRotate": rot,
+                         "symbolSize": round(5 + 19 * (h["w"] / wmax) ** 0.5, 1),
+                         "value": [round(h["q"], 1), round(h["wscore"], 1), h.get("name_m") or h.get("name") or "",
+                                   round(h["w"] * 100, 2), None if h.get("trend") is None else round(h["trend"], 1),
+                                   None if not h.get("ratio") else round((1 / h["ratio"] - 1) * 100), BAND_NAME[gk]]})
+        series.append({"type": "scatter", "name": BAND_NAME[gk], "itemStyle": {"color": BAND_COL[gk], "opacity": 0.9},
+                       "data": data, "emphasis": {"focus": "none", "scale": 1.5}})
+    series.append({"type": "scatter", "name": "lines", "data": [], "silent": True,
+                   "markLine": {"silent": True, "symbol": "none", "lineStyle": {"type": "dashed", "color": "#6b7280"},
+                                "label": {"show": False}, "data": [{"xAxis": bar}, {"yAxis": 70}]}})
+    if fund and fund.get("avg_q") is not None and fund.get("avg_w") is not None:
+        # where the fund itself sits: the weighted average of the dots (its Oracle Score is the average of the two)
+        series.append({"type": "scatter", "name": "fund", "silent": True, "z": 10, "symbol": "pin",
+                       "symbolSize": 34, "itemStyle": {"color": "#1C2420"},
+                       "label": {"show": True, "formatter": "fund avg", "position": "top", "fontSize": 10,
+                                 "color": "#1C2420"},
+                       "data": [{"name": "", "value": [round(fund["avg_q"], 1), round(fund["avg_w"], 1)]}]})
+    fmt = ("p => { const v = p.value; if (v.length < 3) return ''; return `<b>${p.name}</b> ${v[2]}<br>${v[3]}% of the fund<br>Quality <b>${v[0]}</b>"
+           " · Wonderfulness <b>${v[1]}</b>${v[4] == null ? '' : `<br>${v[4] >= 5 ? '▲' : v[4] <= -5 ? '▼' : '●'} "
+           "${v[4] >= 0 ? '+' : ''}${v[4]} in 3 yrs`}${v[5] == null ? '<br>Not valued' : `<br><b>${v[6]}</b>: price "
+           "${Math.abs(v[5])}% ${v[5] < 0 ? 'below' : 'above'} value`}<br><i>click to open in a new tab</i>`; }")
+    zx, zy = (zoom["x"], zoom["y"]) if zoom else ([20, 100], [0, 100])
+    win_x, win_y = {"startValue": zx[0], "endValue": zx[1]}, {"startValue": zy[0], "endValue": zy[1]}
+    return {"tooltip": {":formatter": fmt},
+            "legend": {"top": 0, "icon": "circle", "data": list(BAND_NAME.values()),
+                       "selected": {BAND_NAME[k]: k not in hidden for k in BAND_COL}},
+            "grid": {"left": 50, "right": 56, "top": 40, "bottom": 70},
+            "toolbox": {"right": 8, "top": 0, "feature": {"dataZoom": {"title": {"zoom": "Drag a box to zoom",
+                                                                                 "back": "Undo zoom"}},
+                                                          "restore": {"title": "Reset"}}},
+            "dataZoom": [{"type": "slider", "xAxisIndex": 0, "bottom": 8, "height": 16, "filterMode": "none",
+                          "showDataShadow": False, **win_x},
+                         {"type": "slider", "yAxisIndex": 0, "right": 8, "width": 16, "filterMode": "none",
+                          "showDataShadow": False, **win_y},
+                         {"type": "inside", "xAxisIndex": 0, "filterMode": "none", "zoomOnMouseWheel": "shift",
+                          "moveOnMouseMove": False, **win_x},
+                         {"type": "inside", "yAxisIndex": 0, "filterMode": "none", "zoomOnMouseWheel": "shift",
+                          "moveOnMouseMove": False, **win_y}],
+            "xAxis": {"name": "Quality (Oracle checklist)", "nameLocation": "middle", "nameGap": 26, "min": 20, "max": 100},
+            "yAxis": {"name": "Wonderfulness", "nameLocation": "middle", "nameGap": 34, "min": 0, "max": 100},
+            "series": series}
+
+
 def _holdings_table(t: str, f: dict, lt: dict):
     with ui.row().classes("w-full items-center justify-between"):
         ui.label(f"Holdings ({len(lt['rows']):,})").classes("oe-h2")
         ui.label(f"{f.get('holdings_source') or ''} · as of {f.get('holdings_asof') or '—'} · weights moved to today's "
                  "prices").classes("oe-small")
-    mode = {"only": False}
     rows_ = []
     for h in lt["rows"]:
         lab, col = FLAG.get(h.get("flag") or "", ("", GREY))
@@ -604,13 +870,19 @@ def _holdings_table(t: str, f: dict, lt: dict):
                       else round(h["q"]), "wscore": None if h.get("wscore") is None else round(h["wscore"]),
                       "val": None if not h.get("ratio") else round((1 / h["ratio"] - 1) * 100, 1), "flag": lab,
                       "fcol": col, "link": bool(h.get("ticker_m")), "country": h.get("country") or "",
+                      "trend": None if h.get("trend") is None else round(h["trend"], 1),
                       "kind": h.get("asset_cat") or ""})
     cols = [{"headerName": "Weight", "field": "w", "width": 96, "type": "rightAligned", "sort": "desc",
              ":valueFormatter": "p => p.value.toFixed(2) + '%'"},
             {"headerName": "Ticker", "field": "ticker", "width": 80, "cellStyle": {"fontWeight": 700}},
             {"headerName": "Company", "field": "name", "width": 240},
             {"headerName": "Quality", "field": "q", "width": 90, "type": "rightAligned"},
-            {"headerName": "Wonderfulness", "field": "wscore", "width": 124, "type": "rightAligned"},
+            {"headerName": "Wonderfulness", "field": "wscore", "width": 134, "type": "rightAligned"},
+            {"headerName": "Trend (3 yrs)", "field": "trend", "width": 124, "type": "rightAligned",
+             ":cellRenderer": "p => p.value == null ? '—' : `<span style='color:${p.value >= 5 ? '#1f6f4a' : p.value <= -5 "
+                              "? '#A8322D' : '#6b7280'}'>${p.value >= 5 ? '▲' : p.value <= -5 ? '▼' : '●'} ${p.value >= 0"
+                              " ? '+' : ''}${p.value}</span>`",
+             "headerTooltip": "3-year change of the company's Combined score"},
             {"headerName": "Price vs value", "field": "val", "width": 126, "type": "rightAligned",
              ":valueFormatter": "p => p.value == null ? '—' : (p.value >= 0 ? '+' : '') + p.value + '%'",
              ":cellStyle": "p => ({color: p.value == null ? '#6b7280' : p.value <= 0 ? '#1f6f4a' : '#A8322D'})"},
@@ -619,6 +891,16 @@ def _holdings_table(t: str, f: dict, lt: dict):
                               ": ''"},
             {"headerName": "Country", "field": "country", "width": 90},
             {"headerName": "Type", "field": "kind", "width": 76}]
+    bar_q = float(rules.default_profile().settings.get("quality_min", 70))
+    mz = {"zoom": None, "hidden": set(), "only": False}
+    ui.label("Its holdings on the Screener's map: Quality across, Wonderfulness up, colour = price against value, "
+             "shape = 3-year trend (▲ rising, ▼ falling, ● steady, ◆ new), size = weight in the fund; the pin marks "
+             "the fund's weighted average (its Oracle Score is the average of the two). Zoom or hide a colour and the "
+             "table below follows. Click a dot to open the company.").classes("oe-small")
+    hm = ui.echart(holdings_map(lt["rows"], bar_q, None, set(), lt["m"]), on_point_click=lambda e: ui.navigate.to(
+        f"/stock/{e.name}", new_tab=True) if e.name else None).classes("w-full").style("height:440px")
+    for r_, h in zip(rows_, lt["rows"]):
+        r_["_q"], r_["_w"], r_["_band"] = h.get("q"), h.get("wscore"), holding_band(h)
     g = ui.aggrid({"columnDefs": cols, "rowData": rows_, "rowHeight": 32,
                    "defaultColDef": {"sortable": True, "resizable": True, "suppressHeaderMenuButton": True},
                    "suppressCellFocus": True}, theme="quartz", auto_size_columns=False).classes("w-full").style(
@@ -626,10 +908,54 @@ def _holdings_table(t: str, f: dict, lt: dict):
     g.on("cellClicked", lambda e: ui.navigate.to(f"/stock/{e.args['data']['ticker']}")
          if e.args["data"].get("link") else None)
 
-    def toggle(v):
-        mode["only"] = v
-        g.options["rowData"] = [r for r in rows_ if r["flag"] in (FLAG["oracle"][0], FLAG["both"][0])] if v else rows_
+    def visible():
+        xs = rows_
+        if mz["only"]:
+            xs = [r for r in xs if r["flag"] in (FLAG["oracle"][0], FLAG["both"][0])]
+        if mz["zoom"] or mz["hidden"]:
+            (x0, x1), (y0, y1) = (mz["zoom"]["x"], mz["zoom"]["y"]) if mz["zoom"] else ((20, 100), (0, 100))
+            xs = [r for r in xs if r["_q"] is not None and r["_w"] is not None and r["_band"] not in mz["hidden"]
+                  and x0 - 0.05 <= r["_q"] <= x1 + 0.05 and y0 - 0.05 <= r["_w"] <= y1 + 0.05]
+        return xs
+
+    def redraw():
+        g.options["rowData"] = visible()
         g.update()
+
+    def toggle(v):
+        mz["only"] = v
+        redraw()
+
+    async def on_zoom(_e=None):
+        mz["seq"] = mz.get("seq", 0) + 1
+        me = mz["seq"]
+        await asyncio.sleep(0.35)
+        if me != mz["seq"]:
+            return
+        try:
+            ext = await ui.run_javascript(
+                f"const c = getElement({hm.id}).chart, m = c.getModel();"
+                " return [m.getComponent('xAxis', 0).axis.scale.getExtent(),"
+                " m.getComponent('yAxis', 0).axis.scale.getExtent()];", timeout=3)
+        except Exception:
+            return
+        mz["zoom"] = _norm_zoom(*(ext or [None, None]), ([20.0, 100.0], [0.0, 100.0]))
+        redraw()
+
+    def on_legend(e):
+        sel = (e.args or {}).get("selected") or {}
+        mz["hidden"] = {k for k in BAND_COL if sel.get(BAND_NAME[k]) is False}
+        redraw()
+
+    def on_restore(_e=None):
+        mz["zoom"], mz["hidden"] = None, set()
+        hm.options.clear()
+        hm.options.update(holdings_map(lt["rows"], bar_q, None, set(), lt["m"]))
+        hm.update()
+        redraw()
+    hm.on("chart:datazoom", on_zoom, [])
+    hm.on("chart:restore", on_restore, [])
+    hm.on("chart:legendselectchanged", on_legend, ["selected"])
     ui.switch("Only the wonderful, quality businesses", on_change=lambda e: toggle(e.value))
     ui.label("Click a company for its page. Not scored: companies outside the app's universe (most foreign listings), "
              "bonds, cash and derivatives.").classes("oe-small")

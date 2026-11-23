@@ -321,7 +321,7 @@ def _badges(hs) -> dict:
             m = fm.get("m") or {}
             sc = fm.get("score")
             out[h.ticker] = (m.get("verdict") or "HOLD", (f"Fund Score {sc:.0f} · " if sc is not None else "")
-                             + (f"Business Score {m['business']:.0f} · " if m.get("business") is not None else "")
+                             + (f"Oracle Score {m['business']:.0f} · " if m.get("business") is not None else "")
                              + (m.get("verdict_why") or ""))
             continue
         if h.cik is None:
@@ -429,7 +429,7 @@ def _holdings_tab(scope, hs, sm):
         {"headerName": "Income/yr", "field": "income", "width": 92, "type": "rightAligned", ":valueFormatter": m0},
         {"headerName": "Fund Score", "field": "fund", "width": 84, "type": "rightAligned", ":valueFormatter": num1,
          "headerTooltip": "ETFs: 0-100 from what it owns, price, track record and cost (ETFs page)"},
-        {"headerName": "Business Score", "field": "business", "width": 90, "type": "rightAligned",
+        {"headerName": "Oracle Score", "field": "business", "width": 90, "type": "rightAligned",
          ":valueFormatter": num1,
          "headerTooltip": "ETFs: the weighted average Combined score ((Quality + Wonderfulness) / 2) of what it holds"},
         {"headerName": "Quality", "field": "quality", "width": 80, "type": "rightAligned", ":valueFormatter": num1,
@@ -697,7 +697,7 @@ def _xray(scope, hs):
              "like a single portfolio.").classes("oe-muted")
     with ui.row().classes("w-full gap-3"):
         b = m.get("business")
-        _tile("—" if b is None else f"{b:.0f}", "Business Score", f"over the {pct(m.get('business_cov'), 0)} scored",
+        _tile("—" if b is None else f"{b:.0f}", "Oracle Score", f"over the {pct(m.get('business_cov'), 0)} scored",
               BRAND, "Everything you own (through funds too): the Combined scores ((Quality + Wonderfulness) / 2) "
                      "averaged by each company's share of your money")
         _tile(pct(m.get("wonderful"), 0), "Wonderful", f"{pct(m.get('wonderful_scored'), 0)} of what's scored")
@@ -706,7 +706,7 @@ def _xray(scope, hs):
         _tile("—" if pv is None else f"{abs(pv) * 100:.0f}% {'below' if pv < 0 else 'above'}", "Holdings vs value",
               f"expected return {pct(m.get('lt_er'), 1)} a year", BRAND if (pv or 0) < 0 else NEGATIVE if pv else None)
         _tile(f"{m.get('avg_q') or 0:.0f} / {m.get('avg_w') or 0:.0f}", "Quality / Wonderfulness",
-              "weighted, the two halves of the Business Score")
+              "weighted, the two halves of the Oracle Score")
         _tile(pct(m.get("fails"), 0), "Fails the checklist", "of everything you own", NEGATIVE if (m.get("fails") or 0)
               > 0.1 else None)
     if missing:
