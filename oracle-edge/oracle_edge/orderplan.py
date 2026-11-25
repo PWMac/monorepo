@@ -108,7 +108,7 @@ def etf_candidates(min_score: float = 60) -> list[dict]:
             out.append({"ticker": t, "list": "buy", "price": m["price"], "buy_below": None, "rank": None,
                         "rank_score": (s["score"] or 0) / 100, "quality": m.get("avg_q"), "iv": m.get("fair_value"),
                         "etf": True, "why": f"ETF: holdings {abs(m.get('price_vs_value') or 0):.0%} below their value · "
-                                            f"Fund Score {s['score']:.0f} · Oracle share {(m.get('oracle') or 0):.0%}"})
+                                            f"Fund Score {s['score']:.0f} · Oracle Score {m.get('business') or 0:.0f}"})
     return sorted(out, key=lambda v: -v["rank_score"])
 
 

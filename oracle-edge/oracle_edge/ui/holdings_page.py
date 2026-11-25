@@ -321,7 +321,8 @@ def _badges(hs) -> dict:
             m = fm.get("m") or {}
             sc = fm.get("score")
             out[h.ticker] = (m.get("verdict") or "HOLD", (f"Fund Score {sc:.0f} · " if sc is not None else "")
-                             + f"Oracle share {(m.get('oracle') or 0) * 100:.0f}% · " + (m.get("verdict_why") or ""))
+                             + (f"Oracle Score {m['business']:.0f} · " if m.get("business") is not None else "")
+                             + (m.get("verdict_why") or ""))
             continue
         if h.cik is None:
             out[h.ticker] = ("HOLD", "fund not scored yet (ETFs page → Update ETF data) or not covered")
@@ -380,7 +381,7 @@ def _holdings_tab(scope, hs, sm):
             e = {"quality": fm.get("avg_q"), "buy_below": None}
             iv = fm.get("fair_value")
         rows.append({
-            "fund": fs.get("score") if fs else None, "oracle": (fs.get("m") or {}).get("oracle") if fs else None,
+            "fund": fs.get("score") if fs else None, "business": (fs.get("m") or {}).get("business") if fs else None,
             "ticker": h.ticker, "name": h.name or fund_names.get(h.ticker) or "", "badge": bad.get(h.ticker, ("", ""))[0],
             "why": bad.get(h.ticker, ("", ""))[1], "shares": h.shares, "avg": h.avg_cost, "price": h.price,
             "value": h.value, "weight": h.weight, "day": h.day_pct, "day_d": h.day_change, "gain": h.gain,
@@ -428,8 +429,9 @@ def _holdings_tab(scope, hs, sm):
         {"headerName": "Income/yr", "field": "income", "width": 92, "type": "rightAligned", ":valueFormatter": m0},
         {"headerName": "Fund Score", "field": "fund", "width": 84, "type": "rightAligned", ":valueFormatter": num1,
          "headerTooltip": "ETFs: 0-100 from what it owns, price, track record and cost (ETFs page)"},
-        {"headerName": "Oracle share", "field": "oracle", "width": 84, "type": "rightAligned", ":valueFormatter": pc,
-         "headerTooltip": "ETFs: share of the fund in wonderful, quality businesses at or below their value"},
+        {"headerName": "Oracle Score", "field": "business", "width": 90, "type": "rightAligned",
+         ":valueFormatter": num1,
+         "headerTooltip": "ETFs: the weighted average Combined score ((Quality + Wonderfulness) / 2) of what it holds"},
         {"headerName": "Quality", "field": "quality", "width": 80, "type": "rightAligned", ":valueFormatter": num1,
          "headerTooltip": "For an ETF: the weighted Quality of what it holds"},
         {"headerName": "Wonder", "field": "wonder", "width": 80, "type": "rightAligned", ":valueFormatter": num1,
@@ -694,16 +696,17 @@ def _xray(scope, hs):
     ui.label("Your funds opened up: every company you own directly or through an ETF, added together, then judged "
              "like a single portfolio.").classes("oe-muted")
     with ui.row().classes("w-full gap-3"):
-        _tile(pct(m.get("oracle"), 0), "Oracle share", "wonderful, quality, at or below value", BRAND,
-              "Share of everything you own (through funds too) in wonderful (70+), quality businesses trading at or "
-              "below their value")
+        b = m.get("business")
+        _tile("—" if b is None else f"{b:.0f}", "Oracle Score", f"over the {pct(m.get('business_cov'), 0)} scored",
+              BRAND, "Everything you own (through funds too): the Combined scores ((Quality + Wonderfulness) / 2) "
+                     "averaged by each company's share of your money")
         _tile(pct(m.get("wonderful"), 0), "Wonderful", f"{pct(m.get('wonderful_scored'), 0)} of what's scored")
         _tile(pct(m.get("quality"), 0), "Quality", f"{pct(m.get('quality_scored'), 0)} of what's scored")
         pv = m.get("price_vs_value")
         _tile("—" if pv is None else f"{abs(pv) * 100:.0f}% {'below' if pv < 0 else 'above'}", "Holdings vs value",
               f"expected return {pct(m.get('lt_er'), 1)} a year", BRAND if (pv or 0) < 0 else NEGATIVE if pv else None)
         _tile(f"{m.get('avg_q') or 0:.0f} / {m.get('avg_w') or 0:.0f}", "Quality / Wonderfulness",
-              f"weighted, over the {pct(m.get('coverage'), 0)} scored")
+              "weighted, the two halves of the Oracle Score")
         _tile(pct(m.get("fails"), 0), "Fails the checklist", "of everything you own", NEGATIVE if (m.get("fails") or 0)
               > 0.1 else None)
     if missing:
@@ -712,7 +715,7 @@ def _xray(scope, hs):
     with ui.row().classes("w-full gap-4 items-start mt-2"):
         with ui.card().classes("oe-card").style("flex:2;min-width:520px"):
             ui.label("What you really own").classes("oe-h2")
-            flags = {"oracle": "Wonderful at a good price", "both": "Wonderful & quality", "wonderful": "Wonderful",
+            flags = {"oracle": "Wonderful & quality", "both": "Wonderful & quality", "wonderful": "Wonderful",
                      "quality": "Quality", "fails": "Fails checklist"}
             rows = [{"name": e["name"] or "", "ticker": e.get("ticker") or "", "total": round(e["total"]),
                      "w": round(e["w"] * 100, 2), "direct": round(e["direct"]), "via": round(e["via"]),

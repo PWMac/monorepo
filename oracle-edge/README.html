@@ -78,7 +78,7 @@ footer { color:var(--muted); font-size:12.5px; margin-top:50px; border-top:1px s
   <h1><img src="brand/logo/oracle-edge-header-tagline.png" srcset="brand/logo/oracle-edge-header-tagline@2x.png 2x"
      alt="Oracle Edge: Screen, Rank, Signal"></h1>
   <p>A local stock screener that thinks like the Oracle. This guide explains <b>what</b> the app does,
-  <b>how</b> it decides, and <b>why</b> it was built this way. Version 0.23.0.</p>
+  <b>how</b> it decides, and <b>why</b> it was built this way. Version 0.23.2.</p>
   <p style="font-size:14px">Two documents: this <b>guide</b> is the user manual, kept current with every release and opened from
   "Guide" in the app. The <b>plan</b> (<code>docs/Value-Picker-Plan.html</code> with the source code) is the design record: the research, architecture,
   database layout and the decision log behind the app.</p>
@@ -267,7 +267,7 @@ rebuilt from the differences (Q4 = full year minus nine months).</li>
 </ul>
 Prices are end-of-day; there are no live quotes, analyst estimates or news. Foreign filers' statements are in their reporting
 currency, and their P/E uses the valuation's US-dollar conversion.</td></tr>
-<tr><td><b>ETFs</b></td><td>Every fund opened up: how much of it is in wonderful, quality businesses at a good price (its Oracle share), what its holdings are worth against their prices, its track record and costs, and a Fund Score; a map, presets and a page per fund (<a href="#etfs">section 22</a>). The Screener has a Companies | ETFs switch.</td></tr>
+<tr><td><b>ETFs</b></td><td>Every fund opened up: how good the businesses it holds are (its Oracle Score: their Combined scores averaged by weight), what its holdings are worth against their prices, its track record and costs, and a Fund Score; a map, presets and a page per fund (<a href="#etfs">section 22</a>). The Screener has a Companies | ETFs switch.</td></tr>
 <tr><td><b>My holdings</b></td><td>Your real portfolio across accounts and baskets: performance against the S&amp;P 500 and any tickers you choose, every purchase (lot), dividends, gains and tax, and a plan for investing your cash (<a href="#myholdings">section 21</a>)</td></tr>
 <tr><td><b>Signals</b></td><td>The full signal journal with strength ratings, scores, filters and CSV export</td></tr>
 <tr><td><b>Performance</b></td><td>Your money vs the same money in the S&amp;P 500, growth of $1, drawdowns, episodes, rank-bucket results
@@ -1767,7 +1767,7 @@ at your broker yourself.</p>
 <p>A fund is only as good as what it owns. So the app opens every ETF up and judges each holding the way it judges any
 company (Quality, Wonderfulness, value), then adds up the fund. Open it from <b>ETFs</b> in the menu, the <b>Companies |
 ETFs</b> switch on the Screener, the search box, or any ETF ticker anywhere in the app.</p>
-<figure class="shot"><img src="docs/guide/etf-screener.jpg" alt="The ETF screener: presets, filters, the map of share in wonderful, quality businesses against how cheap the holdings are, and the table (demo data)." loading="lazy"><figcaption>The ETF screener (demo data): presets, the map (across: share in wonderful, quality businesses; up: how far below their value the holdings trade; size: assets; colour: Fund Score) and the table.</figcaption></figure>
+<figure class="shot"><img src="docs/guide/etf-screener.jpg" alt="The ETF screener: presets, filters and the map: each fund at the weighted Quality and Wonderfulness of what it holds, coloured by how its holdings are priced, shaped by their 3-year trend, sized by assets (demo data)." loading="lazy"><figcaption>The ETF screener (demo data). The map works like the Screener's: each fund sits at the weighted Quality (across) and Wonderfulness (up) of what it holds, with the same dashed lines and colours; shape = which way its businesses moved over 3 years (▲ ▼ ● ◆), size = assets, a dark outline = you own it. Zoom (sliders, box tool, Shift + wheel) or hide a colour in the legend and the table follows; hover a dot for its numbers, click to open it.</figcaption></figure>
 <h3>Where the data comes from</h3>
 <ul>
 <li><b>Every holding</b>: the SEC's Form N-PORT, in which every registered fund reports its complete portfolio. The last month
@@ -1783,9 +1783,14 @@ checks for new holdings filings and fund facts once a week and re-scores every f
 <h3>Look-through numbers</h3>
 <table>
 <tr><th>Number</th><th>What it means</th></tr>
-<tr><td><b>Oracle share</b></td><td>The share of the fund in businesses that are wonderful (Wonderfulness 70+), quality (pass the
-checklist with Quality at or above the strategy's bar) <i>and</i> trade at or below their fair value. The headline number:
-how much of your money in the fund is the kind of thing Buffett buys, at a price he'd pay.</td></tr>
+<tr><td><b>Oracle Score</b></td><td>The headline number: each holding's Combined score ((Quality + Wonderfulness) / 2, the
+same Combined the Screener shows), averaged by its share of the fund, over the holdings the app scores on both. How good the
+businesses you own through the fund are, on average. Price plays no part; that's what Holdings vs value is for. On the map
+a fund sits at the two halves of it (weighted Quality across, weighted Wonderfulness up).</td></tr>
+<tr><td><b>Trend</b></td><td>Which way the businesses it holds are going: each holding's 3-year change in its Combined score
+(the change in Wonderfulness and Quality, averaged), weighted. ▲ when the fund's businesses improved 2+ points, ▼ when they
+weakened 2+ points. <b>Rising</b> and <b>Falling</b> are the shares of the fund in companies that moved 5+ points either way.
+Presets <i>Improving businesses</i> and <i>Weakening businesses</i> sort by it.</td></tr>
 <tr><td>Wonderful, Quality, Both, In the Buy Zone, Fails the checklist</td><td>Each as a share of the whole fund. "Of what's
 scored" gives the same over the part the app scores.</td></tr>
 <tr><td>Weighted Quality, Wonderfulness, Combined</td><td>Averages over the part the app scores, by weight.</td></tr>
@@ -1800,8 +1805,8 @@ Fund Score of 55+), <b>WATCH</b> 25%+ above, <b>TRIM</b> 60%+ above, otherwise <
 <h3>The Fund Score (0–100)</h3>
 <table>
 <tr><th>Pillar</th><th>Weight</th><th>Made of</th></tr>
-<tr><td><b>What it owns</b></td><td>35%</td><td>Share in wonderful-and-quality businesses (of what's scored), weighted Quality,
-weighted Wonderfulness</td></tr>
+<tr><td><b>What it owns</b></td><td>35%</td><td>The Oracle Score (75%: 40 scores 0, 80 scores 100) and the share in businesses
+that are both wonderful and quality (25%)</td></tr>
 <tr><td><b>Price</b></td><td>15%</td><td>Holdings' value against their prices; their expected return</td></tr>
 <tr><td><b>Track record</b></td><td>25%</td><td>Yearly return over up to 10 years against its benchmark (the S&amp;P 500 for US
 stock funds: did it beat simply owning the index?; VXUS for foreign, VT for global, AGG for bond funds); return per unit of risk
@@ -1813,11 +1818,16 @@ category; size (closure risk under $100M); age; trading volume; turnover; price 
 of the fund scored, under 3 years of prices) is pulled toward 50; one with no data is left out and the others count more, so a
 bond or gold fund is scored on its track record and costs.</p>
 <figure class="shot"><img src="docs/guide/etf-page.jpg" alt="A fund's page: Fund Score with its four pillars, the look-through tiles, what it really owns, track record against SPY, how it's run and overlap with your holdings (demo data)." loading="lazy"><figcaption>A fund's page (demo data). Further down: every holding with its Quality, Wonderfulness and price vs value, and a switch to show only the wonderful businesses at a good price.</figcaption></figure>
+<p>Further down a fund's page, <b>its holdings on the Screener's map</b>: every company it holds at its Quality and
+Wonderfulness, coloured by price against value, shaped by its 3-year trend and sized by its weight in the fund, with a pin
+where the fund's weighted average sits. Zoom or hide a colour and the holdings table follows; click a dot to open the
+company.</p>
+<figure class="shot"><img src="docs/guide/etf-holdings-map.jpg" alt="A fund's holdings on the Screener's map, sized by weight, with a pin at the fund's weighted average, and the holdings table below with each company's 3-year trend (demo data)." loading="lazy"><figcaption>A fund's holdings on the Screener's map (demo data).</figcaption></figure>
 <h3 id="xray">X-ray of your portfolio</h3>
 <p><b>My holdings → X-ray</b> opens your funds up and adds everything together: every company you own directly or through an
-ETF (with which funds), your portfolio's own Oracle share, wonderful and quality shares, weighted Quality and Wonderfulness, how
+ETF (with which funds), your portfolio's own Oracle Score, wonderful and quality shares, weighted Quality and Wonderfulness, how
 far below or above value your holdings trade, sectors looked through, and how much your funds overlap (the share of two funds
-that is the same companies at the same weights). On the Holdings tab, ETF rows show the Fund Score, the Oracle share and the
+that is the same companies at the same weights). On the Holdings tab, ETF rows show the Fund Score, the Oracle Score and the
 weighted Quality and Wonderfulness of what they hold, and the signal is the fund's price badge. <b>Invest cash</b> can also buy
 ETFs (Buy: Stocks and ETFs, or ETFs only): funds with a BUY price badge and a Fund Score of 60+, best first.</p>
 <figure class="shot"><img src="docs/guide/holdings-xray.jpg" alt="X-ray: the portfolio's look-through tiles, every company you really own with direct and through-fund amounts, sectors and fund overlap (demo data)." loading="lazy"><figcaption>X-ray (demo data): what you really own once the funds are opened up.</figcaption></figure>
