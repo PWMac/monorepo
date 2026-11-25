@@ -1330,6 +1330,40 @@ def _gdp_note_world(w: dict) -> str:
     return f"{base}, grown {(w['gdp_scale'] - 1) * 100:+.1f}% since at its latest yearly rate of {w['gdp_growth'] * 100:.1f}%"
 
 
+def _calendar_card():
+    """The month ahead, as in the daily email."""
+    from nicegui import run
+
+    from .. import econcal
+
+    with ui.card().classes("oe-card w-full"):
+        box = ui.column().classes("w-full gap-0")
+
+        def draw():
+            box.clear()
+            with box:
+                h = econcal.calendar_html()
+                if h:
+                    ui.html(h, sanitize=False).classes("w-full")
+                else:
+                    ui.label("The month ahead").classes("oe-h2")
+                    ui.label("Not built yet: the daily update builds it, or press Update.").classes("oe-muted")
+                c = econcal.events()
+                if c.get("built"):
+                    ui.label(f"Updated {c['built'][:16].replace('T', ' ')}").classes("oe-small")
+
+        async def update():
+            n = ui.notification("Updating the calendar…", spinner=True, timeout=None)
+            try:
+                await run.io_bound(econcal.refresh)
+            except Exception as e:
+                ui.notify(f"Couldn't update: {e}", type="warning")
+            n.dismiss()
+            draw()
+        draw()
+        ui.button("Update", icon="sync", on_click=update).props("flat dense no-caps")
+
+
 @ui.page("/market")
 def market_page():
     with frame("Market"):
@@ -1360,6 +1394,7 @@ def market_page():
             zoom_chart(_bi_chart(off, est), height="h-[28rem]", name="us-buffett-indicator")
             ui.label("Zones: <90% undervalued · 90–120% fair · 120–150% modestly overvalued · 150–200% significantly "
                      "overvalued · >200% extreme. Different methods can differ by 20–40 points.").classes("oe-small")
+        _calendar_card()
         ui.label("Global Buffett Indicator").classes("oe-h1 mt-4")
         ui.label("The same idea for the whole world: the value of every listed company ÷ world GDP, from the World "
                  "Bank (World Federation of Exchanges data). Annual, and published with a lag, so today's figure is "

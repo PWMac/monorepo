@@ -745,6 +745,13 @@ def daily_run(job, force: bool = False, send_email: bool = True, do_backup: bool
     n_alerts = scan_targets(profs)
     db.set_cfg("last_daily_run", {"at": db.now(), "through": end, "signals": total_signals,
                                   "filings": len(annual), "quarterlies": len(q_only), "price_alerts": n_alerts})
+    try:  # the month ahead: Fed, economic releases, market days, your earnings and dividends
+        from . import econcal
+
+        job.update(0.91, "Economic calendar")
+        econcal.refresh()
+    except Exception as e:
+        db.log("calendar", "refresh", False, str(e)[:300])
     job.update(0.92, "Sending alerts")
     if send_email:
         try:

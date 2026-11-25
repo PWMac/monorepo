@@ -78,7 +78,7 @@ footer { color:var(--muted); font-size:12.5px; margin-top:50px; border-top:1px s
   <h1><img src="brand/logo/oracle-edge-header-tagline.png" srcset="brand/logo/oracle-edge-header-tagline@2x.png 2x"
      alt="Oracle Edge: Screen, Rank, Signal"></h1>
   <p>A local stock screener that thinks like the Oracle. This guide explains <b>what</b> the app does,
-  <b>how</b> it decides, and <b>why</b> it was built this way. Version 0.23.2.</p>
+  <b>how</b> it decides, and <b>why</b> it was built this way. Version 0.24.0.</p>
   <p style="font-size:14px">Two documents: this <b>guide</b> is the user manual, kept current with every release and opened from
   "Guide" in the app. The <b>plan</b> (<code>docs/Value-Picker-Plan.html</code> with the source code) is the design record: the research, architecture,
   database layout and the decision log behind the app.</p>
@@ -1838,9 +1838,29 @@ ETFs (Buy: Stocks and ETFs, or ETFs only): funds with a BUY price badge and a Fu
 <tr><th>Feature</th><th>How it works</th></tr>
 <tr><td><b>Email</b></td><td>Sent from your own account over SMTP. There are presets for Google (Gmail/Workspace), Outlook and iCloud,
 plus custom servers. Google needs a 16-character <b>app password</b>, which requires 2-Step Verification (Workspace admins must
-allow app passwords). Choose which emails you get: actions, price-target alerts, Friday weekly summary, run failures.
+allow app passwords). Choose which emails you get: actions, price-target alerts, the month ahead, Friday weekly summary, run failures.
 Use <b>Send test email</b> in Settings to check it works. Port 465 always uses SSL and 587 STARTTLS; if the server hangs up on one,
 Oracle Edge tries the other and keeps the one that works. Failures are written to <code>logs/oracle_edge.log</code>.</td></tr>
+<tr id="monthahead"><td><b>The month ahead</b></td><td>The first email of each day ends with an economic calendar for the next
+31 days (also on the <b>Market</b> page). It is laid out the way you plan:
+<ol>
+<li><b>The big days</b>: the three days most likely to move markets, at a glance (for example "Fri Dec 4 · Jobs report").</li>
+<li><b>This week, day by day</b> (from Thursday on, it runs through the next week too): each event with its time (Eastern),
+its impact (<b>●●●</b> market-moving, <b>●●</b> notable, <b>●</b> minor), a colour tag for what it's about (Fed, Inflation,
+Jobs, Growth, Consumer, Housing, Market, Earnings, Dividend), the last reading ("last (Oct): 3.0% a year, core 3.1%") and one
+line on why it matters. Days the market is closed are marked on the day.</li>
+<li><b>Later this month, week by week</b>: only the notable events (●● and up) and everything of yours, so it stays short.</li>
+</ol>
+<b>★ Yours</b> sit in the same timeline, highlighted: earnings dates of everything you own and of companies that are 1%+ of your
+money through your funds, and ex-dividend dates of what you own, with the payout ("own it before this day to get it · about
+$0.51/share, $51 for your 100"). Dates Yahoo hasn't confirmed are marked. Sources: Fed decisions (with economic projections)
+and minutes from the Fed's published schedule; the release dates of jobs, CPI, PCE, GDP, PPI, retail sales, job openings,
+wages, sentiment, industrial production, durable goods, housing and jobless claims from FRED's release calendar, which needs a
+<b>free FRED API key</b> (fredaccount.stlouisfed.org → API Keys; paste it under Settings → Data sources); their last readings
+from FRED's public data; market holidays and early closes from the NYSE calendar; options expiration (third Friday; quarterly
+"triple witching" with the S&amp;P index rebalance) worked out; earnings and dividends from Yahoo. When nothing needs doing,
+the email is a short daily brief with just the calendar ("no actions · next: CPI Thu Dec 10"). Switch it off in Settings →
+Email.<br><img src="docs/guide/email-month-ahead.jpg" alt="The month ahead in the daily email: the big days, this week day by day, later this month week by week (sample data)." loading="lazy" style="max-width:520px;width:100%;margin-top:8px;border:1px solid #e2e0d8;border-radius:6px"></td></tr>
 <tr><td><b>Schedule</b></td><td>Windows Task Scheduler runs <code>Run-Daily.bat</code> on weekdays, silently, at your chosen time.
 The run waits until 6:00 PM New York if started earlier. Start the app any time to catch up.
 The task is named <b>Oracle Edge Daily</b> and sits at the top level of <b>Task Scheduler → Task Scheduler Library</b>
@@ -1851,8 +1871,8 @@ defaults to <code>Documents\Oracle Edge backups</code>; a cloud-synced folder is
 It's written as <code>.part</code> and renamed when complete, so a cloud drive never syncs half a file. Each day is stored once, and older backups are thinned out with the standard rotation: the last <b>7 days</b>, one per week for the last <b>4 weeks</b>, one per month for the last <b>12 months</b>, and one per year <b>for good</b> (all adjustable in Settings). Everything else is deleted automatically. Expect roughly 25 files (each about the size of the zipped database) after a few years. Restore one from <b>Settings → Restore a backup</b>.</td></tr>
 <tr><td><b>Secrets</b></td><td>Email passwords, API keys and the Schwab and SnapTrade keys and sign-ins are stored in <b>Windows Credential Manager</b>, never in the app folder. Copying
 the folder to someone else or pushing it to GitHub doesn't leak them; the new person enters their own.</td></tr>
-<tr><td><b>Privacy</b></td><td>The app listens only on <code>127.0.0.1</code> (your own PC). It contacts the SEC, the price sources, FRED and your
-mail server, and nothing else.</td></tr>
+<tr><td><b>Privacy</b></td><td>The app listens only on <code>127.0.0.1</code> (your own PC). It contacts the SEC, the price sources, FRED, Yahoo,
+the brokers you connect and your mail server, and nothing else.</td></tr>
 </table>
 
 <h3 id="trouble">Troubleshooting</h3>

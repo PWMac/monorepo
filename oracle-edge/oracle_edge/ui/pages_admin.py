@@ -198,6 +198,9 @@ def _email_form(compact=False):
         w = ui.checkbox("Weekly summary", value=s["send_weekly"])
         f = ui.checkbox("Run failures", value=s["send_failures"])
         pa = ui.checkbox("Price-target alerts", value=s.get("send_price_alerts", True))
+        ca = ui.checkbox("The month ahead (economic calendar, daily)", value=s.get("send_calendar", True)).tooltip(
+            "Fed decisions, major economic releases, market holidays and options expiration, and the earnings and "
+            "ex-dividend dates of what you own. Sent every day the update runs, even with no actions.")
     msg = ui.label("").classes("oe-small")
 
     def save(show=True):
@@ -206,7 +209,7 @@ def _email_form(compact=False):
                                "from_name": fromn.value or "Oracle Edge",
                                "to": [x.strip() for x in (to.value or "").split(",") if x.strip()],
                                "send_actions": a.value, "send_weekly": w.value, "send_failures": f.value,
-                               "send_price_alerts": pa.value},
+                               "send_price_alerts": pa.value, "send_calendar": ca.value},
                               pw.value or None)
         pw.value = ""
         if show:
@@ -470,6 +473,11 @@ def data_page():
                     "outlined dense").classes("w-64")
                 ek = ui.input("EODHD key", password=True, placeholder="saved" if secrets.get("eodhd_key") else "").props(
                     "outlined dense").classes("w-64")
+                fk = ui.input("FRED API key (economic calendar)", password=True,
+                              placeholder="saved" if secrets.get("fred_api_key") else "free at fredaccount.stlouisfed.org"
+                              ).props("outlined dense").classes("w-80").tooltip(
+                    "Free: sign in at fredaccount.stlouisfed.org → API Keys → Request API Key. Used only for the "
+                    "release dates of jobs, inflation, GDP and other reports in the month-ahead calendar.")
             out = ui.label("").classes("oe-small")
 
             def save():
@@ -478,6 +486,8 @@ def data_page():
                     secrets.set("tiingo_key", tk.value.strip())
                 if ek.value:
                     secrets.set("eodhd_key", ek.value.strip())
+                if fk.value:
+                    secrets.set("fred_api_key", fk.value.strip())
                 ui.notify("Saved. New order applies to the next price update.", type="positive")
 
             def test_all():
