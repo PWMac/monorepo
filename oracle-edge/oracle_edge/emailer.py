@@ -30,7 +30,7 @@ PRESETS = {
 
 DEFAULTS = {"enabled": False, "preset": "google", "host": "smtp.gmail.com", "port": 587, "security": "starttls",
             "username": "", "from_name": "Oracle Edge", "to": [], "send_actions": True, "send_weekly": True,
-            "send_failures": True, "send_price_alerts": True}
+            "send_failures": True, "send_price_alerts": True, "send_calendar": True}
 
 
 def settings() -> dict:
@@ -400,14 +400,37 @@ def _pending_alerts():
                       WHERE a.emailed=0 AND a.date >= date('now','-5 days') ORDER BY a.state DESC, s.ticker""")
 
 
+def _calendar_part(s: dict) -> str:
+    """The month ahead, once a day (the first email of the day carries it)."""
+    from datetime import date
+
+    if not s.get("send_calendar", True) or db.cfg("calendar_sent") == date.today().isoformat():
+        return ""
+    try:
+        from . import econcal
+
+        return econcal.calendar_html()
+    except Exception as e:
+        db.log("email", "calendar", False, str(e)[:200])
+        return ""
+
+
+def _calendar_sent(part: str) -> None:
+    from datetime import date
+
+    if part:
+        db.set_cfg("calendar_sent", date.today().isoformat())
+
+
 def send_digest() -> int:
     s = settings()
     if not s["enabled"]:
         return 0
     alerts = _pending_alerts() if s.get("send_price_alerts", True) else []
     market = _pending_market()
+    cal = _calendar_part(s)
     if not s["send_actions"]:
-        return _send_alerts_only(alerts, market)
+        return _send_alerts_only(alerts, market, cal)
     rows = db.rows(
         """SELECT g.id, g.type, g.reason, g.date, g.price, s.ticker, s.name, e.buy_below, e.strong_buy_below, e.iv,
                   e.rank, e.rank_score, e.quality, e.value AS value_score, e.mos, e.exp_return
@@ -416,7 +439,7 @@ def send_digest() -> int:
            LEFT JOIN evaluations e ON e.run_id=g.run_id AND e.date=g.date AND e.cik=g.cik
            WHERE g.emailed=0 AND g.date >= date('now','-5 days') ORDER BY g.type, s.ticker""")
     if not rows:
-        return _send_alerts_only(alerts, market)
+        return _send_alerts_only(alerts, market, cal)
     order = ["STRONG_BUY", "BUY", "ADD", "SELL", "SWAP", "TRIM"]
     rows = sorted(rows, key=lambda r: order.index(r["type"]) if r["type"] in order else 9)
     subject = "Oracle Edge · " + " · ".join(f"{BADGE_LABEL.get(r['type'], r['type'])} {r['ticker']}" for r in rows[:4])
@@ -426,7 +449,8 @@ def send_digest() -> int:
         subject += f" · {len(alerts)} price alert{'s' if len(alerts) > 1 else ''}"
     if market:
         subject += " · market warning"
-    send(subject, digest_html(rows, market_html(market) + alerts_html(alerts)))
+    send(subject, digest_html(rows, market_html(market) + alerts_html(alerts) + cal))
+    _calendar_sent(cal)
     db.get().executemany("UPDATE signals SET emailed=1 WHERE id=?", [(r["id"],) for r in rows])
     _mark_alerts(alerts)
     _mark_market(market)
@@ -437,9 +461,18 @@ def _mark_alerts(alerts) -> None:
     db.get().executemany("UPDATE price_alerts SET emailed=1 WHERE id=?", [(a["id"],) for a in alerts])
 
 
-def _send_alerts_only(alerts, market=()) -> int:
+def _send_alerts_only(alerts, market=(), cal: str = "") -> int:
     if not alerts and not market:
-        return 0
+        if not cal:
+            return 0
+        # nothing to act on today: the daily brief is the calendar
+        from . import econcal
+
+        nb = econcal.next_big()
+        send("Oracle Edge · Daily brief · no actions" + (f" · next: {nb}" if nb else ""),
+             _wrap("<p style='margin:0 0 6px'>No buys, sells or alerts today.</p>" + cal))
+        _calendar_sent(cal)
+        return 1
     if alerts:
         reached = [a for a in alerts if a["state"] == "reached"]
         lead = reached or alerts
@@ -449,7 +482,8 @@ def _send_alerts_only(alerts, market=()) -> int:
             subject += " · market warning"
     else:
         subject = "Oracle Edge · Market warning: " + (market[0]["message"] or "")[:80]
-    send(subject, _wrap(market_html(market) + alerts_html(alerts)))
+    send(subject, _wrap(market_html(market) + alerts_html(alerts) + cal))
+    _calendar_sent(cal)
     _mark_alerts(alerts)
     _mark_market(market)
     return len(alerts) + len(market)
